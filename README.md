@@ -57,7 +57,7 @@ Add `--vg-depthfix /path/to/patched/vg` to include the `poisson-depthfix` arm. T
 | Arm | Purpose |
 |---|---|
 | `poisson` | the current default, as shipped |
-| `poisson-depthfix` | with the `depth_err` one-liner patched, to quantify that bug's effect on the baseline |
+| `poisson-depthfix` | with the `depth_err` one-liner patched. **Verified byte-identical output** - that bug is inert, since its only consumer in the likelihood is commented out. Retained as a control: if this arm ever diverges from `poisson`, someone has re-enabled the depth term. |
 | `readlik` | the read-level likelihood caller |
 | `readlik-nomismap` | `--no-mismap-term`, to measure what the mismapping term contributes |
 | `readlik-gbwt-nopack` | `-z` haplotype enumeration with no pack file |

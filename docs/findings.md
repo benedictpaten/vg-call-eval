@@ -37,10 +37,12 @@ strength so far.
 
 Three things to hold alongside that:
 
-- **The Poisson baseline is winning while carrying a known bug.** `depth_err` at
-  `snarl_caller.cpp:602` is always 0.0 or 1.0 rather than the real standard error. The
-  `poisson-depthfix` arm needs a separately patched vg build and has not been run, so the gap may
-  widen, not close.
+- ~~The Poisson baseline is winning while carrying a known bug.~~ **Tested, and this was wrong.**
+  `depth_err` at `snarl_caller.cpp:602` really is malformed, but it is *inert*: its only consumer
+  inside `genotype_likelihood` is commented out deliberately, and it never reaches the VCF.
+  Patching it gives byte-identical calls across three 400 kb replicates. The Poisson baseline is
+  therefore a fair comparison exactly as shipped, and the read-likelihood deficit above is **not**
+  explained away by a bug in what it is being compared against.
 - **4x is structurally unfavourable to this model.** It is depth-agnostic by design and cannot use a
   coverage anomaly as evidence, whereas the Poisson model's depth prior is doing real work at low
   coverage. The discriminating regime and the model's weakest regime are the same regime, which is
