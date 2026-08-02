@@ -1,0 +1,14 @@
+# A tier-0 configuration that actually discriminates between callers.
+#
+# The easy regime (20kb, 20x, 150bp) gives every caller F1 = 1.0 and tells you
+# nothing. Low depth and short reads are what create the ambiguity the
+# likelihood model is supposed to handle better than a count model.
+tier: 0
+ref_length: 60000
+depth: 4
+read_length: 100
+error_rate: 0.01
+seed: 11
+# Replicate across seeds before believing any single difference: at these sizes a
+# few true positives is well within run-to-run noise.
+replicates: [11, 12, 13, 14, 15]
