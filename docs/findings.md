@@ -48,6 +48,34 @@ Three things to hold alongside that:
 - **A single seed said the opposite.** At seed 31 alone, read-likelihood looked marginally ahead on
   overall F1. Five seeds reversed it. Do not report single-replicate differences.
 
+## Allele enumeration is not the bottleneck (in tier 0)
+
+Which traversal finder each arm uses matters for interpreting the above, and is worth stating because
+a GBZ input does *not* by itself change it — only `-g`/`-z` does:
+
+| Arm | Traversal finder |
+|---|---|
+| `poisson`, `readlik`, `readlik-nomismap` | `FlowTraversalFinder` — Yen's k-widest paths, node/edge weights from the pack file |
+| `readlik-gbwt-nopack` | `GBWTTraversalFinder` — haplotypes recorded in the GBZ |
+
+So three of the four arms share support-driven enumeration, which is good experimental hygiene by
+accident: the poisson-vs-readlik comparison holds enumeration constant and varies only the genotyping
+model.
+
+The fourth arm turns out to be an unintentionally strong diagnostic. In tier 0 the GBZ is built by
+`autoindex` from the truth VCF, so **its haplotypes are the true haplotypes** — that arm is enumerating
+alleles from the answer. And it recovers exactly nothing extra: TP, FP and FN are identical to the
+flow-enumeration arm in **5/5 seeds** (e.g. 828/77/92 at seed 31). The per-record differences are almost
+entirely `1/0` versus `0/1`, i.e. allele order within an unphased genotype, which is the same call.
+
+**Conclusion: the ~10% of truth missed at 4x is not lost in candidate generation.** It is lost in the
+read evidence or in the genotyping. That is where to look for the SNV deficit.
+
+**Limit on that conclusion:** in tier 0 the graph is constructed from the truth VCF, so it already
+contains every true allele and the flow finder is choosing among candidates that include the answer.
+Enumeration could easily matter on real data against an imperfect pangenome. This says enumeration is
+not the bottleneck *here*, not in general.
+
 ### Open questions this raises
 
 1. Is the SNV recall deficit (-1.7 points, 5/5 seeds) a modelling limit or a bug? Given the two scoring
