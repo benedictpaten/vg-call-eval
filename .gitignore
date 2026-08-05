@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 /out/
+
+# Tier-2 inputs and intermediates: tens of GB, fetched or built locally.
+# data/     the whole-genome GBZ and GAF, plus the downloaded GIAB benchmark
+# work/     everything derived from them (GAF-Base, GBZ-Base, packs, per-arm VCFs)
+/data/
+/work/
