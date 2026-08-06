@@ -105,7 +105,16 @@ def main() -> None:
         payload.append({"arm": name, "seconds": round(elapsed, 1),
                         **counts, "metrics": {"summary": summary}})
 
-    (res / "arms-sv.json").write_text(json.dumps(payload, indent=2))
+    # Merge rather than overwrite: a run restricted to --arms would otherwise drop
+    # every arm it was not asked about, which silently truncated the SV table once.
+    out_path = res / "arms-sv.json"
+    merged = {}
+    if out_path.exists():
+        for entry in json.loads(out_path.read_text()):
+            merged[entry["arm"]] = entry
+    for entry in payload:
+        merged[entry["arm"]] = entry
+    out_path.write_text(json.dumps(list(merged.values()), indent=2))
     print(f"\nwrote {res / 'arms-sv.json'}")
 
 

@@ -27,6 +27,16 @@ REPO = HERE.parent.parent
 
 ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap", "readlik-z"]
 
+# The mismapping floor (--mismap-min) was raised from 1e-8 to 0.01 after measurement
+# showed the old value let a single MAPQ 60 read veto an allele by -13.8 nats. Arms run
+# before that change are kept and labelled rather than discarded: the comparison between
+# them *is* the result. poisson and poisson-z do not use the read-likelihood model at
+# all, so the change cannot affect them and they are not re-run.
+FLOOR_UNAFFECTED = {"poisson", "poisson-z"}
+CALIB_ARMS = [("fl0.05", "readlik-z, floor 0.05"),
+              ("mm0.2", "readlik-z, cap 0.2"),
+              ("mm0.4", "readlik-z, cap 0.4")]
+
 SMALL_TYPES = [("Snv", "SNV"), ("Insertion", "Insertion (<50 bp)"),
                ("Deletion", "Deletion (<50 bp)"), ("Indel", "Indel"),
                ("JointIndel", "Indel (joint)"), ("ALL", "ALL")]
@@ -103,9 +113,22 @@ def main() -> None:
     # arms*.json would also match arms-sv.json, whose entries would then overwrite the
     # small-variant ones (same arm names, newer mtime). Load the small-variant batches
     # explicitly instead.
-    small = load_merged(res, "arms.json")
-    small.update(load_merged(res, "arms.readlik-z.json"))
-    sv = load_merged(res, "arms-sv.json")
+    old = load_merged(res, "arms.floor-1e-8.json")
+    old.update(load_merged(res, "arms.readlik-z.json"))
+    new = load_merged(res, "arms.floor-0.01.json")
+    # Current-default table: poisson arms are floor-independent, read-likelihood arms
+    # come from the re-run at 0.01.
+    small = {k: v for k, v in old.items() if k in FLOOR_UNAFFECTED}
+    small.update(new)
+    # SV metrics come from the aardvark output directories rather than arms-sv.json:
+    # compare_sv.py writes only the arms it was asked for, so the JSON is whatever the
+    # last invocation happened to cover, while the directories accumulate.
+    import csv as _csv
+    sv = {}
+    for a_ in ARM_ORDER:
+        sp = res / f"aardvark-sv-{a_}" / "summary.tsv"
+        if sp.exists():
+            sv[a_] = {"arm": a_, "metrics": {"summary": list(_csv.DictReader(open(sp), delimiter="\t"))}}
 
     L: list[str] = []
     L.append("# Tier 2 results: HG002 chr20 on HPRC v2.1 MC CHM13")
@@ -122,6 +145,11 @@ def main() -> None:
     L.append("| truth | GIAB HG002 **draft** benchmark, defrabb V0.019-20241113, CHM13v2.0 |")
     L.append("| regions | small variants 58.9 Mb (88.9% of chr20); SVs 59.4 Mb (89.6%) |")
     L.append("| engine | `aardvark compare`; SV runs use `--min-variant-gap 1000` + record-basepair |")
+    L.append("")
+    L.append("**All read-likelihood arms below use `--mismap-min 0.01`**, the current default. That floor "
+             "caps how much one read can veto an allele; it was raised from 1e-8 after measurement, and "
+             "the before/after comparison is in the calibration section at the end. `poisson` and "
+             "`poisson-z` do not use the read-likelihood model, so the change cannot affect them.")
     L.append("")
     L.append("**Read the caveats before the numbers.** The benchmark is a *draft*: its own README "
              "reports known errors in highly homozygous regions, homopolymers and tandem repeats, and "
@@ -206,6 +234,64 @@ def main() -> None:
     L.append("\\* recomputed as described above. The per-variant counts are shared across the three "
              "SV rows because they are counted over all >=50 bp query variants, not split by "
              "insertion/deletion; only recall is category-specific.")
+    L.append("")
+
+    L.append("## Calibration: the mismapping floor")
+    L.append("")
+    L.append("MAPQ measures confidence that a read is in the right *place*, not that its path through a "
+             "given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term "
+             "cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats "
+             "from one read** at the old floor of 1e-8. Raising the floor caps that veto.")
+    L.append("")
+    L.append("The *upper* clamp (`--mismap-max`) is inert here: it binds only where `e_r` is already "
+             "large, i.e. the 6.3% of reads at MAPQ ≤ 9, while 90% are MAPQ 60.")
+    L.append("")
+    L.append("| `readlik-z` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |")
+    L.append("|---|---|---|---|---|---|")
+    def calib_row(tag: str, label: str, from_json: dict | None = None) -> str | None:
+        """Build one calibration row.
+
+        Sweep arms were produced by ad-hoc scripts and have no arms*.json entry, so their
+        aardvark output directory is the only record. The old-default rows are the
+        exception and must come from the preserved JSON instead: re-running at the new
+        default **overwrote** `aardvark-readlik-z/`, so reading that directory would
+        silently report the new numbers under the old label -- which is exactly the
+        before/after comparison this table exists to make.
+        """
+        if from_json is not None:
+            rows_ = from_json.get(tag, {}).get("metrics", {}).get("summary", [])
+            if not rows_:
+                return None
+        else:
+            summary_path = res / f"aardvark-{tag}" / "summary.tsv"
+            if not summary_path.exists():
+                return None
+            import csv as _csv
+            rows_ = list(_csv.DictReader(open(summary_path), delimiter="\t"))
+
+        def g(comparison: str, vtype: str) -> str:
+            return f(num(pick(rows_, comparison, vtype), "metric_f1"))
+
+        return (f"| {label} | {g('GT','ALL')} | {g('GT','Snv')} | {g('GT','Insertion')} | "
+                f"{g('GT','Deletion')} | {g('BASEPAIR','ALL')} |")
+
+    for tag, label, src in [("readlik-z", "floor 1e-8 (old default)", old),
+                            ("readlik-z", "**floor 0.01 (current default)**", new),
+                            ("fl0.05", "floor 0.05", None),
+                            ("mm0.2", "cap 0.2, floor 1e-8", None),
+                            ("mm0.4", "cap 0.4, floor 1e-8", None)]:
+        row = calib_row(tag, label, src)
+        if row:
+            L.append(row)
+    L.append("")
+    L.append("Raising the floor to 0.01 changed **1,493 genotypes (1.41%)**, of which **94% were "
+             "heterozygous → homozygous** (1/0→1/1: 614, 0/1→1/1: 606, 1/2→1/1: 184), and dropped 1,251 "
+             "spurious non-reference calls. The failure it corrects is spurious heterozygosity: a few "
+             "locally misaligned reads, each able to veto the homozygous hypothesis almost without "
+             "bound, conjuring a second allele that is not there.")
+    L.append("")
+    L.append("Calibrated on one chromosome of one sample. 0.05 is better on indel `GT` but costs SNVs "
+             "and BASEPAIR, so the optimum lies between and is not worth over-fitting here.")
     L.append("")
 
     L.append("## Raw aardvark summary rows")
