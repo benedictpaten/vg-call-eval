@@ -89,6 +89,29 @@ Real reads, real benchmark, run on a 32 GB laptop.
 | `readlik-nomismap` | 0.9315 | 0.9640 | 0.9474 | 88,201 | 6,490 | 3,317 | 0.9262 | 0.8532 | 0.8882 |
 | `readlik-z` | 0.9322 | 0.9648 | **0.9482** | 88,270 | 6,421 | 3,238 | 0.9281 | 0.8684 | 0.8973 |
 
+## Reading the insertion BASEPAIR numbers
+
+The insertion `BASEPAIR` precision above understates the read-likelihood caller, and the reason is a property of the benchmark rather than of either caller.
+
+**The `smvar` truth set contains no record >=50 bp** — that size class lives in the separate `stvar` benchmark. But the two confident regions overlap almost completely (58.9 Mb vs 59.4 Mb). So a >=50 bp insertion called inside the small-variant confident region has every one of its bases scored FP, however right the call is. It cannot be scored correct.
+
+That is exactly where the gap lives. 246 `readlik-z` calls carry a >=200 bp insertion allele; they contribute **27,951 FP bases and zero TP bases**, which is the whole of the precision difference. The Poisson caller scores better there because it does not emit them — at the two largest sites it emits nothing at all.
+
+Restricting **both** callers to the range the benchmark can adjudicate (dropping any record with a called allele >=50 bp from REF, applied identically to each) gives the size-matched comparison:
+
+| arm | class | BP recall | BP precision | **BP F1** |
+|---|---|---|---|---|
+| `sm50-poisson-z` | Insertion | 0.7637 | 0.8700 | **0.8134** |
+| `sm50-poisson-z` | Deletion | 0.8628 | 0.8094 | **0.8353** |
+| `sm50-poisson-z` | ALL | 0.8993 | 0.9385 | **0.9184** |
+| `sm50-readlik-z` | Insertion | 0.8578 | 0.8624 | **0.8601** |
+| `sm50-readlik-z` | Deletion | 0.8603 | 0.8865 | **0.8732** |
+| `sm50-readlik-z` | ALL | 0.9238 | 0.9596 | **0.9413** |
+
+The insertion BASEPAIR precision gap collapses from **0.139 to 0.008**, and insertion BASEPAIR F1 flips from a 0.047 loss into a 0.047 win. There is no insertion-sequence defect in the likelihood model; what the unrestricted number measures is that one caller emits large insertions and the other does not.
+
+Whether those large calls are *correct* is a separate question, and the `stvar` comparison below is what answers it: they are a net win there (SV insertion recall 0.4976 vs 0.4263), but of the 246, only **35 are confirmed true**, **73 are confirmed false**, and **138 fall outside the SV confident region** and cannot be judged at all. See *Known bad output* for the worst of the unjudged ones.
+
 ## Structural variants (GIAB `stvar` benchmark)
 
 Of 176,623 chr20 truth records only **2,052 are >=50 bp** — the rest is the local sequence context an SV-aware haplotype comparison needs to place the SV. The rows below are the SV-specific categories, not the whole benchmark.
@@ -144,6 +167,26 @@ The *upper* clamp (`--mismap-max`) is inert here: it binds only where `e_r` is a
 Raising the floor to 0.01 changed **1,493 genotypes (1.41%)**, of which **94% were heterozygous → homozygous** (1/0→1/1: 614, 0/1→1/1: 606, 1/2→1/1: 184), and dropped 1,251 spurious non-reference calls. The failure it corrects is spurious heterozygosity: a few locally misaligned reads, each able to veto the homozygous hypothesis almost without bound, conjuring a second allele that is not there.
 
 Calibrated on one chromosome of one sample. 0.05 is better on indel `GT` but costs SNVs and BASEPAIR, so the optimum lies between and is not worth over-fitting here.
+
+## Known bad output
+
+Neither benchmark scores these, so they appear in no metric on this page. They are recorded because they are plainly wrong and would mislead anyone reading the VCF.
+
+`readlik-z` emits a small number of enormous homozygous insertions in and around the chr20 pericentromere, at depths that are physically impossible:
+
+| position | called insertion | GT | DP | GQ |
+|---|---|---|---|---|
+| chr20:25,849,044 | 61,958 bp | 1/1 | 7,873 | 256 |
+| chr20:32,179,077 | 57,716 bp | 1/1 | 5,337 | 256 |
+| chr20:1,629,728 | 33,050 bp | 1/1 | 291 | 256 |
+| chr20:25,873,453 | 28,685 bp | 1/2 | 5,498 | 256 |
+| chr20:25,792,993 | 23,450 bp | 1/1 | 932 | 256 |
+
+Chromosome-median DP is **29**, and the Poisson caller's expected depth (`XD`) never exceeds **167** anywhere on chr20. Median DP rises monotonically with called insertion length — 28 for 1 bp, 28 for 2–15 bp, 35 for 50–199 bp, **330 for >=1 kb** — so these are collapsed-repeat pile-ups, not haplotypes.
+
+The read-likelihood model cannot reject them, and the reason is structural rather than a tuning failure: it computes P(reads | genotype) **conditioned on the reads it is given**, and never asks whether that many reads should be there. The Poisson caller gets this for free, because an observed-vs-expected depth term is the whole of its model. A depth-plausibility guard is the obvious remedy, and the expected depth is already reachable — the read-likelihood caller subclasses `SupportBasedSnarlCaller` and holds a `TraversalSupportFinder` for allele enumeration.
+
+Filtering on depth is **not** that remedy, and the measurement says so plainly: dropping every call above DP 200 removes 195 records including all of the giants above, and moves insertion BASEPAIR precision by 0.0001 (0.6226 → 0.6227). Dropping above DP 58 removes 1,202 records and does help (+0.087), but costs SV insertion recall 0.4976 → 0.4167 — it is a blunt proxy for length that discards real SVs. The giants are bad output that no metric charges for; they should be fixed because they are wrong, not because they cost a score.
 
 ## Raw aardvark summary rows
 
