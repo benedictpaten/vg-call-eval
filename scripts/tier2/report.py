@@ -115,11 +115,11 @@ def main() -> None:
     # explicitly instead.
     old = load_merged(res, "arms.floor-1e-8.json")
     old.update(load_merged(res, "arms.readlik-z.json"))
-    new = load_merged(res, "arms.floor-0.01.json")
-    # Current-default table: poisson arms are floor-independent, read-likelihood arms
-    # come from the re-run at 0.01.
-    small = {k: v for k, v in old.items() if k in FLOOR_UNAFFECTED}
-    small.update(new)
+    # Current results: all five arms re-run together at the present defaults, so the
+    # wall-clock column compares runs made on the same machine in the same session.
+    # arms.floor-0.01.json is the earlier re-run at the new floor and has the same
+    # calls, but timings from before the read path was optimised.
+    small = load_merged(res, "arms.json")
     # SV metrics come from the aardvark output directories rather than arms-sv.json:
     # compare_sv.py writes only the arms it was asked for, so the JSON is whatever the
     # last invocation happened to cover, while the directories accumulate.
@@ -158,6 +158,11 @@ def main() -> None:
     L.append("")
 
     L.append("## Cost")
+    L.append("")
+    L.append("The read path was optimised after the accuracy results below were first produced "
+             "(vg `44fd008`); the calls are byte-identical, only the cost changed. `readlik-z` went "
+             "**506 s to 97 s**, so the read-likelihood caller is now **1.35x** the Poisson caller "
+             "at matched enumeration rather than 5.9x — and `readlik` is now *faster* than `poisson`.")
     L.append("")
     L.append("| arm | enumeration | pack? | variants | wall | peak RSS |")
     L.append("|---|---|---|---|---|---|")
@@ -323,7 +328,7 @@ def main() -> None:
                 f"{g('GT','Deletion')} | {g('BASEPAIR','ALL')} |")
 
     for tag, label, src in [("readlik-z", "floor 1e-8 (old default)", old),
-                            ("readlik-z", "**floor 0.01 (current default)**", new),
+                            ("readlik-z", "**floor 0.01 (current default)**", small),
                             ("fl0.05", "floor 0.05", None),
                             ("mm0.2", "cap 0.2, floor 1e-8", None),
                             ("mm0.4", "cap 0.4, floor 1e-8", None)]:

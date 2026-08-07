@@ -17,13 +17,15 @@ Real reads, real benchmark, run on a 32 GB laptop.
 
 ## Cost
 
+The read path was optimised after the accuracy results below were first produced (vg `44fd008`); the calls are byte-identical, only the cost changed. `readlik-z` went **506 s to 97 s**, so the read-likelihood caller is now **1.35x** the Poisson caller at matched enumeration rather than 5.9x — and `readlik` is now *faster* than `poisson`.
+
 | arm | enumeration | pack? | variants | wall | peak RSS |
 |---|---|---|---|---|---|
-| `poisson` | support (Flow) | yes | 106,587 | 152 s | 2.9 GB |
-| `poisson-z` | haplotype (`-z`) | yes | 106,686 | 74 s | 2.9 GB |
-| `readlik` | support (Flow) | yes | 105,930 | 574 s | 3.7 GB |
-| `readlik-nomismap` | support (Flow) | yes | 106,682 | 556 s | 4.1 GB |
-| `readlik-z` | haplotype (`-z`) | **no** | 105,936 | 506 s | 3.3 GB |
+| `poisson` | support (Flow) | yes | 106,587 | 156 s | 2.9 GB |
+| `poisson-z` | haplotype (`-z`) | yes | 106,686 | 72 s | 2.9 GB |
+| `readlik` | support (Flow) | yes | 105,930 | 115 s | 3.8 GB |
+| `readlik-nomismap` | support (Flow) | yes | 106,682 | 115 s | 3.5 GB |
+| `readlik-z` | haplotype (`-z`) | **no** | 105,936 | 97 s | 3.5 GB |
 
 ## Small variants (GIAB `smvar` benchmark)
 

@@ -1,0 +1,19 @@
+error[vg call] file "/Users/benedictpaten/PycharmProjects/vg-call-eval/scripts/tier2/chr20.pack" does not exist
+        0.04 real         0.03 user         0.01 sys
+            20889600  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1864  page reclaims
+                  54  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                   7  involuntary context switches
+           453677429  instructions retired
+           140199793  cycles elapsed
+             4686256  peak memory footprint

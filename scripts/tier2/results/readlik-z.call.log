@@ -1,0 +1,19 @@
+error[get_input_file_name] file "/Users/benedictpaten/PycharmProjects/vg-call-eval/scripts/tier2/chr20_0_chr20.gbz" does not exist
+        0.05 real         0.03 user         0.01 sys
+            20987904  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1870  page reclaims
+                  54  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                   5  involuntary context switches
+           442338366  instructions retired
+           142646551  cycles elapsed
+             4768176  peak memory footprint

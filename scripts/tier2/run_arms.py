@@ -125,7 +125,10 @@ def main() -> None:
     p.add_argument("--truth-bed", default=str(HERE / "truth.chr20.smvar.bed"))
     p.add_argument("--aardvark", default="aardvark")
     p.add_argument("--threads", type=int, default=6)
-    p.add_argument("--read-window", type=int, default=1024)
+    # Not passed unless set: vg picks a per-backend default (4096 for --gaf-base),
+    # and the harness should track that rather than pin a value that silently
+    # becomes wrong when the default moves.
+    p.add_argument("--read-window", type=int, default=0)
     p.add_argument("--out", default=str(HERE / "results"))
     p.add_argument("--only", nargs="*", help="run only these arms")
     args = p.parse_args()
@@ -143,8 +146,9 @@ def main() -> None:
         if arm.needs_pack:
             cmd += ["-k", args.pack]
         if arm.needs_reads:
-            cmd += ["--gaf-base", args.gaf_base, "--gbz-base", args.gbz_base,
-                    "--read-window", str(args.read_window)]
+            cmd += ["--gaf-base", args.gaf_base, "--gbz-base", args.gbz_base]
+            if args.read_window:
+                cmd += ["--read-window", str(args.read_window)]
 
         rc, secs, peak = sh(cmd, out_path=raw, log=out / f"{arm.name}.call.log", time_it=True)
         arm.seconds, arm.peak_rss_gb = secs, peak
@@ -191,8 +195,19 @@ def main() -> None:
          "metrics": a.metrics}
         for a in selected
     ]
-    (out / "arms.json").write_text(json.dumps(payload, indent=2))
-    print(f"\nwrote {out / 'arms.json'}")
+    # Merge rather than overwrite. A run restricted to --only would otherwise delete
+    # every arm it was not asked about, and the file would still look well-formed --
+    # it would just silently describe a smaller experiment. The same bug bit
+    # compare_sv.py, and it cost a re-run here before being fixed.
+    out_path = out / "arms.json"
+    merged = {}
+    if out_path.exists():
+        for entry in json.loads(out_path.read_text()):
+            merged[entry["arm"]] = entry
+    for entry in payload:
+        merged[entry["arm"]] = entry
+    out_path.write_text(json.dumps(list(merged.values()), indent=2))
+    print(f"\nwrote {out_path}")
 
 
 if __name__ == "__main__":
