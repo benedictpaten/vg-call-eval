@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put the 4-haplotype and 32-haplotype chr20 runs side by side.
+"""Put the 4-haplotype and 34-haplotype chr20 runs side by side.
 
 Both runs use the same reads sample, the same truth slices, the same confident regions
 and the same reference sequence (prep_hap32_chr20.sh refuses to proceed unless the two
@@ -128,21 +128,22 @@ def main() -> None:
         raise SystemExit(f"no arms.json under {new_res}; run run_hap32_chr20.sh first")
 
     L: list[str] = []
-    L.append("# chr20: 4-haplotype vs 32-haplotype graph")
+    L.append("# chr20: 4-haplotype vs 34-haplotype graph")
     L.append("")
     L.append("Same sample, same reads, same truth, same confident regions, same reference "
              "sequence. What changes is the graph — and, unavoidably, the alignments.")
     L.append("")
-    L.append("| | 4-haplotype | 32-haplotype |")
+    L.append("| | 4-haplotype | 34-haplotype |")
     L.append("|---|---|---|")
     L.append("| graph | `hprc-v2.1-mc-chm13-eval.HG002.gbz` | `…HG002.hap32.gbz` |")
     L.append("| haplotypes | 4 (CHM13, GRCh38, 2 recombinants) | **34** (CHM13, GRCh38, "
-             "32 recombinants) |")
+             "**32 recombinants** — the file is named `hap32` after the recombinant count, "
+             "not the total) |")
     L.append("| HG002 present? | no | **no** — samples are `CHM13`, `GRCh38`, `recombination` |")
     L.append("| alignments | `…HG002.gaf.gz` | `…HG002.hap32.gaf.gz` (remapped) |")
     L.append("")
     L.append("**This is not a single-variable experiment.** Reads mapped to one graph cannot be "
-             "scored against the other, because the node ID spaces differ — so the 32-haplotype "
+             "scored against the other, because the node ID spaces differ — so the 34-haplotype "
              "arm necessarily uses its own alignments. Graph and alignment move together. That is "
              "what adopting a richer graph actually involves, but it means a difference below "
              "cannot be attributed to the graph alone.")
@@ -176,7 +177,7 @@ def main() -> None:
              "and more wrong ones, and what decides the outcome is whether the genotyper can tell "
              "them apart read by read.")
     L.append("")
-    L.append("| arm | 4-hap GT F1 | 32-hap GT F1 | Δ |")
+    L.append("| arm | 4-hap GT F1 | 34-hap GT F1 | Δ |")
     L.append("|---|---|---|---|")
     for a in ("poisson-z", "readlik-z"):
         o, n = gtf1(old, a), gtf1(new, a)
@@ -186,11 +187,11 @@ def main() -> None:
     gap_new = (gtf1(new, "readlik-z") or 0) - (gtf1(new, "poisson-z") or 0)
     L.append(f"The read-likelihood caller's margin over the Poisson caller goes from "
              f"**{gap_old:+.4f}** on the 4-haplotype graph to **{gap_new:+.4f}** on the "
-             f"32-haplotype one"
+             f"34-haplotype one"
              + (f" — {gap_new/gap_old:.1f}x wider." if gap_old else "."))
     L.append("")
     L.append("**This depended on a default that was wrong for graphs like this.** With "
-             "`--mismap-max` at its old 0.1, `readlik-z` on the 32-haplotype graph carried 1,597 "
+             "`--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph carried 1,597 "
              "false-positive SNVs against the 4-haplotype graph's 375, and looked like a "
              "precision-for-recall trade. The cap was overriding the mapper: at those sites 23.3% "
              "of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the "
@@ -216,8 +217,8 @@ def main() -> None:
 
     L.append("## Cost")
     L.append("")
-    L.append("| arm | 4-hap wall | 32-hap wall | 4-hap RSS | 32-hap RSS | 4-hap variants | "
-             "32-hap variants |")
+    L.append("| arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | "
+             "34-hap variants |")
     L.append("|---|---|---|---|---|---|---|")
     for a in ARM_ORDER:
         o, n = old.get(a), new.get(a)
@@ -233,7 +234,7 @@ def main() -> None:
     for comparison in ("GT", "BASEPAIR"):
         L.append(f"## Small variants — {comparison} F1")
         L.append("")
-        L.append("| arm | class | 4-hap | 32-hap | Δ |")
+        L.append("| arm | class | 4-hap | 34-hap | Δ |")
         L.append("|---|---|---|---|---|")
         for a in ARM_ORDER:
             if a not in new:
@@ -252,8 +253,8 @@ def main() -> None:
              "categories — without that, a run calling far more SVs would read as a pure recall win "
              "when it had traded precision away. F1 is derived from the two.")
     L.append("")
-    L.append("| arm | 4-hap recall | 32-hap recall | Δ | 4-hap prec | 32-hap prec | Δ | "
-             "4-hap F1 | 32-hap F1 | **Δ F1** |")
+    L.append("| arm | 4-hap recall | 34-hap recall | Δ | 4-hap prec | 34-hap prec | Δ | "
+             "4-hap F1 | 34-hap F1 | **Δ F1** |")
     L.append("|---|---|---|---|---|---|---|---|---|---|")
     for a in ARM_ORDER:
         if a not in new_sv_rows:
@@ -267,7 +268,7 @@ def main() -> None:
     L.append("")
     L.append("Per class, recall only:")
     L.append("")
-    L.append("| arm | class | 4-hap | 32-hap | Δ |")
+    L.append("| arm | class | 4-hap | 34-hap | Δ |")
     L.append("|---|---|---|---|---|")
     for a in ARM_ORDER:
         if a not in new_sv_rows:
@@ -288,8 +289,8 @@ def main() -> None:
                  "record with a called allele >=50 bp from *both* sides is the only like-for-like "
                  "read of these numbers.")
         L.append("")
-        L.append("| arm | class | 4-hap recall | 32-hap recall | 4-hap prec | 32-hap prec | "
-                 "4-hap F1 | 32-hap F1 | **Δ F1** |")
+        L.append("| arm | class | 4-hap recall | 34-hap recall | 4-hap prec | 34-hap prec | "
+                 "4-hap F1 | 34-hap F1 | **Δ F1** |")
         L.append("|---|---|---|---|---|---|---|---|---|")
         for a in ("sm50-poisson-z", "sm50-readlik-z"):
             if a not in new_sm:
