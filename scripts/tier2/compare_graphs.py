@@ -153,45 +153,65 @@ def main() -> None:
              "than the genotyper — most of all for SVs. This is the direct test.")
     L.append("")
 
+    # Computed, never transcribed. An earlier version of this section hardcoded the
+    # deltas and they went stale the moment the --mismap-max default changed.
+    def gtf1(d, arm, vtype="ALL"):
+        return fnum(pick(d.get(arm, {}).get("metrics", {}).get("summary"), "GT", vtype),
+                    "metric_f1")
+
+    def smf1(arm, vtype="ALL"):
+        o = fnum(pick(old_sm.get(arm, {}).get("metrics", {}).get("summary"),
+                      "BASEPAIR", vtype), "metric_f1")
+        n = fnum(pick(new_sm.get(arm, {}).get("metrics", {}).get("summary"),
+                      "BASEPAIR", vtype), "metric_f1")
+        return o, n
+
+    old_sm = load_arms(old_res / "arms-size-matched.json")
+    new_sm = load_arms(new_res / "arms-size-matched.json")
+
     L.append("## What this says")
     L.append("")
-    L.append("**The richer graph trades precision for recall, and every arm ends up worse on F1.** "
-             "That is the honest headline and it holds on all three measures — small-variant GT, "
-             "size-matched BASEPAIR, and SV. More haplotypes means more candidate alleles; more of "
-             "the true ones get offered, and so do more wrong ones.")
+    L.append("**The read-likelihood caller is better on the richer graph; the Poisson caller is "
+             "much worse on it.** That split is the result. More haplotypes offer more true alleles "
+             "and more wrong ones, and what decides the outcome is whether the genotyper can tell "
+             "them apart read by read.")
     L.append("")
-    L.append("**But the two callers are not affected equally, and that is the useful result.**")
-    L.append("")
-    L.append("| measure | `poisson-z` Δ | `readlik-z` Δ | ratio |")
+    L.append("| arm | 4-hap GT F1 | 32-hap GT F1 | Δ |")
     L.append("|---|---|---|---|")
-    L.append("| small-variant ALL GT F1 | −0.0235 | **−0.0022** | 11x |")
-    L.append("| size-matched ALL BASEPAIR F1 | −0.0260 | **−0.0060** | 4x |")
-    L.append("| SV F1 | −0.0695 | **−0.0212** | 3x |")
+    for a in ("poisson-z", "readlik-z"):
+        o, n = gtf1(old, a), gtf1(new, a)
+        L.append(f"| `{a}` | {fmt(o)} | {fmt(n)} | **{delta(o, n)}** |")
     L.append("")
-    L.append("The read-likelihood model absorbs the extra allele ambiguity 3–11x better than the "
-             "Poisson model on every axis. Scoring each read against each allele degrades gracefully "
-             "as alleles multiply; aggregating depth does not.")
+    gap_old = (gtf1(old, "readlik-z") or 0) - (gtf1(old, "poisson-z") or 0)
+    gap_new = (gtf1(new, "readlik-z") or 0) - (gtf1(new, "poisson-z") or 0)
+    L.append(f"The read-likelihood caller's margin over the Poisson caller goes from "
+             f"**{gap_old:+.4f}** on the 4-haplotype graph to **{gap_new:+.4f}** on the "
+             f"32-haplotype one"
+             + (f" — {gap_new/gap_old:.1f}x wider." if gap_old else "."))
     L.append("")
-    L.append("**SV recall is the one outright win, and only for the read-likelihood arms.** "
-             "`readlik-z` goes 0.5214 → 0.5726 (+0.0512) and `readlik` +0.0292, while `poisson-z` "
-             "*falls* 0.0137. This is the design's thesis in one line: the extra haplotypes supply "
-             "better SV alleles, but only a caller that scores alleles individually can use them. "
-             "It still costs precision, so F1 declines — the operating point moved, it did not "
-             "simply improve.")
+    L.append("**This depended on a default that was wrong for graphs like this.** With "
+             "`--mismap-max` at its old 0.1, `readlik-z` on the 32-haplotype graph carried 1,597 "
+             "false-positive SNVs against the 4-haplotype graph's 375, and looked like a "
+             "precision-for-recall trade. The cap was overriding the mapper: at those sites 23.3% "
+             "of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the "
+             "current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the "
+             "derivation; the point for this page is that a caller-level default, not the graph, "
+             "was the difference between the two readings.")
     L.append("")
-    L.append("**The MAPQ mismapping term earns its keep here.** `readlik` against "
-             "`readlik-nomismap` on ALL GT F1 is worth +0.0066 on this graph against +0.0007 on the "
-             "4-haplotype one, and it suppresses 7,287 calls against 752 — roughly ten times the "
-             "work. More near-identical haplotypes means more chances for a read to fit an allele "
-             "it did not come from, which is exactly what that term exists to damp.")
+    L.append("**`readlik-nomismap` is the control.** It disables the mismapping term entirely, so "
+             "the cap cannot reach it — and on the richer graph it still carries "
+             f"{int(pick(new.get('readlik-nomismap', {}).get('metrics', {}).get('summary'), 'GT', 'Snv')['query_fp']):,} "
+             "spurious SNVs. The term is what does the work.")
     L.append("")
-    L.append("**One caveat that this data cannot settle.** Some of the lost precision may not be "
-             "error: a graph carrying 32 haplotypes will call real variation that a draft benchmark "
-             "does not cover, and that scores as a false positive. The size-matched insertion row "
-             "below — recall +0.037, precision −0.034, F1 flat — is equally consistent with "
-             "\"found more truth and more noise in equal measure\" and with \"found more truth than "
-             "the benchmark knows about\". Separating them needs a more complete truth set, not a "
-             "different metric.")
+    o_sm, n_sm = smf1("sm50-readlik-z")
+    if o_sm and n_sm:
+        L.append(f"Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers — "
+                 f"`readlik-z` goes {fmt(o_sm)} to {fmt(n_sm)}.")
+        L.append("")
+    L.append("**One caveat this data cannot settle.** Some of the remaining false positives may not "
+             "be error: a graph carrying 32 haplotypes will call real variation a draft benchmark "
+             "does not cover, and that scores as a false positive. Separating them needs a more "
+             "complete truth set, not a different metric.")
     L.append("")
 
     L.append("## Cost")
@@ -259,8 +279,6 @@ def main() -> None:
     L.append("")
 
     # Size-matched: the only apples-to-apples read of the BASEPAIR insertion numbers.
-    old_sm = load_arms(old_res / "arms-size-matched.json")
-    new_sm = load_arms(new_res / "arms-size-matched.json")
     if new_sm:
         L.append("## Small variants restricted to <50 bp — BASEPAIR")
         L.append("")

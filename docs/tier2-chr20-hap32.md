@@ -15,23 +15,22 @@ The rows to watch are the **`-z` arms**, which enumerate alleles from the GBWT h
 
 ## What this says
 
-**The richer graph trades precision for recall, and every arm ends up worse on F1.** That is the honest headline and it holds on all three measures — small-variant GT, size-matched BASEPAIR, and SV. More haplotypes means more candidate alleles; more of the true ones get offered, and so do more wrong ones.
+**The read-likelihood caller is better on the richer graph; the Poisson caller is much worse on it.** That split is the result. More haplotypes offer more true alleles and more wrong ones, and what decides the outcome is whether the genotyper can tell them apart read by read.
 
-**But the two callers are not affected equally, and that is the useful result.**
-
-| measure | `poisson-z` Δ | `readlik-z` Δ | ratio |
+| arm | 4-hap GT F1 | 32-hap GT F1 | Δ |
 |---|---|---|---|
-| small-variant ALL GT F1 | −0.0235 | **−0.0022** | 11x |
-| size-matched ALL BASEPAIR F1 | −0.0260 | **−0.0060** | 4x |
-| SV F1 | −0.0695 | **−0.0212** | 3x |
+| `poisson-z` | 0.9359 | 0.9124 | **-0.0235** |
+| `readlik-z` | 0.9479 | 0.9520 | **+0.0041** |
 
-The read-likelihood model absorbs the extra allele ambiguity 3–11x better than the Poisson model on every axis. Scoring each read against each allele degrades gracefully as alleles multiply; aggregating depth does not.
+The read-likelihood caller's margin over the Poisson caller goes from **+0.0120** on the 4-haplotype graph to **+0.0396** on the 32-haplotype one — 3.3x wider.
 
-**SV recall is the one outright win, and only for the read-likelihood arms.** `readlik-z` goes 0.5214 → 0.5726 (+0.0512) and `readlik` +0.0292, while `poisson-z` *falls* 0.0137. This is the design's thesis in one line: the extra haplotypes supply better SV alleles, but only a caller that scores alleles individually can use them. It still costs precision, so F1 declines — the operating point moved, it did not simply improve.
+**This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik-z` on the 32-haplotype graph carried 1,597 false-positive SNVs against the 4-haplotype graph's 375, and looked like a precision-for-recall trade. The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
 
-**The MAPQ mismapping term earns its keep here.** `readlik` against `readlik-nomismap` on ALL GT F1 is worth +0.0066 on this graph against +0.0007 on the 4-haplotype one, and it suppresses 7,287 calls against 752 — roughly ten times the work. More near-identical haplotypes means more chances for a read to fit an allele it did not come from, which is exactly what that term exists to damp.
+**`readlik-nomismap` is the control.** It disables the mismapping term entirely, so the cap cannot reach it — and on the richer graph it still carries 2,593 spurious SNVs. The term is what does the work.
 
-**One caveat that this data cannot settle.** Some of the lost precision may not be error: a graph carrying 32 haplotypes will call real variation that a draft benchmark does not cover, and that scores as a false positive. The size-matched insertion row below — recall +0.037, precision −0.034, F1 flat — is equally consistent with "found more truth and more noise in equal measure" and with "found more truth than the benchmark knows about". Separating them needs a more complete truth set, not a different metric.
+Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers — `readlik-z` goes 0.9416 to 0.9392.
+
+**One caveat this data cannot settle.** Some of the remaining false positives may not be error: a graph carrying 32 haplotypes will call real variation a draft benchmark does not cover, and that scores as a false positive. Separating them needs a more complete truth set, not a different metric.
 
 ## Cost
 
@@ -39,9 +38,9 @@ The read-likelihood model absorbs the extra allele ambiguity 3–11x better than
 |---|---|---|---|---|---|---|
 | `poisson` | 156 s | 293 s | 2.9 GB | 3.3 GB | 106,587 | 124,445 |
 | `poisson-z` | 72 s | 106 s | 2.9 GB | 3.2 GB | 106,686 | 124,769 |
-| `readlik` | 115 s | 134 s | 3.8 GB | 4.0 GB | 105,930 | 115,734 |
-| `readlik-nomismap` | 115 s | 134 s | 3.5 GB | 4.0 GB | 106,682 | 123,021 |
-| `readlik-z` | 97 s | 116 s | 3.5 GB | 3.8 GB | 105,936 | 115,787 |
+| `readlik` | 118 s | 144 s | 3.9 GB | 4.4 GB | 104,725 | 106,619 |
+| `readlik-nomismap` | 118 s | 143 s | 3.8 GB | 4.6 GB | 106,682 | 123,021 |
+| `readlik-z` | 101 s | 122 s | 3.8 GB | 3.8 GB | 104,733 | 106,690 |
 
 ## Small variants — GT F1
 
@@ -55,18 +54,18 @@ The read-likelihood model absorbs the extra allele ambiguity 3–11x better than
 | `poisson-z` | SNV | 0.9735 | 0.9576 | -0.0159 |
 | `poisson-z` | Insertion (<50 bp) | 0.7850 | 0.7866 | +0.0015 |
 | `poisson-z` | Deletion (<50 bp) | 0.8148 | 0.7521 | -0.0627 |
-| `readlik` | ALL | 0.9481 | 0.9431 | -0.0050 |
-| `readlik` | SNV | 0.9764 | 0.9675 | -0.0089 |
-| `readlik` | Insertion (<50 bp) | 0.8230 | 0.8617 | +0.0387 |
-| `readlik` | Deletion (<50 bp) | 0.8705 | 0.8702 | -0.0003 |
+| `readlik` | ALL | 0.9478 | 0.9489 | +0.0011 |
+| `readlik` | SNV | 0.9760 | 0.9743 | -0.0018 |
+| `readlik` | Insertion (<50 bp) | 0.8235 | 0.8626 | +0.0391 |
+| `readlik` | Deletion (<50 bp) | 0.8706 | 0.8707 | +0.0001 |
 | `readlik-nomismap` | ALL | 0.9474 | 0.9365 | -0.0109 |
 | `readlik-nomismap` | SNV | 0.9761 | 0.9610 | -0.0151 |
 | `readlik-nomismap` | Insertion (<50 bp) | 0.8215 | 0.8553 | +0.0338 |
 | `readlik-nomismap` | Deletion (<50 bp) | 0.8689 | 0.8673 | -0.0016 |
-| `readlik-z` | ALL | 0.9482 | 0.9460 | -0.0022 |
-| `readlik-z` | SNV | 0.9766 | 0.9700 | -0.0066 |
-| `readlik-z` | Insertion (<50 bp) | 0.8231 | 0.8650 | +0.0420 |
-| `readlik-z` | Deletion (<50 bp) | 0.8706 | 0.8733 | +0.0027 |
+| `readlik-z` | ALL | 0.9479 | 0.9520 | +0.0041 |
+| `readlik-z` | SNV | 0.9761 | 0.9768 | +0.0007 |
+| `readlik-z` | Insertion (<50 bp) | 0.8236 | 0.8662 | +0.0426 |
+| `readlik-z` | Deletion (<50 bp) | 0.8706 | 0.8743 | +0.0037 |
 
 ## Small variants — BASEPAIR F1
 
@@ -80,18 +79,18 @@ The read-likelihood model absorbs the extra allele ambiguity 3–11x better than
 | `poisson-z` | SNV | 0.9784 | 0.9656 | -0.0127 |
 | `poisson-z` | Insertion (<50 bp) | 0.7712 | 0.6306 | -0.1406 |
 | `poisson-z` | Deletion (<50 bp) | 0.7782 | 0.6424 | -0.1358 |
-| `readlik` | ALL | 0.8969 | 0.8326 | -0.0643 |
-| `readlik` | SNV | 0.9805 | 0.9725 | -0.0081 |
-| `readlik` | Insertion (<50 bp) | 0.7243 | 0.5980 | -0.1263 |
-| `readlik` | Deletion (<50 bp) | 0.8612 | 0.8403 | -0.0209 |
+| `readlik` | ALL | 0.9003 | 0.8397 | -0.0607 |
+| `readlik` | SNV | 0.9802 | 0.9776 | -0.0026 |
+| `readlik` | Insertion (<50 bp) | 0.7338 | 0.6031 | -0.1307 |
+| `readlik` | Deletion (<50 bp) | 0.8665 | 0.8463 | -0.0202 |
 | `readlik-nomismap` | ALL | 0.8882 | 0.8204 | -0.0678 |
 | `readlik-nomismap` | SNV | 0.9802 | 0.9676 | -0.0126 |
 | `readlik-nomismap` | Insertion (<50 bp) | 0.7057 | 0.5834 | -0.1223 |
 | `readlik-nomismap` | Deletion (<50 bp) | 0.8507 | 0.8286 | -0.0221 |
-| `readlik-z` | ALL | 0.8973 | 0.8333 | -0.0640 |
-| `readlik-z` | SNV | 0.9807 | 0.9737 | -0.0069 |
-| `readlik-z` | Insertion (<50 bp) | 0.7247 | 0.5932 | -0.1315 |
-| `readlik-z` | Deletion (<50 bp) | 0.8620 | 0.8425 | -0.0195 |
+| `readlik-z` | ALL | 0.9003 | 0.8416 | -0.0588 |
+| `readlik-z` | SNV | 0.9804 | 0.9789 | -0.0015 |
+| `readlik-z` | Insertion (<50 bp) | 0.7344 | 0.5987 | -0.1357 |
+| `readlik-z` | Deletion (<50 bp) | 0.8651 | 0.8498 | -0.0153 |
 
 ## Structural variants (GIAB `stvar`)
 
@@ -101,9 +100,9 @@ Recall is aardvark's published value. **Precision is recomputed** from its per-v
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.4667 | 0.4643 | -0.0024 | 0.4712 | 0.3915 | -0.0797 | 0.4689 | 0.4248 | **-0.0441** |
 | `poisson-z` | 0.5024 | 0.4887 | -0.0137 | 0.5187 | 0.4017 | -0.1170 | 0.5104 | 0.4409 | **-0.0695** |
-| `readlik` | 0.4810 | 0.5101 | +0.0292 | 0.4671 | 0.4101 | -0.0570 | 0.4739 | 0.4547 | **-0.0193** |
+| `readlik` | 0.4833 | 0.5101 | +0.0268 | 0.4716 | 0.4131 | -0.0584 | 0.4774 | 0.4565 | **-0.0208** |
 | `readlik-nomismap` | 0.4821 | 0.5113 | +0.0292 | 0.4607 | 0.3988 | -0.0619 | 0.4712 | 0.4481 | **-0.0231** |
-| `readlik-z` | 0.5214 | 0.5726 | +0.0512 | 0.5028 | 0.4294 | -0.0734 | 0.5120 | 0.4908 | **-0.0212** |
+| `readlik-z` | 0.5250 | 0.5696 | +0.0446 | 0.5081 | 0.4309 | -0.0772 | 0.5164 | 0.4906 | **-0.0257** |
 
 Per class, recall only:
 
@@ -114,11 +113,11 @@ Per class, recall only:
 | `poisson-z` | SV insertion | 0.4263 | 0.4130 | -0.0133 |
 | `poisson-z` | SV deletion | 0.5763 | 0.5622 | -0.0141 |
 | `readlik` | SV insertion | 0.4553 | 0.4903 | +0.0350 |
-| `readlik` | SV deletion | 0.5059 | 0.5293 | +0.0235 |
+| `readlik` | SV deletion | 0.5106 | 0.5293 | +0.0188 |
 | `readlik-nomismap` | SV insertion | 0.4589 | 0.4940 | +0.0350 |
 | `readlik-nomismap` | SV deletion | 0.5047 | 0.5282 | +0.0235 |
-| `readlik-z` | SV insertion | 0.4976 | 0.5580 | +0.0604 |
-| `readlik-z` | SV deletion | 0.5446 | 0.5869 | +0.0423 |
+| `readlik-z` | SV insertion | 0.4976 | 0.5543 | +0.0568 |
+| `readlik-z` | SV deletion | 0.5516 | 0.5845 | +0.0329 |
 
 ## Small variants restricted to <50 bp — BASEPAIR
 
@@ -129,7 +128,7 @@ The `smvar` truth set holds no record >=50 bp, so a large insertion called insid
 | `sm50-poisson-z` | Insertion | 0.7637 | 0.7802 | 0.8700 | 0.8282 | 0.8134 | 0.8035 | **-0.0100** |
 | `sm50-poisson-z` | Deletion | 0.8628 | 0.8949 | 0.8094 | 0.6969 | 0.8353 | 0.7836 | **-0.0517** |
 | `sm50-poisson-z` | ALL | 0.8993 | 0.9109 | 0.9385 | 0.8746 | 0.9184 | 0.8924 | **-0.0260** |
-| `sm50-readlik-z` | Insertion | 0.8578 | 0.8953 | 0.8624 | 0.8283 | 0.8601 | 0.8605 | **+0.0004** |
-| `sm50-readlik-z` | Deletion | 0.8603 | 0.9009 | 0.8865 | 0.8346 | 0.8732 | 0.8665 | **-0.0067** |
-| `sm50-readlik-z` | ALL | 0.9238 | 0.9424 | 0.9596 | 0.9283 | 0.9413 | 0.9353 | **-0.0061** |
+| `sm50-readlik-z` | Insertion | 0.8574 | 0.8949 | 0.8639 | 0.8340 | 0.8606 | 0.8634 | **+0.0028** |
+| `sm50-readlik-z` | Deletion | 0.8600 | 0.8996 | 0.8874 | 0.8379 | 0.8735 | 0.8676 | **-0.0059** |
+| `sm50-readlik-z` | ALL | 0.9233 | 0.9413 | 0.9605 | 0.9371 | 0.9416 | 0.9392 | **-0.0024** |
 
