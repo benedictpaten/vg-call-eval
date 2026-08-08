@@ -10,8 +10,9 @@ against two benchmarks, small variants (aardvark, GIAB `smvar`) and structural v
 useful if it helps in all eight.
 
 Scripts: `coverage_model.py`, `share_gq.py`, `depth_filter_sweep.py`, `pileup_guard.py`,
-`allele_balance_by_length.py`, sharing `filter_lib.py`. Full derivations in harness plan
-§9.25–§9.27.
+`allele_balance_by_length.py`, sharing `filter_lib.py`. Full derivations in
+[planning/vg-call-eval-plan.md](../planning/vg-call-eval-plan.md) §9.25–§9.27; the model these
+signals sit on top of is in [planning/vg-read-likelihood-design.md](../planning/vg-read-likelihood-design.md) §4.
 
 ---
 

@@ -19,6 +19,14 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
 
+**Design and planning documents live in [planning/](planning/)** — the caller's design, the
+harness plan and its full investigation log, the characterization of `vg call` as it was, and two
+outbound drafts. They sit here rather than in the vg tree so that the reasoning is next to the
+evaluation it came from. Start at [planning/README.md](planning/README.md).
+
+When a number in `planning/` disagrees with one in `docs/`, **`docs/` is right**: those are
+regenerated from run artefacts, the planning documents are transcribed by hand.
+
 ## The one thing to read before quoting a number
 
 **Tier-0 numbers are optimistic and are not absolute performance.** Reads are simulated from the graph
