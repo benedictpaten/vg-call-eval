@@ -98,6 +98,13 @@ def rename_contig(src: Path, dst: Path) -> int:
     The benchmark VCF uses bare `chr20`. Skipping this does not error -- it
     produces zero true positives, which looks like a catastrophic caller failure
     rather than a naming mismatch. Asserted on below.
+
+    **Now usually a no-op, and deliberately kept anyway.** Upstream vg changed
+    `vg call` to report the *base* path name in CHROM, so records already arrive as
+    `chr20` rather than `CHM13#0#chr20`; the pass-through branch below handles that
+    without comment. Removing this would make the harness silently dependent on
+    which vg build produced the VCF, which is exactly the class of breakage it
+    exists to prevent -- and the failure mode is zero true positives, not an error.
     """
     kept = 0
     with open(src) as fin, open(dst, "w") as fout:
