@@ -9,18 +9,33 @@ the `-v` re-genotyping path — the default de novo path has never been measured
 
 Implements stages 3b, 4 and 4b of the read-likelihood design.
 
+## Where the numbers are
+
+| page | what it covers |
+|---|---|
+| [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full five-arm accuracy tables per chromosome, small variants and SVs |
+| [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
+| [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
+| [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
+| [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
+
 ## The one thing to read before quoting a number
 
 **Tier-0 numbers are optimistic and are not absolute performance.** Reads are simulated from the graph
 and mapped back to that same graph, so mapping is unrealistically easy. Tier 0 exists to compare
-callers *to each other* and to calibrate `GQ`. Absolute numbers need tier 2 (real data), which is
-deferred. See [docs/simulation.md](docs/simulation.md), which also documents exactly how the
-simulation works and what it cannot tell you.
+callers *to each other*.
 
 A worked example of why this matters: at 20 kb and 20x, **every caller scores F1 = 1.0000**. The task
 is simply too easy to discriminate. At 4x with 100 bp reads the same harness separates them. If a
 configuration gives everything a perfect score, that is a statement about the configuration, not the
 callers.
+
+**Tier-2 numbers are benchmark-relative.** The GIAB truth set is a *draft*, with known errors in
+homozygous regions, homopolymers and tandem repeats. More sharply: its small-variant benchmark holds
+**no record at all over 50 bp**, so a correct large insertion inside its confident region scores as a
+false positive on every base. Anything size-restricted above 50 bp goes to truvari against the
+structural benchmark; aardvark's own `Sv*` categories are scored against the small-variant truth and
+should not be read as an SV result.
 
 ## Sanity controls are not optional
 
@@ -62,11 +77,34 @@ Add `--vg-depthfix /path/to/patched/vg` to include the `poisson-depthfix` arm. T
 | `readlik-nomismap` | `--no-mismap-term`, to measure what the mismapping term contributes |
 | `readlik-gbwt-nopack` | `-z` haplotype enumeration with no pack file |
 
+## Tier 2
+
+Real HG002 reads against the GIAB draft benchmark on CHM13v2.0, run on a 32 GB laptop. Two
+chromosomes (chr20, chr6) × two graphs (4-haplotype, 34-haplotype) × five arms, scored against both
+the small-variant benchmark (aardvark) and the structural one (truvari).
+
+```bash
+# one contig, one graph: subgraph, node list, reference FASTA, truth slices, reads, pack
+scripts/tier2/prep_contig.sh chr6 data/…HG002.gbz work/graph.gbz.db work/reads.gaf.db work/tier2-chr6
+# arms, then the SV cross-check, then the size-matched control
+python3 scripts/tier2/run_arms.py    --contig chr6 --graph … --out work/tier2-chr6/results
+python3 scripts/tier2/truvari_sv.py  --contig chr6 --work  work/tier2-chr6 --label chr6-4hap
+python3 scripts/tier2/size_matched.py             --results work/tier2-chr6/results …
+# regenerate the pages
+python3 scripts/tier2/report.py         --contig chr6
+python3 scripts/tier2/compare_graphs.py --contig chr6
+```
+
+`prep_contig.sh` extracts the reference FASTA from *each* graph and stops if two graphs for the same
+contig disagree, so a cross-graph comparison can never be a coordinate mismatch dressed up as an
+accuracy difference.
+
 ## Status
 
-Working: tier-0 simulation, the caller matrix, aardvark comparison, sanity controls, per-arm timing.
+Working: tier-0 simulation, tier-2 real data on two chromosomes and two graphs, the caller matrix,
+aardvark and truvari comparison, size-matched controls, sanity controls, per-arm timing, and the
+quality-signal analysis behind the `GQ` change.
 
-Not yet built: `GQ`-sweep PR curves, the `read_weight` calibration fit (stage 4b), the truvari SV
-cross-check, tier 1 (vg's HGSVC fixture) and tier 2 (real data). Tier 2 is additionally blocked on
-`vg call`'s read source becoming practical at scale — the current in-memory backend loads the whole
-GAM.
+Not yet built: tier 1 (vg's HGSVC fixture), the `read_weight` calibration fit (stage 4b), and a
+size-conditional depth or `best_ln` term — blocked on the sign reversal documented in
+[docs/tier2-quality-signals.md](docs/tier2-quality-signals.md).

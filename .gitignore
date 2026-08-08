@@ -8,3 +8,6 @@ __pycache__/
 # work/     everything derived from them (GAF-Base, GBZ-Base, packs, per-arm VCFs)
 /data/
 /work/
+
+# JetBrains project files
+.idea/

@@ -5,27 +5,29 @@ Real reads, real benchmark, run on a 32 GB laptop.
 | | |
 |---|---|
 | graph | `hprc-v2.1-mc-chm13-eval.HG002.gbz`, 100,179,277 nodes, **4 haplotypes** (CHM13, GRCh38, 2 recombinants). HG002 itself is **absent** — no circularity |
-| chromosome | chr20 component, 2,382,533 nodes, IDs 114,818,865–121,250,404 |
-| reads | 596,017,764 alignments genome-wide (~28.6×), 13,279,246 on chr20; 151 bp paired Illumina |
+| chromosome | chr20 component, 2,382,533 nodes |
+| reads | 596,017,764 alignments genome-wide (~28.6×); 151 bp paired Illumina |
 | truth | GIAB HG002 **draft** benchmark, defrabb V0.019-20241113, CHM13v2.0 |
-| regions | small variants 58.9 Mb (88.9% of chr20); SVs 59.4 Mb (89.6%) |
-| engine | `aardvark compare`; SV runs use `--min-variant-gap 1000` + record-basepair |
+| regions | small variants 58.9 Mb; SVs 59.4 Mb |
+| engine | `aardvark compare` for small variants; `truvari bench --sizemin 50` for SVs |
 
-**All read-likelihood arms below use `--mismap-min 0.01`**, the current default. That floor caps how much one read can veto an allele; it was raised from 1e-8 after measurement, and the before/after comparison is in the calibration section at the end. `poisson` and `poisson-z` do not use the read-likelihood model, so the change cannot affect them.
+**All read-likelihood arms below run at the current clamp defaults, `--mismap-min 0.02` and `--mismap-max 0.5`.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap down from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
 
 **Read the caveats before the numbers.** The benchmark is a *draft*: its own README reports known errors in highly homozygous regions, homopolymers and tandem repeats, and excludes VDJ and TSPY2. Absolute values are benchmark-relative; the arm-to-arm comparison is what this table is for.
 
 ## Cost
 
-The read path was optimised after the accuracy results below were first produced (vg `44fd008`); the calls are byte-identical, only the cost changed. `readlik-z` went **506 s to 97 s**, so the read-likelihood caller is now **1.35x** the Poisson caller at matched enumeration rather than 5.9x — and `readlik` is now *faster* than `poisson`.
+Every arm on this page was re-run together on one build, so the wall-clock column compares runs made on the same machine in the same session rather than a mixture of vintages.
+
+Two changes since the accuracy results were first produced left the calls untouched. The read path was optimised (vg `44fd008`) — on chr20 `readlik-z` went **506 s to under 100 s**, so the read-likelihood caller is now near parity with the Poisson caller at matched enumeration rather than 5.9x, and `readlik` is *faster* than `poisson`. Then `AD`, `BL`, `GQI` and the explained-share scaling of `GQ` were added — which rescales a quality and does not change a genotype. Both are confirmed by the variant counts below, which are unchanged to the record.
 
 | arm | enumeration | pack? | variants | wall | peak RSS |
 |---|---|---|---|---|---|
-| `poisson` | support (Flow) | yes | 106,587 | 156 s | 2.9 GB |
-| `poisson-z` | haplotype (`-z`) | yes | 106,686 | 72 s | 2.9 GB |
-| `readlik` | support (Flow) | yes | 104,462 | 154 s | 3.5 GB |
-| `readlik-nomismap` | support (Flow) | yes | 106,295 | 149 s | 3.5 GB |
-| `readlik-z` | haplotype (`-z`) | **no** | 104,470 | 118 s | 3.7 GB |
+| `poisson` | support (Flow) | yes | 106,587 | 168 s | 3.0 GB |
+| `poisson-z` | haplotype (`-z`) | yes | 106,686 | 75 s | 3.0 GB |
+| `readlik` | support (Flow) | yes | 104,462 | 120 s | 3.6 GB |
+| `readlik-nomismap` | support (Flow) | yes | 106,295 | 115 s | 3.5 GB |
+| `readlik-z` | haplotype (`-z`) | **no** | 104,470 | 99 s | 3.7 GB |
 
 ## Small variants (GIAB `smvar` benchmark)
 
@@ -110,13 +112,26 @@ Restricting **both** callers to the range the benchmark can adjudicate (dropping
 | `sm50-readlik-z` | Deletion | 0.8639 | 0.8970 | **0.8801** |
 | `sm50-readlik-z` | ALL | 0.9254 | 0.9635 | **0.9441** |
 
-The insertion BASEPAIR precision gap collapses from **0.139 to 0.008**, and insertion BASEPAIR F1 flips from a 0.047 loss into a 0.047 win. There is no insertion-sequence defect in the likelihood model; what the unrestricted number measures is that one caller emits large insertions and the other does not.
+The insertion BASEPAIR precision gap collapses from **0.126 to 0.003**, and insertion BASEPAIR F1 goes from 0.8134 for `poisson-z` against 0.8649 for `readlik-z`.
+There is no insertion-sequence defect in the likelihood model; what the unrestricted number measures is that one caller emits large insertions and the other does not.
 
-Whether those large calls are *correct* is a separate question, and the `stvar` comparison below is what answers it: they are a net win there (SV insertion recall 0.4976 vs 0.4263), but of the 246, only **35 are confirmed true**, **73 are confirmed false**, and **138 fall outside the SV confident region** and cannot be judged at all. See *Known bad output* for the worst of the unjudged ones.
+Whether those large calls are *correct* is a separate question, and the truvari comparison below is what answers it. On chr20, of the 246, only **35 are confirmed true**, **73 are confirmed false**, and **138 fall outside the SV confident region** and cannot be judged at all. See *Known bad output* for the worst of the unjudged ones.
 
-## Structural variants (GIAB `stvar` benchmark)
+## Structural variants — truvari (GIAB `stvar` benchmark)
 
-Of 176,623 chr20 truth records only **2,052 are >=50 bp** — the rest is the local sequence context an SV-aware haplotype comparison needs to place the SV. The rows below are the SV-specific categories, not the whole benchmark.
+The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark's `Sv*` categories as the primary measure: those are scored against the *small-variant* truth set, which contains no record over 50 bp at all, so they have almost nothing to match (plan §9.22). The aardvark block below is kept for continuity with earlier runs.
+
+| arm | recall | precision | **F1** | TP-base | FP | FN |
+|---|---|---|---|---|---|---|
+| `poisson` | 0.4889 | 0.5021 | **0.4954** | 374 | 362 | 391 |
+| `poisson-z` | 0.4902 | 0.4959 | 0.4930 | 375 | 372 | 390 |
+| `readlik` | 0.4601 | 0.5052 | 0.4816 | 352 | 332 | 413 |
+| `readlik-nomismap` | 0.4575 | 0.4678 | 0.4626 | 350 | 388 | 415 |
+| `readlik-z` | 0.4654 | 0.5007 | 0.4824 | 356 | 344 | 409 |
+
+## Structural variants — aardvark (secondary)
+
+Kept for continuity. These categories are scored against the small-variant truth set and should not be read as the SV result; prefer the truvari table above.
 
 **Precision here is recomputed, not read from aardvark.** Its summary leaves `query_total`/`query_tp`/`query_fp` at zero for the `Sv*` categories, so its own precision and F1 come out as 0/0. The per-variant `BD` decisions *are* in its annotated query VCF, so precision is counted from those over query variants of >=50 bp; recall is the published summary value; F1 is derived from the two.
 
@@ -152,23 +167,25 @@ Of 176,623 chr20 truth records only **2,052 are >=50 bp** — the rest is the lo
 
 \* recomputed as described above. The per-variant counts are shared across the three SV rows because they are counted over all >=50 bp query variants, not split by insertion/deletion; only recall is category-specific.
 
-## Calibration: the mismapping floor
+## Calibration: the two mismapping clamps
 
-MAPQ measures confidence that a read is in the right *place*, not that its path through a given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats from one read** at the old floor of 1e-8. Raising the floor caps that veto.
+MAPQ measures confidence that a read is in the right *place*, not that its path through a given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats from one read** at the old floor of 1e-8. The floor caps that veto; the current default is **0.02**.
 
-The *upper* clamp (`--mismap-max`) is inert here: it binds only where `e_r` is already large, i.e. the 6.3% of reads at MAPQ ≤ 9, while 90% are MAPQ 60.
+The *upper* clamp (`--mismap-max`) looked inert on this graph, because it binds only where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. **That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising the default to **0.5** removed 94% of the excess false-positive SNVs. A clamp that is inert on a sparse graph is not thereby harmless — see [tier2-chr20-hap32.md](tier2-chr20-hap32.md) and plan §9.20.
 
 | `readlik-z` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |
 |---|---|---|---|---|---|
-| floor 1e-8 (old default) | 0.9370 | 0.9759 | 0.7783 | 0.8231 | 0.8686 |
-| **floor 0.01 (current default)** | 0.9490 | 0.9757 | 0.8293 | 0.8771 | 0.9041 |
-| floor 0.05 | 0.9495 | 0.9745 | 0.8346 | 0.8840 | 0.8954 |
+| floor 1e-8, cap 0.1 (original defaults) | 0.9370 | 0.9759 | 0.7783 | 0.8231 | 0.8686 |
+| **floor 0.02, cap 0.5 (current defaults)** | 0.9490 | 0.9757 | 0.8293 | 0.8771 | 0.9041 |
+| floor 0.05, cap 0.1 | 0.9495 | 0.9745 | 0.8346 | 0.8840 | 0.8954 |
 | cap 0.2, floor 1e-8 | 0.9370 | 0.9759 | 0.7783 | 0.8233 | 0.8674 |
 | cap 0.4, floor 1e-8 | 0.9370 | 0.9758 | 0.7785 | 0.8234 | 0.8710 |
 
-Raising the floor to 0.01 changed **1,493 genotypes (1.41%)**, of which **94% were heterozygous → homozygous** (1/0→1/1: 614, 0/1→1/1: 606, 1/2→1/1: 184), and dropped 1,251 spurious non-reference calls. The failure it corrects is spurious heterozygosity: a few locally misaligned reads, each able to veto the homozygous hypothesis almost without bound, conjuring a second allele that is not there.
+Sweep rows other than the current one are historical: they were produced at the defaults in force at the time and are kept because the comparison between them is the result. The full grids are in plan §9.20-§9.21.
 
-Calibrated on one chromosome of one sample. 0.05 is better on indel `GT` but costs SNVs and BASEPAIR, so the optimum lies between and is not worth over-fitting here.
+Raising the floor off 1e-8 changed **1,493 genotypes (1.41%)** on chr20, of which **94% were heterozygous → homozygous** (1/0→1/1: 614, 0/1→1/1: 606, 1/2→1/1: 184), and dropped 1,251 spurious non-reference calls. The failure it corrects is spurious heterozygosity: a few locally misaligned reads, each able to veto the homozygous hypothesis almost without bound, conjuring a second allele that is not there.
+
+The floor was later re-swept at the corrected cap, on both graphs and both benchmarks, and settled at **0.02**. 0.05 wins on small-variant `GT` but costs about 0.01 of SV F1 — which the first sweep never saw, because it was scored on one benchmark only. Plan §9.21 records that as a process rule: a sweep that sets a default has to be scored on every benchmark the project runs.
 
 ## Known bad output
 
@@ -188,7 +205,16 @@ Chromosome-median DP is **29**, and the Poisson caller's expected depth (`XD`) n
 
 The read-likelihood model cannot reject them, and the reason is structural rather than a tuning failure: it computes P(reads | genotype) **conditioned on the reads it is given**, and never asks whether that many reads should be there. The Poisson caller gets this for free, because an observed-vs-expected depth term is the whole of its model. A depth-plausibility guard is the obvious remedy, and the expected depth is already reachable — the read-likelihood caller subclasses `SupportBasedSnarlCaller` and holds a `TraversalSupportFinder` for allele enumeration.
 
-Filtering on depth is **not** that remedy, and the measurement says so plainly: dropping every call above DP 200 removes 195 records including all of the giants above, and moves insertion BASEPAIR precision by 0.0001 (0.6226 → 0.6227). Dropping above DP 58 removes 1,202 records and does help (+0.087), but costs SV insertion recall 0.4976 → 0.4167 — it is a blunt proxy for length that discards real SVs. The giants are bad output that no metric charges for; they should be fixed because they are wrong, not because they cost a score.
+Filtering on depth is **not** that remedy, and that has now been tested properly rather than by two spot checks. Sweeping a two-sided cut on DP over a rolling local median, across both chromosomes and both graphs, against the one test a hard filter has to pass — beat lowering the GQ threshold to the same recall:
+
+- a **minimum** fails in all eight dataset-by-benchmark cells. Few reads already means a small likelihood gap, so low depth depresses GQ on its own and a separate cut adds nothing;
+- a **maximum** passes in exactly one configuration — 5x the local median, structural calls, 34-haplotype graph, worth about +0.025 precision — and is dominated everywhere else. The two original spot checks (DP 200 moving insertion BASEPAIR precision by 0.0001; DP 58 helping by +0.087 but costing SV insertion recall 0.4976 to 0.4167) were both right and both too narrow to conclude from.
+
+What shipped instead attacks the same blindness from the other side: **GQ is now scaled by the fraction of reads the called genotype explains**, so a pile-up the call does not account for can no longer carry a saturated quality. The giants remain output that no metric charges for — they should be fixed because they are wrong, not because they cost a score — but they no longer look confident. See [tier2-quality-signals.md](tier2-quality-signals.md).
+
+## Quality fields
+
+Every arm above is scored at **every** GQ, so nothing on this page depends on the quality field. `vg call` emits `AD` (per-allele read support, ties split fractionally), `BL` (mean absolute fit), `GQI` (the raw likelihood-ratio quality) and `GQ` (that ratio scaled by the fraction of reads the called genotype explains). The scaling rescales a quality and does not change a genotype, so **the numbers on this page are unaffected by it**; what it changes is how the calls rank. See [tier2-quality-signals.md](tier2-quality-signals.md).
 
 ## Raw aardvark summary rows
 

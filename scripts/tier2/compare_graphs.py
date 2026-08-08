@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Put the 4-haplotype and 34-haplotype chr20 runs side by side.
+"""Put a contig's 4-haplotype and 34-haplotype runs side by side.
 
-Both runs use the same reads sample, the same truth slices, the same confident regions
-and the same reference sequence (prep_hap32_chr20.sh refuses to proceed unless the two
-graphs' CHM13 paths are byte-identical). What differs is the graph and, unavoidably, the
-alignments: reads mapped to one graph cannot be scored against the other because the node
-ID spaces differ. So a row here is "richer graph, and reads remapped to it" -- which is
-what adopting such a graph actually involves, but it is not a single-variable experiment
-and the tables say so.
+Both runs use the same reads sample, the same truth slices, the same confident regions and
+the same reference sequence -- prep_contig.sh extracts the FASTA from *each* graph and
+refuses to proceed unless the two are byte-identical, so a difference here can never be a
+coordinate mismatch. What differs is the graph and, unavoidably, the alignments: reads
+mapped to one graph cannot be scored against the other because the node ID spaces differ.
+A row is therefore "richer graph, and reads remapped to it" -- which is what adopting such
+a graph actually involves, but it is not a single-variable experiment and the page says so.
 
 The interesting column is `-z`. Those arms enumerate alleles from the GBWT haplotypes, so
 going from 4 to 34 haplotypes changes what alleles are *available to call* rather than how
-they are scored. The design doc's tier-2 finding was that enumeration matters more than the
-genotyper, especially for SVs; this is the direct test of that.
+they are scored.
+
+**Structural variants come from truvari, not aardvark.** aardvark is scored against the
+small-variant benchmark, which contains no record at all above 50 bp, so its Sv* categories
+have almost nothing to score against and its summary leaves the query columns at zero
+besides. Plan §9.22 established truvari as the SV metric; the aardvark SV block is still
+emitted when the artefacts exist, clearly marked as secondary.
 """
 
 from __future__ import annotations
@@ -40,13 +45,21 @@ def load_arms(path: Path) -> dict[str, dict]:
     return {e["arm"]: e for e in json.loads(path.read_text())}
 
 
+def load_truvari(results: Path) -> dict[str, dict]:
+    """Per-arm truvari summaries, the primary SV metric."""
+    out = {}
+    for arm in ARM_ORDER:
+        p = results / f"truvari-{arm}" / "summary.json"
+        if p.exists():
+            out[arm] = json.loads(p.read_text())
+    return out
+
+
 def sv_precision(results: Path, arm: str) -> float | None:
     """Recompute SV precision from aardvark's per-variant decisions.
 
-    Its summary leaves query_total/query_tp/query_fp at zero for the Sv* categories, so
-    the published precision and F1 come out as 0/0. Recall is fine and is used as
-    published. Without this, a run that called far more SVs would look like a pure
-    recall win when it had in fact traded precision away.
+    Its summary leaves query_total/query_tp/query_fp at zero for the Sv* categories, so the
+    published precision and F1 come out as 0/0. Recall is fine and is used as published.
     """
     p = results / f"aardvark-sv-{arm}" / "query.vcf.gz"
     if not p.exists():
@@ -108,27 +121,34 @@ def delta(a, b):
     """b - a, rendered with a sign, or an em dash if either side is missing."""
     if a is None or b is None:
         return "—"
-    d = b - a
-    return f"{d:+.4f}"
+    return f"{b - a:+.4f}"
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--old", default=str(REPO / "work/tier2-chr20/results"))
-    p.add_argument("--new", default=str(REPO / "work/tier2-chr20-hap32/results"))
-    p.add_argument("--out", default=str(REPO / "docs/tier2-chr20-hap32.md"))
+    p.add_argument("--contig", default="chr20")
+    p.add_argument("--old")
+    p.add_argument("--new")
+    p.add_argument("--out")
     args = p.parse_args()
 
-    old_res, new_res = Path(args.old), Path(args.new)
+    c = args.contig
+    old_res = Path(args.old or REPO / f"work/tier2-{c}/results")
+    new_res = Path(args.new or REPO / f"work/tier2-{c}-hap32/results")
+    out_path = Path(args.out or REPO / f"docs/tier2-{c}-hap32.md")
+
     old = load_arms(old_res / "arms.json")
     new = load_arms(new_res / "arms.json")
     old_sv_rows, new_sv_rows = load_sv(old_res), load_sv(new_res)
+    old_tv, new_tv = load_truvari(old_res), load_truvari(new_res)
+    old_sm = load_arms(old_res / "arms-size-matched.json")
+    new_sm = load_arms(new_res / "arms-size-matched.json")
 
     if not new:
-        raise SystemExit(f"no arms.json under {new_res}; run run_hap32_chr20.sh first")
+        raise SystemExit(f"no arms.json under {new_res}; run the arms first")
 
     L: list[str] = []
-    L.append("# chr20: 4-haplotype vs 34-haplotype graph")
+    L.append(f"# {c}: 4-haplotype vs 34-haplotype graph")
     L.append("")
     L.append("Same sample, same reads, same truth, same confident regions, same reference "
              "sequence. What changes is the graph — and, unavoidably, the alignments.")
@@ -167,9 +187,6 @@ def main() -> None:
                       "BASEPAIR", vtype), "metric_f1")
         return o, n
 
-    old_sm = load_arms(old_res / "arms-size-matched.json")
-    new_sm = load_arms(new_res / "arms-size-matched.json")
-
     L.append("## What this says")
     L.append("")
     L.append("**The read-likelihood caller is better on the richer graph; the Poisson caller is "
@@ -190,20 +207,31 @@ def main() -> None:
              f"34-haplotype one"
              + (f" — {gap_new/gap_old:.1f}x wider." if gap_old else "."))
     L.append("")
+    L.append("**Two directions, and they are not the same direction.** GT F1 rises on the richer "
+             "graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The "
+             "fall is precision, not recall, and plan §9.24 traces it to exposure: 32 extra "
+             "haplotypes offer multi-allelic sites the 4-haplotype graph cannot produce at all, "
+             "and those sites are harder. Multi-allelic records go from about 2.3% of the call set "
+             "to about 3.4% on both chromosomes tested.")
+    L.append("")
     L.append("**This depended on a default that was wrong for graphs like this.** With "
-             "`--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph carried 1,597 "
-             "false-positive SNVs against the 4-haplotype graph's 375, and looked like a "
-             "precision-for-recall trade. The cap was overriding the mapper: at those sites 23.3% "
-             "of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the "
-             "current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the "
-             "derivation; the point for this page is that a caller-level default, not the graph, "
-             "was the difference between the two readings.")
+             "`--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph looked like a "
+             "precision-for-recall trade" +
+             (" — 1,597 false-positive SNVs against the 4-haplotype graph's 375" if c == "chr20"
+              else " (measured on chr20: 1,597 false-positive SNVs against 375)") +
+             ". The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, "
+             "meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that "
+             "excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is "
+             "that a caller-level default, not the graph, was the difference between the two "
+             "readings.")
     L.append("")
-    L.append("**`readlik-nomismap` is the control.** It disables the mismapping term entirely, so "
-             "the cap cannot reach it — and on the richer graph it still carries "
-             f"{int(pick(new.get('readlik-nomismap', {}).get('metrics', {}).get('summary'), 'GT', 'Snv')['query_fp']):,} "
-             "spurious SNVs. The term is what does the work.")
-    L.append("")
+    nm = new.get("readlik-nomismap", {}).get("metrics", {}).get("summary")
+    nm_fp = pick(nm, "GT", "Snv")
+    if nm_fp and nm_fp.get("query_fp"):
+        L.append("**`readlik-nomismap` is the control.** It disables the mismapping term entirely, "
+                 "so the cap cannot reach it — and on the richer graph it still carries "
+                 f"{int(nm_fp['query_fp']):,} spurious SNVs. The term is what does the work.")
+        L.append("")
     o_sm, n_sm = smf1("sm50-readlik-z")
     if o_sm and n_sm:
         L.append(f"Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers — "
@@ -246,40 +274,52 @@ def main() -> None:
                 L.append(f"| `{a}` | {label} | {fmt(ov)} | {fmt(nv)} | {delta(ov, nv)} |")
         L.append("")
 
-    L.append("## Structural variants (GIAB `stvar`)")
-    L.append("")
-    L.append("Recall is aardvark's published value. **Precision is recomputed** from its per-variant "
-             "`BD` decisions, because its summary leaves the query columns at zero for the `Sv*` "
-             "categories — without that, a run calling far more SVs would read as a pure recall win "
-             "when it had traded precision away. F1 is derived from the two.")
-    L.append("")
-    L.append("| arm | 4-hap recall | 34-hap recall | Δ | 4-hap prec | 34-hap prec | Δ | "
-             "4-hap F1 | 34-hap F1 | **Δ F1** |")
-    L.append("|---|---|---|---|---|---|---|---|---|---|")
-    for a in ARM_ORDER:
-        if a not in new_sv_rows:
-            continue
-        orr = fnum(pick(old_sv_rows.get(a), "GT", "JointStructuralVariant"), "metric_recall")
-        nrr = fnum(pick(new_sv_rows[a], "GT", "JointStructuralVariant"), "metric_recall")
-        opp, npp = sv_precision(old_res, a), sv_precision(new_res, a)
-        of, nf = harmonic(orr, opp), harmonic(nrr, npp)
-        L.append(f"| `{a}` | {fmt(orr)} | {fmt(nrr)} | {delta(orr, nrr)} | {fmt(opp)} | {fmt(npp)} | "
-                 f"{delta(opp, npp)} | {fmt(of)} | {fmt(nf)} | **{delta(of, nf)}** |")
-    L.append("")
-    L.append("Per class, recall only:")
-    L.append("")
-    L.append("| arm | class | 4-hap | 34-hap | Δ |")
-    L.append("|---|---|---|---|---|")
-    for a in ARM_ORDER:
-        if a not in new_sv_rows:
-            continue
-        for vtype, label in SV_TYPES[:2]:
-            ov = fnum(pick(old_sv_rows.get(a), "GT", vtype), "metric_recall")
-            nv = fnum(pick(new_sv_rows[a], "GT", vtype), "metric_recall")
-            L.append(f"| `{a}` | {label} | {fmt(ov)} | {fmt(nv)} | {delta(ov, nv)} |")
-    L.append("")
+    if new_tv:
+        L.append("## Structural variants — truvari (GIAB `stvar`)")
+        L.append("")
+        L.append("The SV metric. Reciprocal-overlap matching against the structural benchmark, "
+                 "`--sizemin 50`. This replaced aardvark's `Sv*` categories, which are scored "
+                 "against the *small-variant* truth set and therefore have essentially no truth "
+                 "to match above 50 bp (plan §9.22).")
+        L.append("")
+        L.append("| arm | 4-hap recall | 34-hap recall | 4-hap prec | 34-hap prec | 4-hap F1 | "
+                 "34-hap F1 | **Δ F1** |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for a in ARM_ORDER:
+            if a not in new_tv:
+                continue
+            o, n = old_tv.get(a), new_tv[a]
+            g = lambda d, k: (None if d is None else d.get(k))  # noqa: E731
+            L.append(f"| `{a}` | {fmt(g(o, 'recall'))} | {fmt(g(n, 'recall'))} | "
+                     f"{fmt(g(o, 'precision'))} | {fmt(g(n, 'precision'))} | "
+                     f"{fmt(g(o, 'f1'))} | {fmt(g(n, 'f1'))} | "
+                     f"**{delta(g(o, 'f1'), g(n, 'f1'))}** |")
+        L.append("")
 
-    # Size-matched: the only apples-to-apples read of the BASEPAIR insertion numbers.
+    if new_sv_rows:
+        L.append("## Structural variants — aardvark (secondary)")
+        L.append("")
+        L.append("Kept for continuity with earlier runs. Recall is aardvark's published value; "
+                 "**precision is recomputed** from its per-variant `BD` decisions, because its "
+                 "summary leaves the query columns at zero for the `Sv*` categories. Prefer the "
+                 "truvari table above: these categories are scored against a truth set with no "
+                 "record over 50 bp.")
+        L.append("")
+        L.append("| arm | 4-hap recall | 34-hap recall | Δ | 4-hap prec | 34-hap prec | Δ | "
+                 "4-hap F1 | 34-hap F1 | **Δ F1** |")
+        L.append("|---|---|---|---|---|---|---|---|---|---|")
+        for a in ARM_ORDER:
+            if a not in new_sv_rows:
+                continue
+            orr = fnum(pick(old_sv_rows.get(a), "GT", "JointStructuralVariant"), "metric_recall")
+            nrr = fnum(pick(new_sv_rows[a], "GT", "JointStructuralVariant"), "metric_recall")
+            opp, npp = sv_precision(old_res, a), sv_precision(new_res, a)
+            of, nf = harmonic(orr, opp), harmonic(nrr, npp)
+            L.append(f"| `{a}` | {fmt(orr)} | {fmt(nrr)} | {delta(orr, nrr)} | {fmt(opp)} | "
+                     f"{fmt(npp)} | {delta(opp, npp)} | {fmt(of)} | {fmt(nf)} | "
+                     f"**{delta(of, nf)}** |")
+        L.append("")
+
     if new_sm:
         L.append("## Small variants restricted to <50 bp — BASEPAIR")
         L.append("")
@@ -295,7 +335,8 @@ def main() -> None:
         for a in ("sm50-poisson-z", "sm50-readlik-z"):
             if a not in new_sm:
                 continue
-            for vtype, label in (("Insertion", "Insertion"), ("Deletion", "Deletion"), ("ALL", "ALL")):
+            for vtype, label in (("Insertion", "Insertion"), ("Deletion", "Deletion"),
+                                 ("ALL", "ALL")):
                 o_rows = old_sm.get(a, {}).get("metrics", {}).get("summary")
                 n_rows = new_sm[a]["metrics"]["summary"]
                 orr = fnum(pick(o_rows, "BASEPAIR", vtype), "metric_recall")
@@ -308,8 +349,18 @@ def main() -> None:
                          f"{fmt(of)} | {fmt(nf)} | **{delta(of, nf)}** |")
         L.append("")
 
-    Path(args.out).write_text("\n".join(L) + "\n")
-    print(f"wrote {args.out}")
+    L.append("## Quality fields")
+    L.append("")
+    L.append("Every arm above is scored at **every** GQ, so nothing on this page depends on the "
+             "quality field. It matters for how the calls rank, which is a separate page: see "
+             "[tier2-quality-signals.md](tier2-quality-signals.md). In short, `vg call` now emits "
+             "`AD`, `BL` and `GQI` alongside `GQ`, and `GQ` is scaled by the fraction of reads the "
+             "called genotype explains. That rescales a quality and does not change a genotype, so "
+             "**the unfiltered numbers on this page are unaffected by it**.")
+    L.append("")
+
+    out_path.write_text("\n".join(L) + "\n")
+    print(f"wrote {out_path}")
 
 
 if __name__ == "__main__":

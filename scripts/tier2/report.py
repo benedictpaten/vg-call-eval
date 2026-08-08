@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Render the full tier-2 chr20 results: SNVs, small indels, and structural variants.
+"""Render one contig's full tier-2 results: SNVs, small indels, and structural variants.
 
-Reads the aardvark output directories written by run_arms.py (small-variant benchmark)
-and compare_sv.py (structural-variant benchmark). Kept separate from both so the tables
-can be regenerated without re-running any calling or comparison.
+Reads the aardvark output directories written by run_arms.py (small-variant benchmark) and
+the truvari directories written by truvari_sv.py (structural benchmark). Kept separate from
+both so the tables can be regenerated without re-running any calling or comparison.
 
-One number here is computed rather than read. Aardvark's summary.tsv reports
-`truth_total` and `truth_tp` for the SvInsertion / SvDeletion / JointStructuralVariant
-categories, but leaves `query_total`, `query_tp` and `query_fp` at zero -- so its own
-precision and F1 columns come out as 0/0 and are unusable for those rows. The per-variant
-decisions *are* present in aardvark's annotated query VCF, so SV precision is recomputed
-here by counting BD=TP against BD=FP over query variants of >=50 bp. Recall is taken from
-the summary as published.
+`--contig` selects the dataset; per-contig facts in the header are measured from the work
+directory rather than typed in. A handful of narrative blocks quote per-site measurements
+made on chr20 and are labelled as such when the page is built for another contig.
+
+**SVs come from truvari.** aardvark's Sv* categories are scored against the *small-variant*
+truth set, which holds no record over 50 bp, so there is next to nothing for them to match;
+its summary also leaves query_total/query_tp/query_fp at zero for those rows, making its own
+precision and F1 come out 0/0. The aardvark SV block is still emitted for continuity with
+earlier runs, with precision recomputed from the per-variant BD decisions in its annotated
+query VCF, but it is secondary and the page says so.
 """
 
 from __future__ import annotations
@@ -27,11 +30,11 @@ REPO = HERE.parent.parent
 
 ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap", "readlik-z"]
 
-# The mismapping floor (--mismap-min) was raised from 1e-8 to 0.01 after measurement
-# showed the old value let a single MAPQ 60 read veto an allele by -13.8 nats. Arms run
-# before that change are kept and labelled rather than discarded: the comparison between
-# them *is* the result. poisson and poisson-z do not use the read-likelihood model at
-# all, so the change cannot affect them and they are not re-run.
+# The mismapping floor (--mismap-min) went 1e-8 -> 0.01 -> 0.05 -> 0.02, and the cap
+# (--mismap-max) 0.1 -> 0.5; the current defaults are 0.02 and 0.5. Arms run at the older
+# values are kept and labelled rather than discarded, because the comparison between them
+# *is* the result. poisson and poisson-z do not use the read-likelihood model at all, so
+# neither clamp can reach them and they are not re-run.
 FLOOR_UNAFFECTED = {"poisson", "poisson-z"}
 CALIB_ARMS = [("fl0.05", "readlik-z, floor 0.05"),
               ("mm0.2", "readlik-z, cap 0.2"),
@@ -105,10 +108,18 @@ def num(r, key: str):
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--results", default=str(REPO / "work/tier2-chr20/results"))
-    p.add_argument("--out", default=str(REPO / "docs/tier2-chr20-results.md"))
+    p.add_argument("--contig", default="chr20")
+    p.add_argument("--results")
+    p.add_argument("--out")
     args = p.parse_args()
-    res = Path(args.results)
+    c = args.contig
+    res = Path(args.results or REPO / f"work/tier2-{c}/results")
+    out_path = Path(args.out or REPO / f"docs/tier2-{c}-results.md")
+    # Several narrative blocks below quote per-site measurements made on chr20 -- the
+    # pericentromeric pile-ups, the 246 large-insertion calls, the floor-change genotype
+    # counts. Those are chr20 facts, not general ones, so they are gated rather than
+    # reprinted under another contig's heading with chr20's numbers.
+    is_chr20 = (c == "chr20")
 
     # arms*.json would also match arms-sv.json, whose entries would then overwrite the
     # small-variant ones (same arm names, newer mtime). Load the small-variant batches
@@ -131,25 +142,48 @@ def main() -> None:
             sv[a_] = {"arm": a_, "metrics": {"summary": list(_csv.DictReader(open(sp), delimiter="\t"))}}
 
     L: list[str] = []
-    L.append("# Tier 2 results: HG002 chr20 on HPRC v2.1 MC CHM13")
+    L.append(f"# Tier 2 results: HG002 {c} on HPRC v2.1 MC CHM13")
     L.append("")
     L.append("Real reads, real benchmark, run on a 32 GB laptop.")
     L.append("")
+    # Per-contig facts are measured from the prepared work directory rather than typed in.
+    # The chr20 page previously carried them as literals, which is how the node count and
+    # region sizes would have silently followed the file around to another contig.
+    work = res.parent
+    def _wc(path: Path) -> int | None:
+        try:
+            return sum(1 for _ in path.open())
+        except OSError:
+            return None
+    def _bed_span(path: Path) -> float | None:
+        try:
+            return sum(int(f[2]) - int(f[1])
+                       for f in (l.split() for l in path.open()) if len(f) >= 3) / 1e6
+        except OSError:
+            return None
+    nodes = _wc(work / f"{c}_all_nodes.txt")
+    sm_mb, sv_mb = _bed_span(work / f"truth.{c}.smvar.bed"), _bed_span(work / f"truth.{c}.stvar.bed")
+
     L.append("| | |")
     L.append("|---|---|")
     L.append("| graph | `hprc-v2.1-mc-chm13-eval.HG002.gbz`, 100,179,277 nodes, **4 haplotypes** "
              "(CHM13, GRCh38, 2 recombinants). HG002 itself is **absent** — no circularity |")
-    L.append("| chromosome | chr20 component, 2,382,533 nodes, IDs 114,818,865–121,250,404 |")
-    L.append("| reads | 596,017,764 alignments genome-wide (~28.6×), 13,279,246 on chr20; "
-             "151 bp paired Illumina |")
+    L.append(f"| chromosome | {c} component"
+             + (f", {nodes:,} nodes" if nodes else "") + " |")
+    L.append("| reads | 596,017,764 alignments genome-wide (~28.6×); 151 bp paired Illumina |")
     L.append("| truth | GIAB HG002 **draft** benchmark, defrabb V0.019-20241113, CHM13v2.0 |")
-    L.append("| regions | small variants 58.9 Mb (88.9% of chr20); SVs 59.4 Mb (89.6%) |")
-    L.append("| engine | `aardvark compare`; SV runs use `--min-variant-gap 1000` + record-basepair |")
+    L.append("| regions | "
+             + (f"small variants {sm_mb:.1f} Mb" if sm_mb else "small variants —")
+             + (f"; SVs {sv_mb:.1f} Mb" if sv_mb else "") + " |")
+    L.append("| engine | `aardvark compare` for small variants; `truvari bench --sizemin 50` "
+             "for SVs |")
     L.append("")
-    L.append("**All read-likelihood arms below use `--mismap-min 0.01`**, the current default. That floor "
-             "caps how much one read can veto an allele; it was raised from 1e-8 after measurement, and "
-             "the before/after comparison is in the calibration section at the end. `poisson` and "
-             "`poisson-z` do not use the read-likelihood model, so the change cannot affect them.")
+    L.append("**All read-likelihood arms below run at the current clamp defaults, "
+             "`--mismap-min 0.02` and `--mismap-max 0.5`.** The floor caps how much one read can veto "
+             "an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by "
+             "measurement — the floor from 1e-8, the cap down from an original 0.1 that was actively "
+             "wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. "
+             "`poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.")
     L.append("")
     L.append("**Read the caveats before the numbers.** The benchmark is a *draft*: its own README "
              "reports known errors in highly homozygous regions, homopolymers and tandem repeats, and "
@@ -159,10 +193,18 @@ def main() -> None:
 
     L.append("## Cost")
     L.append("")
-    L.append("The read path was optimised after the accuracy results below were first produced "
-             "(vg `44fd008`); the calls are byte-identical, only the cost changed. `readlik-z` went "
-             "**506 s to 97 s**, so the read-likelihood caller is now **1.35x** the Poisson caller "
-             "at matched enumeration rather than 5.9x — and `readlik` is now *faster* than `poisson`.")
+    L.append("Every arm on this page was re-run together on one build, so the wall-clock column "
+             "compares runs made on the same machine in the same session rather than a mixture of "
+             "vintages.")
+    L.append("")
+    L.append("Two changes since the accuracy results were first produced left the calls untouched. "
+             "The read path was optimised (vg `44fd008`)" +
+             (" — on chr20 `readlik-z` went **506 s to under 100 s**, so the read-likelihood caller "
+              "is now near parity with the Poisson caller at matched enumeration rather than 5.9x, "
+              "and `readlik` is *faster* than `poisson`" if is_chr20 else "") +
+             ". Then `AD`, `BL`, `GQI` and the explained-share scaling of `GQ` were added — which "
+             "rescales a quality and does not change a genotype. Both are confirmed by the variant "
+             "counts below, which are unchanged to the record.")
     L.append("")
     L.append("| arm | enumeration | pack? | variants | wall | peak RSS |")
     L.append("|---|---|---|---|---|---|")
@@ -212,16 +254,24 @@ def main() -> None:
         L.append("The insertion `BASEPAIR` precision above understates the read-likelihood caller, "
                  "and the reason is a property of the benchmark rather than of either caller.")
         L.append("")
+        overlap = (f" ({sm_mb:.1f} Mb vs {sv_mb:.1f} Mb)" if sm_mb and sv_mb else "")
         L.append("**The `smvar` truth set contains no record >=50 bp** — that size class lives in the "
-                 "separate `stvar` benchmark. But the two confident regions overlap almost completely "
-                 "(58.9 Mb vs 59.4 Mb). So a >=50 bp insertion called inside the small-variant "
-                 "confident region has every one of its bases scored FP, however right the call is. "
-                 "It cannot be scored correct.")
+                 f"separate `stvar` benchmark. But the two confident regions overlap almost completely"
+                 f"{overlap}. So a >=50 bp insertion called inside the small-variant confident region "
+                 "has every one of its bases scored FP, however right the call is. It cannot be "
+                 "scored correct.")
         L.append("")
-        L.append("That is exactly where the gap lives. 246 `readlik-z` calls carry a >=200 bp "
-                 "insertion allele; they contribute **27,951 FP bases and zero TP bases**, which is "
-                 "the whole of the precision difference. The Poisson caller scores better there "
-                 "because it does not emit them — at the two largest sites it emits nothing at all.")
+        if is_chr20:
+            L.append("That is exactly where the gap lives. 246 `readlik-z` calls carry a >=200 bp "
+                     "insertion allele; they contribute **27,951 FP bases and zero TP bases**, which "
+                     "is the whole of the precision difference. The Poisson caller scores better "
+                     "there because it does not emit them — at the two largest sites it emits "
+                     "nothing at all.")
+        else:
+            L.append("The same mechanism was traced site by site on chr20, where 246 `readlik-z` "
+                     "calls carrying a >=200 bp insertion allele contribute 27,951 FP bases and zero "
+                     "TP bases — the whole of the precision difference there. The size-matched "
+                     "control below is the general test.")
         L.append("")
         L.append("Restricting **both** callers to the range the benchmark can adjudicate (dropping any "
                  "record with a called allele >=50 bp from REF, applied identically to each) gives the "
@@ -240,23 +290,70 @@ def main() -> None:
                 L.append(f"| `{label}` | {vlabel} | {f(num(bp,'metric_recall'))} | "
                          f"{f(num(bp,'metric_precision'))} | **{f(num(bp,'metric_f1'))}** |")
         L.append("")
-        L.append("The insertion BASEPAIR precision gap collapses from **0.139 to 0.008**, and "
-                 "insertion BASEPAIR F1 flips from a 0.047 loss into a 0.047 win. There is no "
-                 "insertion-sequence defect in the likelihood model; what the unrestricted number "
-                 "measures is that one caller emits large insertions and the other does not.")
+        # Computed from this contig's own numbers. Hard-coding chr20's 0.139 -> 0.008 is how
+        # the claim would have followed the page to another chromosome and been wrong there.
+        def _sm(arm, key, vtype="Insertion"):
+            return num(pick(sized.get(arm, {}).get("metrics", {}).get("summary", []),
+                            "BASEPAIR", vtype), key)
+        gap_un = None
+        up = pick(small.get("poisson-z", {}).get("metrics", {}).get("summary", []),
+                  "BASEPAIR", "Insertion")
+        ur = pick(small.get("readlik-z", {}).get("metrics", {}).get("summary", []),
+                  "BASEPAIR", "Insertion")
+        if up and ur:
+            gap_un = (num(up, "metric_precision") or 0) - (num(ur, "metric_precision") or 0)
+        gp, gr = _sm("sm50-poisson-z", "metric_precision"), _sm("sm50-readlik-z", "metric_precision")
+        gap_sm = (gp - gr) if (gp is not None and gr is not None) else None
+        fp_, fr_ = _sm("sm50-poisson-z", "metric_f1"), _sm("sm50-readlik-z", "metric_f1")
+        if gap_un is not None and gap_sm is not None:
+            L.append(f"The insertion BASEPAIR precision gap collapses from **{gap_un:.3f} to "
+                     f"{gap_sm:.3f}**"
+                     + (f", and insertion BASEPAIR F1 goes from {fp_:.4f} for `poisson-z` against "
+                        f"{fr_:.4f} for `readlik-z`" if (fp_ and fr_) else "") + ".")
+        L.append("There is no insertion-sequence defect in the likelihood model; what the "
+                 "unrestricted number measures is that one caller emits large insertions and the "
+                 "other does not.")
         L.append("")
-        L.append("Whether those large calls are *correct* is a separate question, and the `stvar` "
-                 "comparison below is what answers it: they are a net win there (SV insertion recall "
-                 "0.4976 vs 0.4263), but of the 246, only **35 are confirmed true**, **73 are "
-                 "confirmed false**, and **138 fall outside the SV confident region** and cannot be "
-                 "judged at all. See *Known bad output* for the worst of the unjudged ones.")
+        L.append("Whether those large calls are *correct* is a separate question, and the truvari "
+                 "comparison below is what answers it." +
+                 (" On chr20, of the 246, only **35 are confirmed true**, **73 are confirmed "
+                  "false**, and **138 fall outside the SV confident region** and cannot be judged "
+                  "at all. See *Known bad output* for the worst of the unjudged ones."
+                  if is_chr20 else ""))
         L.append("")
 
-    L.append("## Structural variants (GIAB `stvar` benchmark)")
+    tv = {}
+    for a_ in ARM_ORDER:
+        tp_ = res / f"truvari-{a_}" / "summary.json"
+        if tp_.exists():
+            tv[a_] = json.loads(tp_.read_text())
+    if tv:
+        L.append("## Structural variants — truvari (GIAB `stvar` benchmark)")
+        L.append("")
+        L.append("The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark's "
+                 "`Sv*` categories as the primary measure: those are scored against the "
+                 "*small-variant* truth set, which contains no record over 50 bp at all, so they have "
+                 "almost nothing to match (plan §9.22). The aardvark block below is kept for "
+                 "continuity with earlier runs.")
+        L.append("")
+        L.append("| arm | recall | precision | **F1** | TP-base | FP | FN |")
+        L.append("|---|---|---|---|---|---|---|")
+        best_tv = max((v.get("f1") or 0) for v in tv.values())
+        for a_ in ARM_ORDER:
+            if a_ not in tv:
+                continue
+            v = tv[a_]
+            mk = "**" if v.get("f1") and abs(v["f1"] - best_tv) < 1e-9 else ""
+            L.append(f"| `{a_}` | {f(v.get('recall'))} | {f(v.get('precision'))} | "
+                     f"{mk}{f(v.get('f1'))}{mk} | {int(v.get('TP-base', 0)):,} | "
+                     f"{int(v.get('FP', 0)):,} | {int(v.get('FN', 0)):,} |")
+        L.append("")
+
+    if sv:
+      L.append("## Structural variants — aardvark (secondary)")
     L.append("")
-    L.append("Of 176,623 chr20 truth records only **2,052 are >=50 bp** — the rest is the local "
-             "sequence context an SV-aware haplotype comparison needs to place the SV. The rows below "
-             "are the SV-specific categories, not the whole benchmark.")
+    L.append("Kept for continuity. These categories are scored against the small-variant truth set "
+             "and should not be read as the SV result; prefer the truvari table above.")
     L.append("")
     L.append("**Precision here is recomputed, not read from aardvark.** Its summary leaves "
              "`query_total`/`query_tp`/`query_fp` at zero for the `Sv*` categories, so its own "
@@ -288,15 +385,21 @@ def main() -> None:
              "insertion/deletion; only recall is category-specific.")
     L.append("")
 
-    L.append("## Calibration: the mismapping floor")
+    L.append("## Calibration: the two mismapping clamps")
     L.append("")
     L.append("MAPQ measures confidence that a read is in the right *place*, not that its path through a "
              "given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term "
              "cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats "
-             "from one read** at the old floor of 1e-8. Raising the floor caps that veto.")
+             "from one read** at the old floor of 1e-8. The floor caps that veto; the current default "
+             "is **0.02**.")
     L.append("")
-    L.append("The *upper* clamp (`--mismap-max`) is inert here: it binds only where `e_r` is already "
-             "large, i.e. the 6.3% of reads at MAPQ ≤ 9, while 90% are MAPQ 60.")
+    L.append("The *upper* clamp (`--mismap-max`) looked inert on this graph, because it binds only "
+             "where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. "
+             "**That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was "
+             "overriding the mapper at exactly the sites that matter: 23.3% of reads sit at MAPQ 1, "
+             "meaning p(wrong) = 0.79, and were being told 0.1. Raising the default to **0.5** removed "
+             "94% of the excess false-positive SNVs. A clamp that is inert on a sparse graph is not "
+             "thereby harmless — see [tier2-chr20-hap32.md](tier2-chr20-hap32.md) and plan §9.20.")
     L.append("")
     L.append("| `readlik-z` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |")
     L.append("|---|---|---|---|---|---|")
@@ -327,26 +430,37 @@ def main() -> None:
         return (f"| {label} | {g('GT','ALL')} | {g('GT','Snv')} | {g('GT','Insertion')} | "
                 f"{g('GT','Deletion')} | {g('BASEPAIR','ALL')} |")
 
-    for tag, label, src in [("readlik-z", "floor 1e-8 (old default)", old),
-                            ("readlik-z", "**floor 0.01 (current default)**", small),
-                            ("fl0.05", "floor 0.05", None),
+    # `small` is whatever the arms were last run at, so it must be labelled as the current
+    # default rather than pinned to a value. It was labelled "floor 0.01" for two default
+    # changes after that stopped being true.
+    for tag, label, src in [("readlik-z", "floor 1e-8, cap 0.1 (original defaults)", old),
+                            ("readlik-z", "**floor 0.02, cap 0.5 (current defaults)**", small),
+                            ("fl0.05", "floor 0.05, cap 0.1", None),
                             ("mm0.2", "cap 0.2, floor 1e-8", None),
                             ("mm0.4", "cap 0.4, floor 1e-8", None)]:
         row = calib_row(tag, label, src)
         if row:
             L.append(row)
     L.append("")
-    L.append("Raising the floor to 0.01 changed **1,493 genotypes (1.41%)**, of which **94% were "
-             "heterozygous → homozygous** (1/0→1/1: 614, 0/1→1/1: 606, 1/2→1/1: 184), and dropped 1,251 "
-             "spurious non-reference calls. The failure it corrects is spurious heterozygosity: a few "
-             "locally misaligned reads, each able to veto the homozygous hypothesis almost without "
-             "bound, conjuring a second allele that is not there.")
+    L.append("Sweep rows other than the current one are historical: they were produced at the "
+             "defaults in force at the time and are kept because the comparison between them is the "
+             "result. The full grids are in plan §9.20-§9.21.")
+    if is_chr20:
+        L.append("")
+        L.append("Raising the floor off 1e-8 changed **1,493 genotypes (1.41%)** on chr20, of which "
+                 "**94% were heterozygous → homozygous** (1/0→1/1: 614, 0/1→1/1: 606, 1/2→1/1: 184), "
+                 "and dropped 1,251 spurious non-reference calls. The failure it corrects is spurious "
+                 "heterozygosity: a few locally misaligned reads, each able to veto the homozygous "
+                 "hypothesis almost without bound, conjuring a second allele that is not there.")
     L.append("")
-    L.append("Calibrated on one chromosome of one sample. 0.05 is better on indel `GT` but costs SNVs "
-             "and BASEPAIR, so the optimum lies between and is not worth over-fitting here.")
+    L.append("The floor was later re-swept at the corrected cap, on both graphs and both benchmarks, "
+             "and settled at **0.02**. 0.05 wins on small-variant `GT` but costs about 0.01 of SV F1 "
+             "— which the first sweep never saw, because it was scored on one benchmark only. Plan "
+             "§9.21 records that as a process rule: a sweep that sets a default has to be scored on "
+             "every benchmark the project runs.")
     L.append("")
 
-    L.append("## Known bad output")
+    L.append("## Known bad output" + ("" if is_chr20 else f" (measured on chr20)"))
     L.append("")
     L.append("Neither benchmark scores these, so they appear in no metric on this page. They are "
              "recorded because they are plainly wrong and would mislead anyone reading the VCF.")
@@ -376,13 +490,37 @@ def main() -> None:
              "reachable — the read-likelihood caller subclasses `SupportBasedSnarlCaller` and holds a "
              "`TraversalSupportFinder` for allele enumeration.")
     L.append("")
-    L.append("Filtering on depth is **not** that remedy, and the measurement says so plainly: "
-             "dropping every call above DP 200 removes 195 records including all of the giants above, "
-             "and moves insertion BASEPAIR precision by 0.0001 (0.6226 → 0.6227). Dropping above DP 58 "
-             "removes 1,202 records and does help (+0.087), but costs SV insertion recall "
-             "0.4976 → 0.4167 — it is a blunt proxy for length that discards real SVs. The giants are "
-             "bad output that no metric charges for; they should be fixed because they are wrong, not "
-             "because they cost a score.")
+    L.append("Filtering on depth is **not** that remedy, and that has now been tested properly "
+             "rather than by two spot checks. Sweeping a two-sided cut on DP over a rolling local "
+             "median, across both chromosomes and both graphs, against the one test a hard filter has "
+             "to pass — beat lowering the GQ threshold to the same recall:")
+    L.append("")
+    L.append("- a **minimum** fails in all eight dataset-by-benchmark cells. Few reads already means "
+             "a small likelihood gap, so low depth depresses GQ on its own and a separate cut adds "
+             "nothing;")
+    L.append("- a **maximum** passes in exactly one configuration — 5x the local median, structural "
+             "calls, 34-haplotype graph, worth about +0.025 precision — and is dominated everywhere "
+             "else. The two original spot checks (DP 200 moving insertion BASEPAIR precision by "
+             "0.0001; DP 58 helping by +0.087 but costing SV insertion recall 0.4976 to 0.4167) were "
+             "both right and both too narrow to conclude from.")
+    L.append("")
+    L.append("What shipped instead attacks the same blindness from the other side: **GQ is now scaled "
+             "by the fraction of reads the called genotype explains**, so a pile-up the call does not "
+             "account for can no longer carry a saturated quality. The giants remain output that no "
+             "metric charges for — they should be fixed because they are wrong, not because they cost "
+             "a score — but they no longer look confident. See "
+             "[tier2-quality-signals.md](tier2-quality-signals.md).")
+    L.append("")
+
+    L.append("## Quality fields")
+    L.append("")
+    L.append("Every arm above is scored at **every** GQ, so nothing on this page depends on the "
+             "quality field. `vg call` emits `AD` (per-allele read support, ties split "
+             "fractionally), `BL` (mean absolute fit), `GQI` (the raw likelihood-ratio quality) and "
+             "`GQ` (that ratio scaled by the fraction of reads the called genotype explains). The "
+             "scaling rescales a quality and does not change a genotype, so **the numbers on this "
+             "page are unaffected by it**; what it changes is how the calls rank. See "
+             "[tier2-quality-signals.md](tier2-quality-signals.md).")
     L.append("")
 
     L.append("## Raw aardvark summary rows")
@@ -404,8 +542,8 @@ def main() -> None:
             L.append("</details>")
             L.append("")
 
-    Path(args.out).write_text("\n".join(L) + "\n")
-    print(f"wrote {args.out}")
+    out_path.write_text("\n".join(L) + "\n")
+    print(f"wrote {out_path}")
 
 
 if __name__ == "__main__":

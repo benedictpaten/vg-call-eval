@@ -24,7 +24,9 @@ The rows to watch are the **`-z` arms**, which enumerate alleles from the GBWT h
 
 The read-likelihood caller's margin over the Poisson caller goes from **+0.0131** on the 4-haplotype graph to **+0.0423** on the 34-haplotype one — 3.2x wider.
 
-**This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph carried 1,597 false-positive SNVs against the 4-haplotype graph's 375, and looked like a precision-for-recall trade. The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
+**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The fall is precision, not recall, and plan §9.24 traces it to exposure: 32 extra haplotypes offer multi-allelic sites the 4-haplotype graph cannot produce at all, and those sites are harder. Multi-allelic records go from about 2.3% of the call set to about 3.4% on both chromosomes tested.
+
+**This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph looked like a precision-for-recall trade — 1,597 false-positive SNVs against the 4-haplotype graph's 375. The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
 
 **`readlik-nomismap` is the control.** It disables the mismapping term entirely, so the cap cannot reach it — and on the richer graph it still carries 2,481 spurious SNVs. The term is what does the work.
 
@@ -36,11 +38,11 @@ Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers �
 
 | arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | 34-hap variants |
 |---|---|---|---|---|---|---|
-| `poisson` | 156 s | 293 s | 2.9 GB | 3.3 GB | 106,587 | 124,445 |
-| `poisson-z` | 72 s | 106 s | 2.9 GB | 3.2 GB | 106,686 | 124,769 |
-| `readlik` | 154 s | 144 s | 3.5 GB | 4.5 GB | 104,462 | 106,100 |
-| `readlik-nomismap` | 149 s | 142 s | 3.5 GB | 4.1 GB | 106,295 | 121,427 |
-| `readlik-z` | 118 s | 124 s | 3.7 GB | 3.9 GB | 104,470 | 106,172 |
+| `poisson` | 168 s | 294 s | 3.0 GB | 3.5 GB | 106,587 | 124,445 |
+| `poisson-z` | 75 s | 112 s | 3.0 GB | 3.1 GB | 106,686 | 124,769 |
+| `readlik` | 120 s | 148 s | 3.6 GB | 4.0 GB | 104,462 | 106,100 |
+| `readlik-nomismap` | 115 s | 149 s | 3.5 GB | 4.0 GB | 106,295 | 121,427 |
+| `readlik-z` | 99 s | 126 s | 3.7 GB | 3.8 GB | 104,470 | 106,172 |
 
 ## Small variants — GT F1
 
@@ -92,9 +94,21 @@ Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers �
 | `readlik-z` | Insertion (<50 bp) | 0.7406 | 0.6029 | -0.1377 |
 | `readlik-z` | Deletion (<50 bp) | 0.8737 | 0.8626 | -0.0111 |
 
-## Structural variants (GIAB `stvar`)
+## Structural variants — truvari (GIAB `stvar`)
 
-Recall is aardvark's published value. **Precision is recomputed** from its per-variant `BD` decisions, because its summary leaves the query columns at zero for the `Sv*` categories — without that, a run calling far more SVs would read as a pure recall win when it had traded precision away. F1 is derived from the two.
+The SV metric. Reciprocal-overlap matching against the structural benchmark, `--sizemin 50`. This replaced aardvark's `Sv*` categories, which are scored against the *small-variant* truth set and therefore have essentially no truth to match above 50 bp (plan §9.22).
+
+| arm | 4-hap recall | 34-hap recall | 4-hap prec | 34-hap prec | 4-hap F1 | 34-hap F1 | **Δ F1** |
+|---|---|---|---|---|---|---|---|
+| `poisson` | 0.4889 | 0.4810 | 0.5021 | 0.4289 | 0.4954 | 0.4535 | **-0.0419** |
+| `poisson-z` | 0.4902 | 0.4824 | 0.4959 | 0.4029 | 0.4930 | 0.4391 | **-0.0540** |
+| `readlik` | 0.4601 | 0.4484 | 0.5052 | 0.4395 | 0.4816 | 0.4439 | **-0.0377** |
+| `readlik-nomismap` | 0.4575 | 0.4614 | 0.4678 | 0.3950 | 0.4626 | 0.4256 | **-0.0369** |
+| `readlik-z` | 0.4654 | 0.4719 | 0.5007 | 0.4187 | 0.4824 | 0.4437 | **-0.0387** |
+
+## Structural variants — aardvark (secondary)
+
+Kept for continuity with earlier runs. Recall is aardvark's published value; **precision is recomputed** from its per-variant `BD` decisions, because its summary leaves the query columns at zero for the `Sv*` categories. Prefer the truvari table above: these categories are scored against a truth set with no record over 50 bp.
 
 | arm | 4-hap recall | 34-hap recall | Δ | 4-hap prec | 34-hap prec | Δ | 4-hap F1 | 34-hap F1 | **Δ F1** |
 |---|---|---|---|---|---|---|---|---|---|
@@ -103,21 +117,6 @@ Recall is aardvark's published value. **Precision is recomputed** from its per-v
 | `readlik` | 0.4839 | 0.5113 | +0.0274 | 0.4680 | 0.4138 | -0.0541 | 0.4758 | 0.4574 | **-0.0184** |
 | `readlik-nomismap` | 0.4810 | 0.5119 | +0.0310 | 0.4586 | 0.3975 | -0.0611 | 0.4695 | 0.4475 | **-0.0220** |
 | `readlik-z` | 0.5250 | 0.5690 | +0.0440 | 0.5045 | 0.4321 | -0.0724 | 0.5145 | 0.4912 | **-0.0234** |
-
-Per class, recall only:
-
-| arm | class | 4-hap | 34-hap | Δ |
-|---|---|---|---|---|
-| `poisson` | SV insertion | 0.3877 | 0.3925 | +0.0048 |
-| `poisson` | SV deletion | 0.5434 | 0.5340 | -0.0094 |
-| `poisson-z` | SV insertion | 0.4263 | 0.4130 | -0.0133 |
-| `poisson-z` | SV deletion | 0.5763 | 0.5622 | -0.0141 |
-| `readlik` | SV insertion | 0.4577 | 0.4940 | +0.0362 |
-| `readlik` | SV deletion | 0.5094 | 0.5282 | +0.0188 |
-| `readlik-nomismap` | SV insertion | 0.4589 | 0.4964 | +0.0374 |
-| `readlik-nomismap` | SV deletion | 0.5023 | 0.5270 | +0.0246 |
-| `readlik-z` | SV insertion | 0.4988 | 0.5556 | +0.0568 |
-| `readlik-z` | SV deletion | 0.5505 | 0.5822 | +0.0317 |
 
 ## Small variants restricted to <50 bp — BASEPAIR
 
@@ -131,4 +130,8 @@ The `smvar` truth set holds no record >=50 bp, so a large insertion called insid
 | `sm50-readlik-z` | Insertion | 0.8632 | 0.8968 | 0.8666 | 0.8425 | 0.8649 | 0.8688 | **+0.0039** |
 | `sm50-readlik-z` | Deletion | 0.8639 | 0.9016 | 0.8970 | 0.8528 | 0.8801 | 0.8765 | **-0.0036** |
 | `sm50-readlik-z` | ALL | 0.9254 | 0.9421 | 0.9635 | 0.9436 | 0.9441 | 0.9428 | **-0.0012** |
+
+## Quality fields
+
+Every arm above is scored at **every** GQ, so nothing on this page depends on the quality field. It matters for how the calls rank, which is a separate page: see [tier2-quality-signals.md](tier2-quality-signals.md). In short, `vg call` now emits `AD`, `BL` and `GQI` alongside `GQ`, and `GQ` is scaled by the fraction of reads the called genotype explains. That rescales a quality and does not change a genotype, so **the unfiltered numbers on this page are unaffected by it**.
 

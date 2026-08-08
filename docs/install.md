@@ -26,11 +26,27 @@ cp target/release/aardvark ~/.local/bin/
 
 Verified on macOS arm64 with aardvark 0.10.5.
 
+## truvari
+
+Needed for the tier-2 structural-variant comparison. aardvark's `Sv*` categories are scored against
+the *small-variant* truth set, which holds no record over 50 bp, so they cannot answer an SV question;
+truvari is scored against the structural benchmark and is the SV metric.
+
+Kept in its own virtualenv so its dependency stack (numpy, pysam, pandas) stays out of the harness,
+which otherwise uses only the standard library:
+
+```bash
+python3 -m venv work/truvari-venv && work/truvari-venv/bin/pip install truvari
+```
+
+`scripts/tier2/truvari_sv.py` looks for `work/truvari-venv/bin/truvari` by default; pass `--truvari`
+to point elsewhere.
+
 ## Python
 
 ```bash
 python3 -m pip install pytest         # tests only; the harness itself uses the stdlib
 ```
 
-The harness deliberately drives `bcftools` and `aardvark` as subprocesses rather than binding to
-them, so there is no compiled Python dependency to manage.
+The harness deliberately drives `bcftools`, `aardvark` and `truvari` as subprocesses rather than
+binding to them, so there is no compiled Python dependency to manage in the harness itself.
