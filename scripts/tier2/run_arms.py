@@ -35,6 +35,9 @@ sys.path.insert(0, str(REPO / "src"))
 
 from vgcalleval.engines import aardvark  # noqa: E402
 
+# Set from --contig; the constants remain as defaults so existing chr20 invocations
+# keep working unchanged.
+REF_SAMPLE = "CHM13"
 REF_PATH = "CHM13#0#chr20"
 CONTIG = "chr20"
 
@@ -131,7 +134,14 @@ def main() -> None:
     p.add_argument("--read-window", type=int, default=0)
     p.add_argument("--out", default=str(HERE / "results"))
     p.add_argument("--only", nargs="*", help="run only these arms")
+    p.add_argument("--contig", default="chr20",
+                   help="contig to call; sets both the reference path and the "
+                        "name written into the output VCF")
     args = p.parse_args()
+
+    global REF_PATH, CONTIG
+    CONTIG = args.contig
+    REF_PATH = f"{REF_SAMPLE}#0#{args.contig}"
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

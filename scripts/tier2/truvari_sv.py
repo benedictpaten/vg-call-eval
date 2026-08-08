@@ -64,13 +64,14 @@ def main() -> None:
     p.add_argument("--label", required=True)
     p.add_argument("--truvari", default=str(VENV_TRUVARI))
     p.add_argument("--sizemin", type=int, default=50)
+    p.add_argument("--contig", default="chr20")
     args = p.parse_args()
 
     W = Path(args.work)
     res = W / "results"
-    ref = W / "chr20.fa"
-    truth = W / "truth.chr20.stvar.vcf.gz"
-    bed = W / "truth.chr20.stvar.bed"
+    ref = W / f"{args.contig}.fa"
+    truth = W / f"truth.{args.contig}.stvar.vcf.gz"
+    bed = W / f"truth.{args.contig}.stvar.bed"
 
     norm_dir = res / "truvari-norm"
     norm_dir.mkdir(exist_ok=True)
