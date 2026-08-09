@@ -326,6 +326,74 @@ result that makes this shippable where the maximum was not. On chr20 the SV F1 g
 closes most of the gap to the Poisson caller but does not overtake it (0.4910 against
 0.4930), where on chr6 it does.
 
+### Sharpening the weight: unique content, not whole traversal
+
+Whole traversal length over-counts the shorter allele, because a traversal includes the
+site's shared sequence. At the 2648 bp deletion the traversals are 296 and 2945 bp, a
+ratio of 6.9, where the reads actually split about 14.6. Reads landing in shared
+sequence fit every allele equally, contribute the same factor to every genotype and
+cancel — only reads over sequence *unique* to one allele can move a comparison. So the
+weight should count unique content:
+
+```
+w_h = (U_h + R − 1) / Σ_{h'∈G} (U_{h'} + R − 1)
+```
+
+with `U_h` the sequence `h` visits that the genotype's other allele does not. A SNV still
+gives exactly ½ — each side carries one base the other lacks — so the no-op property
+holds. `--length-weighted-mixture` uses this; `--length-weight-whole-traversal` keeps the
+coarser version for comparison.
+
+**Not monotonically better, which is worth stating.** Sharpening cuts what each interior
+read costs the heterozygote, but it also cuts what each junction read earns it, since a
+read fitting the deletion is now scored against a smaller prior mass. It pays only once
+interior reads sufficiently outnumber junction reads. Real large heterozygous deletions
+sit near 15:1 and it helps there; a unit test built at 20:3 showed the whole-traversal
+weight winning, which is the model behaving correctly rather than a bug.
+
+| chr6-4hap | default | whole | **unique** | `poisson-z` |
+|---|---|---|---|---|
+| het DEL 300–999 recall | 0.476 | 0.592 | **0.602** | 0.680 |
+| het DEL 1k+ recall | 0.066 | 0.393 | **0.443** | 0.836 |
+| het INS 1k+ GT concordance | 0.353 | 0.765 | **0.794** | 0.938 |
+| SV TP-base / FP | 792 / 613 | 829 / 623 | **833 / 620** | 849 / 692 |
+| **SV F1** | 0.5349 | 0.5507 | **0.5532** | 0.5478 |
+| small-variant GT F1 / SNV | 0.9586 / 0.9819 | 0.9586 / 0.9819 | **0.9586 / 0.9819** | 0.9466 / 0.9791 |
+
+### The 34-haplotype graph
+
+The gain is **larger** on the richer graph, which is where the read model's advantage
+already was:
+
+| chr6-34hap | default | **unique** | `poisson-z` |
+|---|---|---|---|
+| het DEL 300–999 recall | 0.456 | **0.573** | 0.641 |
+| het DEL 1k+ recall | 0.082 | **0.443** | 0.787 |
+| het INS 300–999 GT concordance | 0.807 | **0.931** | 0.897 |
+| het INS 1k+ GT concordance | 0.543 | **0.886** | 0.935 |
+| SV TP-base / FP | 782 / 984 | **820 / 985** | 838 / 1036 |
+| **SV F1** | 0.4724 | **0.4896** | 0.4881 |
+| small-variant GT F1 (ALL) | 0.9616 | 0.9615 | 0.9297 |
+| — SNV | 0.9794 | **0.9794** | 0.9703 |
+
+Heterozygous insertion genotyping at 300–999 now **beats** the Poisson caller (0.931
+against 0.897), and SV F1 passes it on both graphs. Small variants move by 0.0001 on ALL
+and not at all on SNVs.
+
+### Runtime
+
+Effectively free. Same machine, same threads, back to back:
+
+| | chr6-4hap | chr6-34hap |
+|---|---|---|
+| default | 249.8 s | 261.0 s |
+| whole traversal | 255.8 s (+2.4%) | 259.1 s (−0.7%) |
+| unique content | 256.5 s (**+2.7%**) | 265.2 s (**+1.6%**) |
+
+Peak RSS 6.4–8.2 GB throughout, with no ordering by arm. The weights are computed once
+per site, not per read, and the pairwise unique-content matrix is `O(alleles² × nodes)`
+off the hot path — under the run-to-run variation on this machine.
+
 **It is a partial fix, and deliberately conservative.** Large heterozygous deletions
 reach 0.393 where the maximum reached 0.738 and the Poisson caller reaches 0.836, and
 the worked arithmetic said why in advance: at the site examined in detail the
