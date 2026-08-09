@@ -16,6 +16,7 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full five-arm accuracy tables per chromosome, small variants and SVs |
 | [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
+| [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters re-swept after the mixture change: why `--mismap-max` is now inert, why `--mismap-min` stays at 0.02, and why `--read-weight` cannot change a genotype at all |
 | [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
@@ -115,6 +116,14 @@ python3 scripts/tier2/sv_metric_sensitivity.py --refine
 python3 scripts/tier2/sv_error_report.py              # every table in docs/tier2-sv-errors.md
 python3 scripts/tier2/hetdel_mechanism.py            # the heterozygous-deletion mechanism test
 python3 scripts/tier2/score_vcf.py --vcf … --label … # score any experimental VCF on BOTH benchmarks
+```
+
+Parameter sweeps, searched on chr20 and validated on chr6 so the validation set stays held out:
+
+```bash
+python3 scripts/tier2/param_sweep.py --param mismap-max --values 0.5 0.7 0.9 0.99 \
+    --param2 mismap-min --values2 0.01 0.02 0.05 --datasets chr20-34hap chr20-4hap
+python3 scripts/tier2/param_sweep.py --param read-weight --values 0.5 1.0 2.0 --datasets chr20-4hap
 ```
 
 The mechanism test needs likelihood matrices and a traversal enumeration, both restricted to
