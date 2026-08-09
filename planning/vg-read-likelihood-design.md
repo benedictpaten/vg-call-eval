@@ -326,6 +326,52 @@ where `e_r` is the read's mismapping probability from MAPQ:
 *with probability `e_r` the read came from elsewhere, where it fits about as well as its best
 explanation here.* That bounds how much any single read can penalise a genotype.
 
+### 4.3a The mixture weights are not flat — superseding the `1/|G|` above
+
+**`1/|G|` is wrong wherever the alleles differ in length, and the formula above is kept only because
+section numbers are stable.** The shipped model uses
+
+```
+ln P(reads | G)  =  Σ_r  ln [ (1 − e_r) · Σ_{h∈G} w_h · L_h(r)   +   e_r · 1 ]
+
+        U_h + R − 1
+w_h = ─────────────────────
+      Σ_{h'∈G} (U_{h'} + R − 1)
+```
+
+`w_h` is the mixture weight the flat version assumed away: the probability that a read observed *at
+this site* came from haplotype `h`. A flat weight asserts each haplotype contributed half the reads,
+which is false over an interval where one haplotype carries a deletion — that haplotype contributes
+none. `U_h` is the sequence `h` visits that the genotype's other allele does not, and `R` is the mean
+read length in the site's own matrix, so `U_h + R − 1` counts the read start positions that can yield
+a read able to tell `h` apart from its partner.
+
+Why unique content rather than whole traversal length: a traversal includes the site's shared
+sequence, and reads landing there fit every allele equally, contribute the same factor to every
+genotype and cancel. Counting them over-states the shorter allele — at one measured 2648 bp deletion
+the traversals are 296 and 2945 bp, a ratio of 6.9, where the reads split about 14.6.
+
+What it cost to get wrong, measured on HG002 chr6 against the GIAB draft benchmark: 94% of
+heterozygous deletions above 1 kb were lost outright, and two thirds of heterozygous insertions above
+1 kb were called homozygous. The insertion half was invisible to recall for a year because truvari
+matches on locus, size and sequence but not genotype.
+
+Three properties make this safe to have on by default:
+
+- **equal-length alleles give exactly ½**, so every SNV and balanced indel is bit-for-bit unchanged —
+  small-variant genotype F1 does not move to four decimal places on either graph tested;
+- **the weights sum to 1**, so adding an allele still costs and a clean homozygote still wins. This is
+  what a plain `max_{h∈G}` destroys: `max` is monotone in the allele set, so a heterozygote can never
+  score below either homozygote and with any noise it always wins;
+- **it is symmetric** in the direction of the imbalance, so one rule covers insertions and deletions.
+
+`--flat-mixture` restores the pre-correction model exactly. Full measurements in the harness repo's
+[docs/tier2-sv-errors.md](../docs/tier2-sv-errors.md).
+
+**This does not remove the need for a depth term (§5.3.3).** It corrects the *relative* weight between
+a genotype's haplotypes; it says nothing about whether the absolute number of reads at a site is
+plausible, which is what the collapsed-repeat pile-ups need and what §4.4 below decided against.
+
 Two properties worth understanding before touching this code:
 
 **The background magnitude is not a free parameter.** A background of `c` with mismapping probability
@@ -510,7 +556,9 @@ without a prior confounding the comparison. An HWE or het-biased prior is a late
 — it multiplies in without touching anything above.
 
 Note this is also why §4.1 needs no `het_bias` parameter: with a uniform prior, the allele-balance
-behaviour comes entirely from the `1/|G|` mixture weights rather than from a tuned correction.
+behaviour comes entirely from the mixture weights rather than from a tuned correction. Those weights
+are no longer flat — see §4.3a — which sharpens the point rather than weakening it: allele balance now
+follows from the site's geometry instead of from either a tuned bias or an assumption of symmetry.
 
 #### What is actually emitted, and one departure from the above
 

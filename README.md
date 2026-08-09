@@ -141,10 +141,10 @@ Not yet built: tier 1 (vg's HGSVC fixture), the `read_weight` calibration fit (s
 size-conditional depth or `best_ln` term — blocked on the sign reversal documented in
 [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md).
 
-Open and specific: the heterozygous-deletion defect in the read-likelihood genotyper
-([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)). Behaviour and mechanism are settled — reads inside a deleted
-interval outvote the junction-spanning reads, break-even around 700 bp. Two candidate repairs have been measured and
-both rejected: lowering `--mismap-min` recovers a third of it, and replacing the mixture with a maximum
-(`--max-allele-likelihood`) recovers nearly all of it but makes a heterozygote unable to score below a homozygote,
-costing 0.05 small-variant GT F1. The cause is the flat `1/|G|` mixture weight, so the untested candidate is a
-site-aware weighted mixture.
+Open and specific: a **depth-plausibility term**. The read-likelihood model computes P(reads | genotype)
+conditioned on the reads it is given and never asks whether that many reads should be there, which is why
+collapsed-repeat pile-ups survive it and why the Poisson caller still leads on heterozygous deletions above
+1 kb (0.79-0.84 against 0.44). The length-weighted mixture fixed the *relative* weight between a genotype's
+haplotypes ([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)) and is now the default; absolute depth is the
+remaining half. It is blocked on the same sign reversal as above — depth discriminates in opposite directions
+for small variants and SVs — so it needs conditioning on called-allele size.

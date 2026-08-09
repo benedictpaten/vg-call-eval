@@ -336,6 +336,13 @@ def main() -> None:
                  "almost nothing to match (plan §9.22). The aardvark block below is kept for "
                  "continuity with earlier runs.")
         L.append("")
+        L.append("**What these errors are made of, per record, is in "
+                 "[tier2-sv-errors.md](tier2-sv-errors.md)** — including the finding that about a "
+                 "quarter of all false positives are the metric rather than the caller, and that "
+                 "harmonising representation with `truvari refine` moves every arm up by roughly "
+                 "0.05 F1. Read the ranking between arms here; treat the absolute level as "
+                 "benchmark-relative.")
+        L.append("")
         L.append("| arm | recall | precision | **F1** | TP-base | FP | FN |")
         L.append("|---|---|---|---|---|---|---|")
         best_tv = max((v.get("f1") or 0) for v in tv.values())
@@ -490,6 +497,17 @@ def main() -> None:
              "reachable — the read-likelihood caller subclasses `SupportBasedSnarlCaller` and holds a "
              "`TraversalSupportFinder` for allele enumeration.")
     L.append("")
+    L.append("The same blindness has a second consequence, found later and now corrected. Because the "
+             "model only weighs reads it can see, it had no way to know that a heterozygous deletion "
+             "produces *no* reads over the deleted interval, and its flat `1/ploidy` mixture asserted "
+             "that both haplotypes contributed equally everywhere. That cost it 94% of heterozygous "
+             "deletions above 1 kb and mis-genotyped two thirds of heterozygous insertions above 1 kb. "
+             "Weighting each haplotype by the reads it is *expected* to contribute at the site is now "
+             "the default and fixes both, without moving small variants at all — see "
+             "[tier2-sv-errors.md](tier2-sv-errors.md). It does not remove the need for a depth term: "
+             "it corrects the *relative* weight between a genotype's haplotypes, while the pile-ups "
+             "above are a statement about *absolute* depth.")
+    L.append("")
     L.append("Filtering on depth is **not** that remedy, and that has now been tested properly "
              "rather than by two spot checks. Sweeping a two-sided cut on DP over a rolling local "
              "median, across both chromosomes and both graphs, against the one test a hard filter has "
@@ -521,6 +539,15 @@ def main() -> None:
              "scaling rescales a quality and does not change a genotype, so **the numbers on this "
              "page are unaffected by it**; what it changes is how the calls rank. See "
              "[tier2-quality-signals.md](tier2-quality-signals.md).")
+    L.append("")
+    L.append("## The genotype mixture")
+    L.append("")
+    L.append("The read-likelihood arms on this page use the **length-weighted mixture**, which "
+             "became the default after it was found that the flat `1/ploidy` weight breaks "
+             "heterozygotes whose alleles differ in length. Unlike the `GQ` scaling above, this "
+             "*does* change genotypes, so these numbers are not comparable with runs made before it. "
+             "`--flat-mixture` restores the previous model exactly. Derivation and measurements: "
+             "[tier2-sv-errors.md](tier2-sv-errors.md).")
     L.append("")
 
     L.append("## Raw aardvark summary rows")

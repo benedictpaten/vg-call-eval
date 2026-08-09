@@ -30,7 +30,7 @@ model wins on SVs in three of the four datasets.
 | Is it representation? | No. The gap is unchanged after `truvari refine`. |
 | So what is it? | Reads inside a deleted interval outvote the few junction-spanning reads, by `ln 2` each against a cap of `ln(0.5/mismap-min)`. Break-even ≈ 700 bp. Confirmed against the likelihood matrices to within 15% at 8 of 10 sites, and causally by moving the cap. |
 | Can a knob fix it? | No. Lowering `--mismap-min` recovers about a third of it and confirms the mechanism, but it is not a fix. |
-| What does fix it? | Weighting the mixture by each haplotype's expected read share, `(L_h+R−1)`, instead of a flat `1/\|G\|`. Partial but free: SV F1 0.5349 → 0.5507, past `poisson-z`'s 0.5478, with small-variant F1 unchanged to four decimals. |
+| What does fix it? | Weighting the mixture by each haplotype's expected share of the site's reads instead of a flat `1/\|G\|`. **Now the default.** Partial but free: SV F1 0.5349 → 0.5532 on the 4-haplotype graph and 0.4724 → 0.4896 on the 34-haplotype one, past `poisson-z` on both, with small-variant F1 unchanged to four decimals. |
 | Does replacing the mixture with a maximum fix it? | On deletions, yes — het DEL 1k+ 0.066 → 0.738. But a heterozygote can then never score below a homozygote, so small-variant GT F1 drops 0.9586 → 0.9070 and it is unusable. The cause is the `1/\|G\|` weight, not the averaging. |
 | What is the 34-hap precision loss? | Not extra copies of the same errors — a substantially *different* error set, dominated by calls with no truth candidate at all. |
 | How much of "FP" is real? | 25–27% of 4-hap FPs are placement or bookkeeping artefacts before any biology is considered. |
@@ -282,8 +282,9 @@ allele still costs and a clean homozygote still wins. Equal-length alleles give 
 `1/2`, so SNVs and balanced indels are untouched. And it is **symmetric** in the
 direction of the imbalance, so one rule covers deletions and insertions.
 
-Implemented as `--length-weighted-mixture`; allele lengths come from the same traversal
-steps the scorer uses, `R` is the mean read length in the site's own matrix.
+**This is now the default.** `--flat-mixture` restores the previous model exactly.
+Allele lengths come from the same traversal steps the scorer uses; `R` is the mean read
+length in the site's own matrix.
 
 **chr6-4hap, against the two rejected candidates:**
 
@@ -341,8 +342,8 @@ w_h = (U_h + R − 1) / Σ_{h'∈G} (U_{h'} + R − 1)
 
 with `U_h` the sequence `h` visits that the genotype's other allele does not. A SNV still
 gives exactly ½ — each side carries one base the other lacks — so the no-op property
-holds. `--length-weighted-mixture` uses this; `--length-weight-whole-traversal` keeps the
-coarser version for comparison.
+holds. This is what the default does; `--length-weight-whole-traversal` keeps the coarser
+version for comparison.
 
 **Not monotonically better, which is worth stating.** Sharpening cuts what each interior
 read costs the heterozygote, but it also cuts what each junction read earns it, since a

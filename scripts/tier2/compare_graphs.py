@@ -240,7 +240,10 @@ def main() -> None:
     L.append("**One caveat this data cannot settle.** Some of the remaining false positives may not "
              "be error: a graph carrying 32 haplotypes will call real variation a draft benchmark "
              "does not cover, and that scores as a false positive. Separating them needs a more "
-             "complete truth set, not a different metric.")
+             "complete truth set, not a different metric. It has since been *bounded* rather than "
+             "settled: false calls made by both callers on both graphs with no truth candidate "
+             "anywhere nearby number 44 on chr6 and 40 on chr20, which is a lower bound on the "
+             "benchmark's share of them.")
     L.append("")
 
     L.append("## Cost")
@@ -281,6 +284,15 @@ def main() -> None:
                  "`--sizemin 50`. This replaced aardvark's `Sv*` categories, which are scored "
                  "against the *small-variant* truth set and therefore have essentially no truth "
                  "to match above 50 bp (plan §9.22).")
+        L.append("")
+        L.append("**These errors are broken down per record in "
+                 "[tier2-sv-errors.md](tier2-sv-errors.md)**, and three findings there bear "
+                 "directly on this table. The 34-haplotype false-positive rise is not the same "
+                 "errors plus more — only about two thirds of the 4-haplotype false calls survive "
+                 "the graph change, and the new ones are disproportionately calls with no truth "
+                 "candidate at all. A quarter of all false positives are placement or bookkeeping "
+                 "artefacts of the metric. And harmonising representation with `truvari refine` "
+                 "lifts every arm by roughly 0.05 F1.")
         L.append("")
         L.append("| arm | 4-hap recall | 34-hap recall | 4-hap prec | 34-hap prec | 4-hap F1 | "
                  "34-hap F1 | **Δ F1** |")
