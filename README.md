@@ -114,6 +114,7 @@ python3 scripts/tier2/sv_error_atlas.py               # per-record FP/FN/TP tabl
 python3 scripts/tier2/sv_metric_sensitivity.py --refine
 python3 scripts/tier2/sv_error_report.py              # every table in docs/tier2-sv-errors.md
 python3 scripts/tier2/hetdel_mechanism.py            # the heterozygous-deletion mechanism test
+python3 scripts/tier2/score_vcf.py --vcf … --label … # score any experimental VCF on BOTH benchmarks
 ```
 
 The mechanism test needs likelihood matrices and a traversal enumeration, both restricted to
@@ -141,7 +142,9 @@ size-conditional depth or `best_ln` term — blocked on the sign reversal docume
 [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md).
 
 Open and specific: the heterozygous-deletion defect in the read-likelihood genotyper
-([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)). Behaviour and mechanism are both settled — reads inside a
-deleted interval outvote the junction-spanning reads, break-even around 700 bp — so what is open is the *fix*.
-It is a structural property of a likelihood over observed reads, not a tuning problem, so it needs a term that
-reads the absence of coverage rather than a knob.
+([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)). Behaviour and mechanism are settled — reads inside a deleted
+interval outvote the junction-spanning reads, break-even around 700 bp. Two candidate repairs have been measured and
+both rejected: lowering `--mismap-min` recovers a third of it, and replacing the mixture with a maximum
+(`--max-allele-likelihood`) recovers nearly all of it but makes a heterozygote unable to score below a homozygote,
+costing 0.05 small-variant GT F1. The cause is the flat `1/|G|` mixture weight, so the untested candidate is a
+site-aware weighted mixture.

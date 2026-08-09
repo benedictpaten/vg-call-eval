@@ -27,7 +27,8 @@ representation is harmonised the read model wins on SVs in three of the four dat
 | Is it enumeration? | No. `poisson-z` uses the same `-z` haplotype enumeration and is fine. |
 | Is it representation? | No. The gap is unchanged after `truvari refine`. |
 | So what is it? | Reads inside a deleted interval outvote the few junction-spanning reads, by `ln 2` each against a cap of `ln(0.5/mismap-min)`. Break-even ≈ 700 bp. Confirmed against the likelihood matrices to within 15% at 8 of 10 sites, and causally by moving the cap. |
-| Can a knob fix it? | No. Lowering `--mismap-min` recovers about a third of it and confirms the mechanism, but the model needs a term that reads *missing coverage*. |
+| Can a knob fix it? | No. Lowering `--mismap-min` recovers about a third of it and confirms the mechanism, but it is not a fix. |
+| Does replacing the mixture with a maximum fix it? | On deletions, yes — het DEL 1k+ 0.066 → 0.738. But a heterozygote can then never score below a homozygote, so small-variant GT F1 drops 0.9586 → 0.9070 and it is unusable. The cause is the `1/\|G\|` weight, not the averaging. |
 | What is the 34-hap precision loss? | Not extra copies of the same errors — a substantially *different* error set, dominated by calls with no truth candidate at all. |
 | How much of "FP" is real? | 25–27% of 4-hap FPs are placement or bookkeeping artefacts before any biology is considered. |
 
@@ -161,6 +162,69 @@ misaligned read veto a genotype; false positives rise from 613 to 672 here, and 
 effect on small variants has not been measured. It closes about a third of the
 heterozygous-deletion gap and buys +0.011 SV F1, which brings `readlik-z` to within
 0.0015 of `poisson-z` — enough to confirm the mechanism, not enough to be the fix.
+
+### Testing the maximum in place of the mixture
+
+If the interior read's `ln 2` penalty comes from averaging over the genotype's
+haplotypes, the obvious repair is to stop averaging: score each read by the single
+haplotype in `G` that explains it best,
+
+```
+ln P(reads | G) = Σ_r ln[ (1 − e_r) · max_{h∈G} rel(r,h) + e_r ]
+```
+
+An interior read then scores 1 under both `long/long` and `long/deletion`, so it cancels
+instead of costing `ln 2`, while junction reads still separate the two. Implemented as
+`--max-allele-likelihood` and run on chr6-4hap.
+
+**On deletions it works, and dramatically.**
+
+| chr6-4hap, het | mixture | **max** | `poisson-z` |
+|---|---|---|---|
+| DEL 300–999 | 0.476 | **0.650** | 0.680 |
+| DEL 1k+ | 0.066 | **0.738** | 0.836 |
+| INS 300–999 (control) | 0.659 | 0.643 | 0.636 |
+| INS 1k+ (control) | 0.708 | 0.708 | 0.667 |
+
+Large heterozygous deletions go from essentially unfindable to nearly recovered, and
+insertions do not move — the change acts on exactly the class the mechanism names. SV
+true positives rise from 792 to **870**, past `poisson-z`'s 849.
+
+**And it is not usable, for the reason the arithmetic predicted.** `max_{h∈G}` is
+monotone in the allele set, so `ln P(reads|0/1) ≥ ln P(reads|0/0)` and `≥ ln P(reads|1/1)`
+for every read at every site. Adding an allele never costs anything, so this is a
+set-cover criterion rather than a likelihood, and any noise at all makes the
+heterozygote win:
+
+| chr6-4hap | mixture | max | `poisson-z` |
+|---|---|---|---|
+| heterozygous fraction of calls | 0.6489 | **0.7409** | 0.6608 |
+| small-variant GT F1, ALL | 0.9586 | **0.9070** | 0.9466 |
+| — SNV | 0.9819 | 0.9535 | 0.9791 |
+| — Insertion <50 bp | 0.8491 | 0.6770 | 0.8111 |
+| — Deletion <50 bp | 0.8931 | 0.7864 | 0.8367 |
+| small-variant false positives | 7,842 | **19,653** | — |
+| SV false positives | 613 | 869 | 692 |
+| SV F1 | 0.5349 | 0.5317 | 0.5478 |
+
+Small-variant false positives rise 2.5×, and small-variant *recall* falls too (0.9464 →
+0.8840) because a true homozygote called heterozygous is scored wrong on the truth side
+as well. Even on structural variants the extra recall does not pay for the extra false
+calls: SV F1 goes 0.5349 → 0.5317, slightly **down**.
+
+Two unit tests pin both halves of this in `src/unittest/allele_likelihood.cpp` — that the
+maximum recovers the heterozygote in a 20-interior/3-junction toy, and that it cannot
+score a heterozygote below a homozygote given 30 clean homozygous reads and one stray.
+
+**What it establishes.** The mixture weight is the whole cause: replacing it fixes the
+deletions completely and touches nothing else in the SV classes. What is wrong is not
+that the model averages, but that it averages with weight `1/|G|` — an assumption that
+each haplotype contributed half the reads, which is exactly false over an interval where
+one haplotype is deleted. That points at a weighted mixture, `Σ_h w_h(site) · rel(r,h)`
+with `w_h` reflecting how many reads each haplotype is expected to contribute *at this
+site*, which keeps a proper likelihood — adding an allele still costs — while giving an
+interior read almost all of its weight on the haplotype that actually spans it. That is
+untested and is the obvious next experiment.
 
 The fix is not a knob. This is a structural property of the likelihood: the model asks
 how well each *observed* read fits each allele, and a deletion's evidence is largely the
