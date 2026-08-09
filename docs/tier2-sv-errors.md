@@ -30,6 +30,7 @@ model wins on SVs in three of the four datasets.
 | Is it representation? | No. The gap is unchanged after `truvari refine`. |
 | So what is it? | Reads inside a deleted interval outvote the few junction-spanning reads, by `ln 2` each against a cap of `ln(0.5/mismap-min)`. Break-even ≈ 700 bp. Confirmed against the likelihood matrices to within 15% at 8 of 10 sites, and causally by moving the cap. |
 | Can a knob fix it? | No. Lowering `--mismap-min` recovers about a third of it and confirms the mechanism, but it is not a fix. |
+| What does fix it? | Weighting the mixture by each haplotype's expected read share, `(L_h+R−1)`, instead of a flat `1/\|G\|`. Partial but free: SV F1 0.5349 → 0.5507, past `poisson-z`'s 0.5478, with small-variant F1 unchanged to four decimals. |
 | Does replacing the mixture with a maximum fix it? | On deletions, yes — het DEL 1k+ 0.066 → 0.738. But a heterozygote can then never score below a homozygote, so small-variant GT F1 drops 0.9586 → 0.9070 and it is unusable. The cause is the `1/\|G\|` weight, not the averaging. |
 | What is the 34-hap precision loss? | Not extra copies of the same errors — a substantially *different* error set, dominated by calls with no truth candidate at all. |
 | How much of "FP" is real? | 25–27% of 4-hap FPs are placement or bookkeeping artefacts before any biology is considered. |
@@ -260,6 +261,81 @@ with `w_h` reflecting how many reads each haplotype is expected to contribute *a
 site*, which keeps a proper likelihood — adding an allele still costs — while giving an
 interior read almost all of its weight on the haplotype that actually spans it. That is
 untested and is the obvious next experiment.
+
+### The repair: a length-weighted mixture
+
+If the fault is the weight rather than the averaging, replace `1/|G|` with each
+haplotype's *expected* share of this site's reads. A haplotype presenting an allele of
+length `L_h` admits `L_h + R − 1` read start positions overlapping the site, for read
+length `R`, so
+
+```
+ln P(reads | G) = Σ_r ln[ (1 − e_r) · Σ_{h∈G} w_h · rel(r,h) + e_r ]
+
+        L_h + R − 1
+w_h = ─────────────────────
+      Σ_{h'∈G} (L_{h'} + R − 1)
+```
+
+Three properties a plain maximum does not have. The weights **sum to 1**, so adding an
+allele still costs and a clean homozygote still wins. Equal-length alleles give exactly
+`1/2`, so SNVs and balanced indels are untouched. And it is **symmetric** in the
+direction of the imbalance, so one rule covers deletions and insertions.
+
+Implemented as `--length-weighted-mixture`; allele lengths come from the same traversal
+steps the scorer uses, `R` is the mean read length in the site's own matrix.
+
+**chr6-4hap, against the two rejected candidates:**
+
+| | default | **weighted** | max | `poisson-z` |
+|---|---|---|---|---|
+| het DEL 300–999 recall | 0.476 | **0.592** | 0.650 | 0.680 |
+| het DEL 1k+ recall | 0.066 | **0.393** | 0.738 | 0.836 |
+| het INS 300–999 GT concordance | 0.729 | **0.871** | — | 0.854 |
+| het INS 1k+ GT concordance | 0.353 | **0.765** | — | 0.938 |
+| SV TP-base / FP | 792 / 613 | **829 / 623** | 870 / 869 | 849 / 692 |
+| **SV F1** | 0.5349 | **0.5507** | 0.5317 | 0.5478 |
+| small-variant GT F1 (ALL) | 0.9586 | **0.9586** | 0.9070 | 0.9466 |
+| — SNV | 0.9819 | 0.9819 | 0.9535 | 0.9791 |
+| small-variant FP | 7,842 | 7,854 | 19,653 | — |
+| het fraction of calls | 0.6489 | 0.6491 | 0.7409 | 0.6608 |
+
+Small variants are **unmoved to four decimal places** — SNV F1 identical, ALL F1
+identical, 12 extra false positives out of 7,842, het fraction shifted by 0.0002. The
+correction switches itself on only where the alleles differ in length, which is what
+separates it from the maximum's genome-wide damage.
+
+**This is the first configuration that beats the Poisson caller on structural
+variants**: SV F1 0.5507 against 0.5478, with both better recall and better precision
+than the default read model.
+
+**chr20-4hap replicates the direction on every measure**, at smaller magnitude:
+
+| chr20-4hap | default | **weighted** | `poisson-z` |
+|---|---|---|---|
+| het DEL 300–999 recall | 0.241 | **0.296** | 0.407 |
+| het DEL 1k+ recall | 0.061 | **0.182** | 0.364 |
+| het INS 300–999 GT concordance | 0.607 | **0.786** | 0.893 |
+| het INS 1k+ GT concordance | 0.133 | **0.533** | 0.867 |
+| SV F1 | 0.4824 | **0.4910** | 0.4930 |
+| small-variant GT F1 (ALL) | 0.9490 | **0.9490** | — |
+| — SNV | 0.9757 | 0.9757 | — |
+
+Small variants are again unmoved to four decimals on both chromosomes, which is the
+result that makes this shippable where the maximum was not. On chr20 the SV F1 gain
+closes most of the gap to the Poisson caller but does not overtake it (0.4910 against
+0.4930), where on chr6 it does.
+
+**It is a partial fix, and deliberately conservative.** Large heterozygous deletions
+reach 0.393 where the maximum reached 0.738 and the Poisson caller reaches 0.836, and
+the worked arithmetic said why in advance: at the site examined in detail the
+effective-length weight flips the genotype by only 1.1 nats, where the *observed*
+interior:junction split would have given 10.4. Predicted against observed ratios across
+the ten sites — 6.9/14.6, 13.1/18.3, 16.7/87.6, 3.6/27.4, 41.1/10.3 — are correlated but
+scattered, and mostly under-state the imbalance. Traversal length is not quite the
+number of read positions unique to a haplotype, because shared sequence inside the snarl
+inflates the short allele. A sharper weight is the obvious next increment, and it can be
+had without giving up any of the three properties above.
 
 The fix is not a knob. This is a structural property of the likelihood: the model asks
 how well each *observed* read fits each allele, and a deletion's evidence is largely the
