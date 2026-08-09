@@ -16,6 +16,7 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full five-arm accuracy tables per chromosome, small variants and SVs |
 | [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
+| [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
 
@@ -103,6 +104,17 @@ python3 scripts/tier2/report.py         --contig chr6
 python3 scripts/tier2/compare_graphs.py --contig chr6
 ```
 
+### SV error forensics
+
+Runs on the truvari output the commands above already produced, so it needs no re-calling:
+
+```bash
+python3 scripts/tier2/patch_truvari_pysam.py          # once: truvari refine is broken under pysam 0.24
+python3 scripts/tier2/sv_error_atlas.py               # per-record FP/FN/TP tables -> work/sv-atlas/
+python3 scripts/tier2/sv_metric_sensitivity.py --refine
+python3 scripts/tier2/sv_error_report.py              # every table in docs/tier2-sv-errors.md
+```
+
 `prep_contig.sh` extracts the reference FASTA from *each* graph and stops if two graphs for the same
 contig disagree, so a cross-graph comparison can never be a coordinate mismatch dressed up as an
 accuracy difference.
@@ -110,9 +122,11 @@ accuracy difference.
 ## Status
 
 Working: tier-0 simulation, tier-2 real data on two chromosomes and two graphs, the caller matrix,
-aardvark and truvari comparison, size-matched controls, sanity controls, per-arm timing, and the
-quality-signal analysis behind the `GQ` change.
+aardvark and truvari comparison, size-matched controls, sanity controls, per-arm timing, the
+quality-signal analysis behind the `GQ` change, and the per-record SV error atlas.
 
 Not yet built: tier 1 (vg's HGSVC fixture), the `read_weight` calibration fit (stage 4b), and a
 size-conditional depth or `best_ln` term — blocked on the sign reversal documented in
 [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md).
+
+Open and specific: the heterozygous-deletion defect in the read-likelihood genotyper ([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)). The behaviour is pinned down; the mechanism is not, and settling it needs `--dump-likelihoods` to record allele identity and a `-T/--traversals` enumeration check.

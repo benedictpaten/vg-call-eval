@@ -34,6 +34,8 @@ Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers �
 
 **One caveat this data cannot settle.** Some of the remaining false positives may not be error: a graph carrying 32 haplotypes will call real variation a draft benchmark does not cover, and that scores as a false positive. Separating them needs a more complete truth set, not a different metric.
 
+**These SV numbers have since been taken apart per record** in [tier2-sv-errors.md](tier2-sv-errors.md), which changes how the table above should be read. Three findings bear on it directly. The 34-haplotype false-positive rise is not the same errors plus more — only about two-thirds of the 4-haplotype false calls survive the graph change, and the new ones are disproportionately calls with no truth candidate at all. A quarter of all false positives are placement or bookkeeping artefacts of the metric before any biology is considered. And once representation is harmonised with `truvari refine`, the SV ranking between the two callers **reverses** in three of four datasets. The read-likelihood caller's remaining SV deficit is entirely heterozygous deletions.
+
 ## Cost
 
 | arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | 34-hap variants |

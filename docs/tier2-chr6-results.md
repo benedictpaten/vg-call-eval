@@ -119,6 +119,8 @@ Whether those large calls are *correct* is a separate question, and the truvari 
 
 ## Structural variants — truvari (GIAB `stvar` benchmark)
 
+The per-record breakdown of these errors — what the false positives and false negatives actually are, and how much of each is the metric rather than the caller — is in [tier2-sv-errors.md](tier2-sv-errors.md). The short version: the read-likelihood caller's SV deficit is entirely heterozygous deletions, it is *ahead* on insertions, and after representation is harmonised it leads overall on three of the four datasets.
+
 The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark's `Sv*` categories as the primary measure: those are scored against the *small-variant* truth set, which contains no record over 50 bp at all, so they have almost nothing to match (plan §9.22). The aardvark block below is kept for continuity with earlier runs.
 
 | arm | recall | precision | **F1** | TP-base | FP | FN |
