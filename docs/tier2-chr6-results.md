@@ -23,11 +23,11 @@ Two changes since the accuracy results were first produced left the calls untouc
 
 | arm | enumeration | pack? | variants | wall | peak RSS |
 |---|---|---|---|---|---|
-| `poisson` | support (Flow) | yes | 288,849 | 342 s | 6.9 GB |
-| `poisson-z` | haplotype (`-z`) | yes | 289,002 | 168 s | 6.1 GB |
-| `readlik` | support (Flow) | yes | 286,543 | 292 s | 9.6 GB |
-| `readlik-nomismap` | support (Flow) | yes | 287,902 | 295 s | 10.3 GB |
-| `readlik-z` | haplotype (`-z`) | **no** | 286,557 | 242 s | 9.2 GB |
+| `poisson` | support (Flow) | yes | 288,849 | 322 s | 5.8 GB |
+| `poisson-z` | haplotype (`-z`) | yes | 289,002 | 156 s | 6.6 GB |
+| `readlik` | support (Flow) | yes | 286,574 | 288 s | 8.1 GB |
+| `readlik-nomismap` | support (Flow) | yes | 287,939 | 288 s | 7.6 GB |
+| `readlik-z` | haplotype (`-z`) | **no** | 286,585 | 235 s | 6.6 GB |
 
 ## Small variants (GIAB `smvar` benchmark)
 
@@ -39,9 +39,9 @@ Two changes since the accuracy results were first produced left the calls untouc
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.9654 | 0.9926 | 0.9788 | 215,840 | 7,745 | 1,556 | 0.9734 | 0.9919 | 0.9826 |
 | `poisson-z` | 0.9660 | 0.9926 | 0.9791 | 215,988 | 7,597 | 1,575 | 0.9738 | 0.9917 | 0.9827 |
-| `readlik` | 0.9684 | 0.9951 | 0.9816 | 216,523 | 7,062 | 1,027 | 0.9752 | 0.9933 | 0.9841 |
-| `readlik-nomismap` | 0.9683 | 0.9945 | 0.9812 | 216,506 | 7,079 | 1,168 | 0.9751 | 0.9928 | 0.9839 |
-| `readlik-z` | 0.9690 | 0.9952 | **0.9819** | 216,645 | 6,940 | 1,018 | 0.9755 | 0.9933 | 0.9843 |
+| `readlik` | 0.9684 | 0.9951 | 0.9816 | 216,524 | 7,061 | 1,026 | 0.9752 | 0.9933 | 0.9841 |
+| `readlik-nomismap` | 0.9684 | 0.9945 | 0.9813 | 216,513 | 7,072 | 1,160 | 0.9751 | 0.9928 | 0.9839 |
+| `readlik-z` | 0.9690 | 0.9952 | **0.9819** | 216,643 | 6,942 | 1,018 | 0.9755 | 0.9933 | 0.9843 |
 
 ### Insertion (<50 bp)
 
@@ -49,9 +49,9 @@ Two changes since the accuracy results were first produced left the calls untouc
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.7610 | 0.8659 | 0.8101 | 21,365 | 6,710 | 3,719 | 0.7939 | 0.8478 | 0.8199 |
 | `poisson-z` | 0.7619 | 0.8671 | 0.8111 | 21,389 | 6,686 | 3,684 | 0.7960 | 0.8476 | 0.8210 |
-| `readlik` | 0.8345 | 0.8647 | **0.8493** | 23,428 | 4,647 | 3,883 | 0.8885 | 0.6827 | 0.7721 |
-| `readlik-nomismap` | 0.8347 | 0.8620 | 0.8481 | 23,434 | 4,641 | 3,980 | 0.8879 | 0.5923 | 0.7105 |
-| `readlik-z` | 0.8348 | 0.8640 | 0.8491 | 23,436 | 4,639 | 3,901 | 0.8895 | 0.6825 | 0.7724 |
+| `readlik` | 0.8339 | 0.8664 | **0.8498** | 23,413 | 4,662 | 3,826 | 0.8858 | 0.7061 | 0.7858 |
+| `readlik-nomismap` | 0.8340 | 0.8642 | 0.8488 | 23,414 | 4,661 | 3,904 | 0.8853 | 0.6603 | 0.7564 |
+| `readlik-z` | 0.8342 | 0.8656 | 0.8496 | 23,419 | 4,656 | 3,848 | 0.8871 | 0.7060 | 0.7862 |
 
 ### Deletion (<50 bp)
 
@@ -59,9 +59,9 @@ Two changes since the accuracy results were first produced left the calls untouc
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.8506 | 0.8211 | 0.8356 | 24,075 | 4,230 | 5,576 | 0.8989 | 0.7317 | 0.8068 |
 | `poisson-z` | 0.8515 | 0.8223 | 0.8367 | 24,102 | 4,203 | 5,539 | 0.8987 | 0.7340 | 0.8080 |
-| `readlik` | 0.8782 | 0.9085 | 0.8931 | 24,858 | 3,447 | 2,665 | 0.8941 | 0.8815 | 0.8877 |
-| `readlik-nomismap` | 0.8772 | 0.9077 | 0.8922 | 24,829 | 3,476 | 2,697 | 0.8924 | 0.8707 | 0.8814 |
-| `readlik-z` | 0.8784 | 0.9083 | **0.8931** | 24,864 | 3,441 | 2,669 | 0.8937 | 0.8824 | 0.8880 |
+| `readlik` | 0.8787 | 0.9064 | 0.8923 | 24,872 | 3,433 | 2,733 | 0.8970 | 0.8698 | 0.8832 |
+| `readlik-nomismap` | 0.8782 | 0.9052 | 0.8915 | 24,857 | 3,448 | 2,776 | 0.8957 | 0.8552 | 0.8750 |
+| `readlik-z` | 0.8790 | 0.9062 | **0.8924** | 24,880 | 3,425 | 2,738 | 0.8969 | 0.8696 | 0.8831 |
 
 ### Indel
 
@@ -69,9 +69,9 @@ Two changes since the accuracy results were first produced left the calls untouc
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | — | 0.9081 | — | 0 | 0 | 279 | — | 0.7762 | — |
 | `poisson-z` | — | 0.9137 | — | 0 | 0 | 264 | — | 0.7713 | — |
-| `readlik` | — | 0.9146 | — | 0 | 0 | 268 | — | 0.7685 | — |
-| `readlik-nomismap` | — | 0.9123 | — | 0 | 0 | 277 | — | 0.6892 | — |
-| `readlik-z` | — | 0.9191 | — | 0 | 0 | 254 | — | 0.7711 | — |
+| `readlik` | — | 0.9149 | — | 0 | 0 | 267 | — | 0.7718 | — |
+| `readlik-nomismap` | — | 0.9134 | — | 0 | 0 | 273 | — | 0.7614 | — |
+| `readlik-z` | — | 0.9197 | — | 0 | 0 | 252 | — | 0.7864 | — |
 
 ### Indel (joint)
 
@@ -79,9 +79,9 @@ Two changes since the accuracy results were first produced left the calls untouc
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.8060 | 0.8454 | 0.8252 | 45,440 | 10,940 | 9,574 | 0.8474 | 0.7808 | 0.8127 |
 | `poisson-z` | 0.8069 | 0.8469 | 0.8264 | 45,491 | 10,889 | 9,487 | 0.8483 | 0.7819 | 0.8137 |
-| `readlik` | 0.8564 | 0.8882 | 0.8720 | 48,286 | 8,094 | 6,816 | 0.8913 | 0.7715 | 0.8271 |
-| `readlik-nomismap` | 0.8560 | 0.8864 | 0.8709 | 48,263 | 8,117 | 6,954 | 0.8902 | 0.7071 | 0.7882 |
-| `readlik-z` | 0.8567 | 0.8880 | **0.8721** | 48,300 | 8,080 | 6,824 | 0.8917 | 0.7718 | 0.8274 |
+| `readlik` | 0.8564 | 0.8880 | 0.8719 | 48,285 | 8,095 | 6,826 | 0.8915 | 0.7811 | 0.8326 |
+| `readlik-nomismap` | 0.8562 | 0.8864 | 0.8710 | 48,271 | 8,109 | 6,953 | 0.8906 | 0.7481 | 0.8132 |
+| `readlik-z` | 0.8567 | 0.8878 | **0.8720** | 48,299 | 8,081 | 6,838 | 0.8921 | 0.7815 | 0.8331 |
 
 ### ALL
 
@@ -89,9 +89,9 @@ Two changes since the accuracy results were first produced left the calls untouc
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.9333 | 0.9593 | 0.9461 | 261,280 | 18,685 | 11,130 | 0.9229 | 0.9095 | 0.9162 |
 | `poisson-z` | 0.9340 | 0.9596 | 0.9466 | 261,479 | 18,486 | 11,062 | 0.9236 | 0.9102 | 0.9169 |
-| `readlik` | 0.9459 | 0.9712 | 0.9584 | 264,809 | 15,156 | 7,843 | 0.9449 | 0.9010 | 0.9224 |
-| `readlik-nomismap` | 0.9457 | 0.9703 | 0.9578 | 264,769 | 15,196 | 8,122 | 0.9443 | 0.8600 | 0.9002 |
-| `readlik-z` | 0.9464 | 0.9712 | **0.9586** | 264,945 | 15,020 | 7,842 | 0.9452 | 0.9013 | 0.9227 |
+| `readlik` | 0.9459 | 0.9712 | 0.9584 | 264,809 | 15,156 | 7,852 | 0.9449 | 0.9070 | 0.9256 |
+| `readlik-nomismap` | 0.9458 | 0.9703 | 0.9579 | 264,784 | 15,181 | 8,113 | 0.9445 | 0.8873 | 0.9150 |
+| `readlik-z` | 0.9463 | 0.9712 | **0.9586** | 264,942 | 15,023 | 7,856 | 0.9454 | 0.9073 | 0.9259 |
 
 ## Reading the insertion BASEPAIR numbers
 
@@ -108,28 +108,28 @@ Restricting **both** callers to the range the benchmark can adjudicate (dropping
 | `sm50-poisson-z` | Insertion | 0.7938 | 0.8825 | **0.8358** |
 | `sm50-poisson-z` | Deletion | 0.8945 | 0.8348 | **0.8636** |
 | `sm50-poisson-z` | ALL | 0.9219 | 0.9498 | **0.9356** |
-| `sm50-readlik-z` | Insertion | 0.8859 | 0.8853 | **0.8856** |
-| `sm50-readlik-z` | Deletion | 0.8925 | 0.9098 | **0.9011** |
-| `sm50-readlik-z` | ALL | 0.9439 | 0.9715 | **0.9575** |
+| `sm50-readlik-z` | Insertion | 0.8835 | 0.8876 | **0.8855** |
+| `sm50-readlik-z` | Deletion | 0.8954 | 0.9071 | **0.9012** |
+| `sm50-readlik-z` | ALL | 0.9441 | 0.9714 | **0.9575** |
 
-The insertion BASEPAIR precision gap collapses from **0.165 to -0.003**, and insertion BASEPAIR F1 goes from 0.8358 for `poisson-z` against 0.8856 for `readlik-z`.
+The insertion BASEPAIR precision gap collapses from **0.142 to -0.005**, and insertion BASEPAIR F1 goes from 0.8358 for `poisson-z` against 0.8855 for `readlik-z`.
 There is no insertion-sequence defect in the likelihood model; what the unrestricted number measures is that one caller emits large insertions and the other does not.
 
 Whether those large calls are *correct* is a separate question, and the truvari comparison below is what answers it.
 
 ## Structural variants — truvari (GIAB `stvar` benchmark)
 
-The per-record breakdown of these errors — what the false positives and false negatives actually are, and how much of each is the metric rather than the caller — is in [tier2-sv-errors.md](tier2-sv-errors.md). The short version: the read-likelihood caller's SV deficit is entirely heterozygous deletions, it is *ahead* on insertions, and after representation is harmonised it leads overall on three of the four datasets.
-
 The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark's `Sv*` categories as the primary measure: those are scored against the *small-variant* truth set, which contains no record over 50 bp at all, so they have almost nothing to match (plan §9.22). The aardvark block below is kept for continuity with earlier runs.
+
+**What these errors are made of, per record, is in [tier2-sv-errors.md](tier2-sv-errors.md)** — including the finding that about a quarter of all false positives are the metric rather than the caller, and that harmonising representation with `truvari refine` moves every arm up by roughly 0.05 F1. Read the ranking between arms here; treat the absolute level as benchmark-relative.
 
 | arm | recall | precision | **F1** | TP-base | FP | FN |
 |---|---|---|---|---|---|---|
-| `poisson` | 0.5469 | 0.5512 | **0.5490** | 846 | 670 | 701 |
+| `poisson` | 0.5469 | 0.5512 | 0.5490 | 846 | 670 | 701 |
 | `poisson-z` | 0.5488 | 0.5468 | 0.5478 | 849 | 692 | 698 |
-| `readlik` | 0.5036 | 0.5539 | 0.5276 | 779 | 616 | 768 |
-| `readlik-nomismap` | 0.5087 | 0.5278 | 0.5181 | 787 | 696 | 760 |
-| `readlik-z` | 0.5120 | 0.5599 | 0.5349 | 792 | 613 | 755 |
+| `readlik` | 0.5301 | 0.5638 | 0.5464 | 820 | 622 | 727 |
+| `readlik-nomismap` | 0.5339 | 0.5374 | 0.5357 | 826 | 705 | 721 |
+| `readlik-z` | 0.5385 | 0.5688 | **0.5532** | 833 | 620 | 714 |
 
 
 Kept for continuity. These categories are scored against the small-variant truth set and should not be read as the SV result; prefer the truvari table above.
@@ -146,7 +146,7 @@ The *upper* clamp (`--mismap-max`) looked inert on this graph, because it binds 
 
 | `readlik-z` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |
 |---|---|---|---|---|---|
-| **floor 0.02, cap 0.5 (current defaults)** | 0.9586 | 0.9819 | 0.8491 | 0.8931 | 0.9227 |
+| **floor 0.02, cap 0.5 (current defaults)** | 0.9586 | 0.9819 | 0.8496 | 0.8924 | 0.9259 |
 
 Sweep rows other than the current one are historical: they were produced at the defaults in force at the time and are kept because the comparison between them is the result. The full grids are in plan §9.20-§9.21.
 
@@ -170,6 +170,8 @@ Chromosome-median DP is **29**, and the Poisson caller's expected depth (`XD`) n
 
 The read-likelihood model cannot reject them, and the reason is structural rather than a tuning failure: it computes P(reads | genotype) **conditioned on the reads it is given**, and never asks whether that many reads should be there. The Poisson caller gets this for free, because an observed-vs-expected depth term is the whole of its model. A depth-plausibility guard is the obvious remedy, and the expected depth is already reachable — the read-likelihood caller subclasses `SupportBasedSnarlCaller` and holds a `TraversalSupportFinder` for allele enumeration.
 
+The same blindness has a second consequence, found later and now corrected. Because the model only weighs reads it can see, it had no way to know that a heterozygous deletion produces *no* reads over the deleted interval, and its flat `1/ploidy` mixture asserted that both haplotypes contributed equally everywhere. That cost it 94% of heterozygous deletions above 1 kb and mis-genotyped two thirds of heterozygous insertions above 1 kb. Weighting each haplotype by the reads it is *expected* to contribute at the site is now the default and fixes both, without moving small variants at all — see [tier2-sv-errors.md](tier2-sv-errors.md). It does not remove the need for a depth term: it corrects the *relative* weight between a genotype's haplotypes, while the pile-ups above are a statement about *absolute* depth.
+
 Filtering on depth is **not** that remedy, and that has now been tested properly rather than by two spot checks. Sweeping a two-sided cut on DP over a rolling local median, across both chromosomes and both graphs, against the one test a hard filter has to pass — beat lowering the GQ threshold to the same recall:
 
 - a **minimum** fails in all eight dataset-by-benchmark cells. Few reads already means a small likelihood gap, so low depth depresses GQ on its own and a separate cut adds nothing;
@@ -180,6 +182,10 @@ What shipped instead attacks the same blindness from the other side: **GQ is now
 ## Quality fields
 
 Every arm above is scored at **every** GQ, so nothing on this page depends on the quality field. `vg call` emits `AD` (per-allele read support, ties split fractionally), `BL` (mean absolute fit), `GQI` (the raw likelihood-ratio quality) and `GQ` (that ratio scaled by the fraction of reads the called genotype explains). The scaling rescales a quality and does not change a genotype, so **the numbers on this page are unaffected by it**; what it changes is how the calls rank. See [tier2-quality-signals.md](tier2-quality-signals.md).
+
+## The genotype mixture
+
+The read-likelihood arms on this page use the **length-weighted mixture**, which became the default after it was found that the flat `1/ploidy` weight breaks heterozygotes whose alleles differ in length. Unlike the `GQ` scaling above, this *does* change genotypes, so these numbers are not comparable with runs made before it. `--flat-mixture` restores the previous model exactly. Derivation and measurements: [tier2-sv-errors.md](tier2-sv-errors.md).
 
 ## Raw aardvark summary rows
 
@@ -225,18 +231,18 @@ Every arm above is scored at **every** GQ, so nothing on this page depends on th
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik | GT | ALL | ALL | ALL | 279965 | 264809 | 15156 | 272423 | 264580 | 7843 | 0.9458646616541353 | 0.9712102135282263 | 0.9583698914488474 | 1407 | 1454 |
-| readlik | GT | ALL | ALL | Snv | 223585 | 216523 | 7062 | 211468 | 210441 | 1027 | 0.9684146968714359 | 0.9951434732441787 | 0.9815971634072911 | 209 | 464 |
-| readlik | GT | ALL | ALL | Insertion | 28075 | 23428 | 4647 | 28689 | 24806 | 3883 | 0.8344790739091719 | 0.8646519571961379 | 0.8492976130574432 | 692 | 554 |
-| readlik | GT | ALL | ALL | Deletion | 28305 | 24858 | 3447 | 29126 | 26461 | 2665 | 0.8782193958664547 | 0.9085009956739682 | 0.8931035872680518 | 506 | 416 |
-| readlik | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3140 | 2872 | 268 |  | 0.9146496815286624 |  | 0 | 20 |
-| readlik | GT | ALL | ALL | JointIndel | 56380 | 48286 | 8094 | 60955 | 54139 | 6816 | 0.8564384533522525 | 0.8881798047740136 | 0.8720203801103502 | 1198 | 990 |
-| readlik | BASEPAIR | ALL | ALL | ALL | 1115520 | 1054002 | 61518 | 1169752 | 1054002 | 115750 | 0.9448526247848537 | 0.901047401500489 | 0.9224302402514887 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Snv | 602392 | 587440 | 14952 | 575054 | 571189 | 3865 | 0.9751789532397509 | 0.9932788920692666 | 0.9841457083285294 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Insertion | 257406 | 228705 | 28701 | 334122 | 228089 | 106033 | 0.8884991025850213 | 0.6826518457329958 | 0.7720907440002462 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Deletion | 267064 | 238774 | 28290 | 270366 | 238319 | 32047 | 0.8940703352005511 | 0.8814680840046456 | 0.8877244860602951 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 24792 | 19052 | 5740 |  | 0.7684737011939335 |  |  |  |
-| readlik | BASEPAIR | ALL | ALL | JointIndel | 524470 | 467479 | 56991 | 629280 | 485460 | 143820 | 0.8913360154060289 | 0.7714530892448512 | 0.8270729230987488 |  |  |
+| readlik | GT | ALL | ALL | ALL | 279965 | 264809 | 15156 | 272424 | 264572 | 7852 | 0.9458646616541353 | 0.9711772824714415 | 0.9583538581468398 | 1397 | 1453 |
+| readlik | GT | ALL | ALL | Snv | 223585 | 216524 | 7061 | 211466 | 210440 | 1026 | 0.9684191694433885 | 0.9951481562047799 | 0.9816017391579184 | 200 | 462 |
+| readlik | GT | ALL | ALL | Insertion | 28075 | 23413 | 4662 | 28632 | 24806 | 3826 | 0.8339447907390917 | 0.8663732886281084 | 0.8498498012275432 | 703 | 545 |
+| readlik | GT | ALL | ALL | Deletion | 28305 | 24872 | 3433 | 29187 | 26454 | 2733 | 0.8787140081257728 | 0.9063624216260664 | 0.8923240966576904 | 494 | 426 |
+| readlik | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3139 | 2872 | 267 |  | 0.9149410640331316 |  | 0 | 20 |
+| readlik | GT | ALL | ALL | JointIndel | 56380 | 48285 | 8095 | 60958 | 54132 | 6826 | 0.8564207165661583 | 0.8880212605400439 | 0.8719347668293203 | 1197 | 991 |
+| readlik | BASEPAIR | ALL | ALL | ALL | 1115520 | 1054107 | 61413 | 1162162 | 1054107 | 108055 | 0.9449467512908778 | 0.9070224288868506 | 0.925596286048711 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Snv | 602392 | 587434 | 14958 | 575050 | 571187 | 3863 | 0.9751689929481135 | 0.9932823232762369 | 0.9841423203296069 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Insertion | 257406 | 228020 | 29386 | 322088 | 227414 | 94674 | 0.8858379369556265 | 0.7060616974243064 | 0.7857985816465864 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Deletion | 267064 | 239564 | 27500 | 274938 | 239128 | 35810 | 0.8970284276428122 | 0.869752453280376 | 0.8831798940419862 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 24662 | 19033 | 5629 |  | 0.7717541156435002 |  |  |  |
+| readlik | BASEPAIR | ALL | ALL | JointIndel | 524470 | 467584 | 56886 | 621688 | 485575 | 136113 | 0.8915362175148245 | 0.7810589877880866 | 0.8326490156384717 |  |  |
 
 </details>
 
@@ -244,18 +250,18 @@ Every arm above is scored at **every** GQ, so nothing on this page depends on th
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik-nomismap | GT | ALL | ALL | ALL | 279965 | 264769 | 15196 | 273020 | 264898 | 8122 | 0.9457217866519029 | 0.9702512636436891 | 0.957829504348 | 1569 | 1281 |
-| readlik-nomismap | GT | ALL | ALL | Snv | 223585 | 216506 | 7079 | 211823 | 210655 | 1168 | 0.9683386631482434 | 0.994485962336479 | 0.9812381552435295 | 334 | 353 |
-| readlik-nomismap | GT | ALL | ALL | Insertion | 28075 | 23434 | 4641 | 28833 | 24853 | 3980 | 0.834692787177204 | 0.8619637221239552 | 0.8481090871618178 | 697 | 530 |
-| readlik-nomismap | GT | ALL | ALL | Deletion | 28305 | 24829 | 3476 | 29206 | 26509 | 2697 | 0.8771948419007243 | 0.9076559611038828 | 0.8921654694728177 | 538 | 382 |
-| readlik-nomismap | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3158 | 2881 | 277 |  | 0.9122862571247625 |  | 0 | 16 |
-| readlik-nomismap | GT | ALL | ALL | JointIndel | 56380 | 48263 | 8117 | 61197 | 54243 | 6954 | 0.8560305072720823 | 0.8863669787734693 | 0.870934652449148 | 1235 | 928 |
-| readlik-nomismap | BASEPAIR | ALL | ALL | ALL | 1115520 | 1053381 | 62139 | 1224922 | 1053381 | 171541 | 0.9442959337349398 | 0.8599576136276432 | 0.9001556116323328 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Snv | 602392 | 587402 | 14990 | 575292 | 571160 | 4132 | 0.9751158713927144 | 0.9928175604736378 | 0.9838871020114743 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Insertion | 257406 | 228543 | 28863 | 384838 | 227922 | 156916 | 0.8878697466259527 | 0.5922544031514559 | 0.7105414325457337 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Deletion | 267064 | 238341 | 28723 | 273258 | 237923 | 35335 | 0.8924490009885271 | 0.8706899706504475 | 0.8814352209064914 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 27552 | 18990 | 8562 |  | 0.6892421602787456 |  |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | JointIndel | 524470 | 466884 | 57586 | 685648 | 484835 | 200813 | 0.8902015367895209 | 0.7071193965416657 | 0.7881681888213934 |  |  |
+| readlik-nomismap | GT | ALL | ALL | ALL | 279965 | 264784 | 15181 | 273023 | 264910 | 8113 | 0.94577536477774 | 0.970284554781099 | 0.9578732057059981 | 1561 | 1278 |
+| readlik-nomismap | GT | ALL | ALL | Snv | 223585 | 216513 | 7072 | 211822 | 210662 | 1160 | 0.9683699711519109 | 0.9945237038645656 | 0.9812726004256312 | 326 | 347 |
+| readlik-nomismap | GT | ALL | ALL | Insertion | 28075 | 23414 | 4661 | 28758 | 24854 | 3904 | 0.8339804096170971 | 0.864246470547326 | 0.8488437368832656 | 715 | 523 |
+| readlik-nomismap | GT | ALL | ALL | Deletion | 28305 | 24857 | 3448 | 29289 | 26513 | 2776 | 0.8781840664193605 | 0.9052203899074738 | 0.8914972934989441 | 520 | 392 |
+| readlik-nomismap | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3154 | 2881 | 273 |  | 0.913443246670894 |  | 0 | 16 |
+| readlik-nomismap | GT | ALL | ALL | JointIndel | 56380 | 48271 | 8109 | 61201 | 54248 | 6953 | 0.8561724015608372 | 0.8863907452492606 | 0.8710195604338279 | 1235 | 931 |
+| readlik-nomismap | BASEPAIR | ALL | ALL | ALL | 1115520 | 1053632 | 61888 | 1187504 | 1053632 | 133872 | 0.9445209409064831 | 0.8872660639458899 | 0.9149987147333245 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Snv | 602392 | 587407 | 14985 | 575290 | 571160 | 4130 | 0.9751241716357455 | 0.9928210120113334 | 0.983893021985446 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Insertion | 257406 | 227882 | 29524 | 344244 | 227289 | 116955 | 0.88530181891642 | 0.6602555164360163 | 0.7563943391554802 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Deletion | 267064 | 239219 | 27845 | 279298 | 238847 | 40451 | 0.8957366024623311 | 0.8551690309275397 | 0.8749828519438815 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 24898 | 18958 | 5940 |  | 0.7614266206120973 |  |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | JointIndel | 524470 | 467101 | 57369 | 648440 | 485094 | 163346 | 0.8906152878143649 | 0.7480938868669422 | 0.813156919675808 |  |  |
 
 </details>
 
@@ -263,18 +269,18 @@ Every arm above is scored at **every** GQ, so nothing on this page depends on th
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik-z | GT | ALL | ALL | ALL | 279965 | 264945 | 15020 | 272398 | 264556 | 7842 | 0.9463504366617256 | 0.971211242373292 | 0.9586196818172414 | 1394 | 1454 |
-| readlik-z | GT | ALL | ALL | Snv | 223585 | 216645 | 6940 | 211458 | 210440 | 1018 | 0.968960350649641 | 0.9951858052190033 | 0.981897995630667 | 200 | 462 |
-| readlik-z | GT | ALL | ALL | Insertion | 28075 | 23436 | 4639 | 28683 | 24782 | 3901 | 0.8347640249332146 | 0.8639960952480563 | 0.8491285490253767 | 690 | 555 |
-| readlik-z | GT | ALL | ALL | Deletion | 28305 | 24864 | 3441 | 29118 | 26449 | 2669 | 0.8784313725490196 | 0.908338484786043 | 0.8931346347198563 | 504 | 416 |
-| readlik-z | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3139 | 2885 | 254 |  | 0.9190825103536158 |  | 0 | 21 |
-| readlik-z | GT | ALL | ALL | JointIndel | 56380 | 48300 | 8080 | 60940 | 54116 | 6824 | 0.8566867683575736 | 0.8880210042664917 | 0.8720725113002967 | 1194 | 992 |
-| readlik-z | BASEPAIR | ALL | ALL | ALL | 1115520 | 1054402 | 61118 | 1169918 | 1054402 | 115516 | 0.9452112019506598 | 0.9012614559310994 | 0.9227132829680788 |  |  |
-| readlik-z | BASEPAIR | ALL | ALL | Snv | 602392 | 587636 | 14756 | 575030 | 571172 | 3858 | 0.9755043227665706 | 0.9932907848286177 | 0.9843172106904154 |  |  |
-| readlik-z | BASEPAIR | ALL | ALL | Insertion | 257406 | 228974 | 28432 | 334152 | 228060 | 106092 | 0.8895441442701413 | 0.6825037707390649 | 0.7723902393899625 |  |  |
-| readlik-z | BASEPAIR | ALL | ALL | Deletion | 267064 | 238677 | 28387 | 269900 | 238173 | 31727 | 0.8937071263816913 | 0.8824490552056317 | 0.8880424114519687 |  |  |
-| readlik-z | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 25622 | 19757 | 5865 |  | 0.7710951526032316 |  |  |  |
-| readlik-z | BASEPAIR | ALL | ALL | JointIndel | 524470 | 467651 | 56819 | 629674 | 485990 | 143684 | 0.8916639655271036 | 0.7718120805369127 | 0.8274204152222384 |  |  |
+| readlik-z | GT | ALL | ALL | ALL | 279965 | 264942 | 15023 | 272405 | 264549 | 7856 | 0.9463397210365582 | 0.9711605880949322 | 0.9585895091049347 | 1396 | 1453 |
+| readlik-z | GT | ALL | ALL | Snv | 223585 | 216643 | 6942 | 211458 | 210440 | 1018 | 0.9689514055057361 | 0.9951858052190033 | 0.9818934028040767 | 202 | 460 |
+| readlik-z | GT | ALL | ALL | Insertion | 28075 | 23419 | 4656 | 28627 | 24779 | 3848 | 0.8341585040071238 | 0.8655814440912425 | 0.8495795175106301 | 702 | 546 |
+| readlik-z | GT | ALL | ALL | Deletion | 28305 | 24880 | 3425 | 29180 | 26442 | 2738 | 0.8789966437025261 | 0.9061686086360521 | 0.8923758341993632 | 492 | 426 |
+| readlik-z | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3140 | 2888 | 252 |  | 0.9197452229299363 |  | 0 | 21 |
+| readlik-z | GT | ALL | ALL | JointIndel | 56380 | 48299 | 8081 | 60947 | 54109 | 6838 | 0.8566690315714792 | 0.8878041577107979 | 0.8719587468399608 | 1194 | 993 |
+| readlik-z | BASEPAIR | ALL | ALL | ALL | 1115520 | 1054626 | 60894 | 1162438 | 1054626 | 107812 | 0.9454120051635112 | 0.9072535481462237 | 0.9259398110061731 |  |  |
+| readlik-z | BASEPAIR | ALL | ALL | Snv | 602392 | 587629 | 14763 | 575030 | 571172 | 3858 | 0.975492702426327 | 0.9932907848286177 | 0.9843112950308518 |  |  |
+| readlik-z | BASEPAIR | ALL | ALL | Insertion | 257406 | 228339 | 29067 | 322162 | 227431 | 94731 | 0.8870772243071257 | 0.7059522848753111 | 0.7862179448036161 |  |  |
+| readlik-z | BASEPAIR | ALL | ALL | Deletion | 267064 | 239537 | 27527 | 274856 | 239016 | 35840 | 0.8969273282808615 | 0.8696044474197397 | 0.8830545868624498 |  |  |
+| readlik-z | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 25150 | 19778 | 5372 |  | 0.7864015904572564 |  |  |  |
+| readlik-z | BASEPAIR | ALL | ALL | JointIndel | 524470 | 467876 | 56594 | 622168 | 486225 | 135943 | 0.8920929700459511 | 0.7815011379563076 | 0.8331430756361053 |  |  |
 
 </details>
 

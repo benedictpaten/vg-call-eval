@@ -48,7 +48,12 @@ def split_multiallelic(src: Path, dst: Path, reference: Path) -> None:
     graph while happening to succeed on the 4-haplotype one, which is the kind of
     difference that silently becomes a comparison between two different pipelines.
     """
-    if dst.exists():
+    # Regenerate whenever the source is newer. Skipping purely on existence silently
+    # compares a freshly called VCF against a *stale* normalised copy: on the run that
+    # made the length-weighted mixture the default, this reported chr20 SV numbers
+    # byte-identical to the previous model, because truvari was handed a two-day-old
+    # file. Nothing errored, and the numbers were entirely plausible.
+    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
         return
     tmp = dst.with_suffix(".unsorted.vcf.gz")
     run(["bcftools", "norm", "-m-any", "-f", str(reference), "-Oz", "-o", str(tmp), str(src)])

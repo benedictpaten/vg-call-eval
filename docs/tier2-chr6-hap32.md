@@ -20,31 +20,29 @@ The rows to watch are the **`-z` arms**, which enumerate alleles from the GBWT h
 | arm | 4-hap GT F1 | 34-hap GT F1 | Δ |
 |---|---|---|---|
 | `poisson-z` | 0.9466 | 0.9318 | **-0.0148** |
-| `readlik-z` | 0.9586 | 0.9616 | **+0.0030** |
+| `readlik-z` | 0.9586 | 0.9615 | **+0.0029** |
 
-The read-likelihood caller's margin over the Poisson caller goes from **+0.0120** on the 4-haplotype graph to **+0.0298** on the 34-haplotype one — 2.5x wider.
+The read-likelihood caller's margin over the Poisson caller goes from **+0.0120** on the 4-haplotype graph to **+0.0297** on the 34-haplotype one — 2.5x wider.
 
 **Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The fall is precision, not recall, and plan §9.24 traces it to exposure: 32 extra haplotypes offer multi-allelic sites the 4-haplotype graph cannot produce at all, and those sites are harder. Multi-allelic records go from about 2.3% of the call set to about 3.4% on both chromosomes tested.
 
 **This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph looked like a precision-for-recall trade (measured on chr20: 1,597 false-positive SNVs against 375). The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
 
-**`readlik-nomismap` is the control.** It disables the mismapping term entirely, so the cap cannot reach it — and on the richer graph it still carries 3,296 spurious SNVs. The term is what does the work.
+**`readlik-nomismap` is the control.** It disables the mismapping term entirely, so the cap cannot reach it — and on the richer graph it still carries 3,297 spurious SNVs. The term is what does the work.
 
 Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers — `readlik-z` goes 0.9575 to 0.9566.
 
-**One caveat this data cannot settle.** Some of the remaining false positives may not be error: a graph carrying 32 haplotypes will call real variation a draft benchmark does not cover, and that scores as a false positive. Separating them needs a more complete truth set, not a different metric.
-
-**These SV numbers have since been taken apart per record** in [tier2-sv-errors.md](tier2-sv-errors.md), which changes how the table above should be read. Three findings bear on it directly. The 34-haplotype false-positive rise is not the same errors plus more — only about two-thirds of the 4-haplotype false calls survive the graph change, and the new ones are disproportionately calls with no truth candidate at all. A quarter of all false positives are placement or bookkeeping artefacts of the metric before any biology is considered. And once representation is harmonised with `truvari refine`, the SV ranking between the two callers **reverses** in three of four datasets. The read-likelihood caller's remaining SV deficit is entirely heterozygous deletions.
+**One caveat this data cannot settle.** Some of the remaining false positives may not be error: a graph carrying 32 haplotypes will call real variation a draft benchmark does not cover, and that scores as a false positive. Separating them needs a more complete truth set, not a different metric. It has since been *bounded* rather than settled: false calls made by both callers on both graphs with no truth candidate anywhere nearby number 44 on chr6 and 40 on chr20, which is a lower bound on the benchmark's share of them.
 
 ## Cost
 
 | arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | 34-hap variants |
 |---|---|---|---|---|---|---|
-| `poisson` | 342 s | 619 s | 6.9 GB | 7.3 GB | 288,849 | 294,626 |
-| `poisson-z` | 168 s | 217 s | 6.1 GB | 6.5 GB | 289,002 | 294,835 |
-| `readlik` | 292 s | 345 s | 9.6 GB | 10.6 GB | 286,543 | 284,717 |
-| `readlik-nomismap` | 295 s | 332 s | 10.3 GB | 10.5 GB | 287,902 | 290,559 |
-| `readlik-z` | 242 s | 267 s | 9.2 GB | 9.4 GB | 286,557 | 284,814 |
+| `poisson` | 322 s | 641 s | 5.8 GB | 7.2 GB | 288,849 | 294,626 |
+| `poisson-z` | 156 s | 212 s | 6.6 GB | 5.8 GB | 289,002 | 294,835 |
+| `readlik` | 288 s | 355 s | 8.1 GB | 8.1 GB | 286,574 | 284,760 |
+| `readlik-nomismap` | 288 s | 346 s | 7.6 GB | 8.2 GB | 287,939 | 290,597 |
+| `readlik-z` | 235 s | 271 s | 6.6 GB | 6.6 GB | 286,585 | 284,839 |
 
 ## Small variants — GT F1
 
@@ -58,18 +56,18 @@ Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers �
 | `poisson-z` | SNV | 0.9791 | 0.9703 | -0.0088 |
 | `poisson-z` | Insertion (<50 bp) | 0.8111 | 0.8157 | +0.0046 |
 | `poisson-z` | Deletion (<50 bp) | 0.8367 | 0.7852 | -0.0514 |
-| `readlik` | ALL | 0.9584 | 0.9589 | +0.0006 |
-| `readlik` | SNV | 0.9816 | 0.9771 | -0.0045 |
-| `readlik` | Insertion (<50 bp) | 0.8493 | 0.8866 | +0.0373 |
-| `readlik` | Deletion (<50 bp) | 0.8931 | 0.9067 | +0.0136 |
-| `readlik-nomismap` | ALL | 0.9578 | 0.9546 | -0.0032 |
-| `readlik-nomismap` | SNV | 0.9812 | 0.9726 | -0.0086 |
-| `readlik-nomismap` | Insertion (<50 bp) | 0.8481 | 0.8828 | +0.0347 |
-| `readlik-nomismap` | Deletion (<50 bp) | 0.8922 | 0.9044 | +0.0122 |
-| `readlik-z` | ALL | 0.9586 | 0.9616 | +0.0030 |
+| `readlik` | ALL | 0.9584 | 0.9589 | +0.0005 |
+| `readlik` | SNV | 0.9816 | 0.9770 | -0.0046 |
+| `readlik` | Insertion (<50 bp) | 0.8498 | 0.8883 | +0.0384 |
+| `readlik` | Deletion (<50 bp) | 0.8923 | 0.9044 | +0.0121 |
+| `readlik-nomismap` | ALL | 0.9579 | 0.9546 | -0.0033 |
+| `readlik-nomismap` | SNV | 0.9813 | 0.9726 | -0.0086 |
+| `readlik-nomismap` | Insertion (<50 bp) | 0.8488 | 0.8852 | +0.0363 |
+| `readlik-nomismap` | Deletion (<50 bp) | 0.8915 | 0.9017 | +0.0102 |
+| `readlik-z` | ALL | 0.9586 | 0.9615 | +0.0029 |
 | `readlik-z` | SNV | 0.9819 | 0.9794 | -0.0025 |
-| `readlik-z` | Insertion (<50 bp) | 0.8491 | 0.8893 | +0.0402 |
-| `readlik-z` | Deletion (<50 bp) | 0.8931 | 0.9097 | +0.0165 |
+| `readlik-z` | Insertion (<50 bp) | 0.8496 | 0.8911 | +0.0415 |
+| `readlik-z` | Deletion (<50 bp) | 0.8924 | 0.9073 | +0.0149 |
 
 ## Small variants — BASEPAIR F1
 
@@ -83,30 +81,32 @@ Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers �
 | `poisson-z` | SNV | 0.9827 | 0.9747 | -0.0080 |
 | `poisson-z` | Insertion (<50 bp) | 0.8210 | 0.6845 | -0.1365 |
 | `poisson-z` | Deletion (<50 bp) | 0.8080 | 0.6278 | -0.1803 |
-| `readlik` | ALL | 0.9224 | 0.8293 | -0.0931 |
+| `readlik` | ALL | 0.9256 | 0.8474 | -0.0782 |
 | `readlik` | SNV | 0.9841 | 0.9789 | -0.0052 |
-| `readlik` | Insertion (<50 bp) | 0.7721 | 0.5508 | -0.2213 |
-| `readlik` | Deletion (<50 bp) | 0.8877 | 0.8911 | +0.0034 |
-| `readlik-nomismap` | ALL | 0.9002 | 0.8067 | -0.0935 |
+| `readlik` | Insertion (<50 bp) | 0.7858 | 0.5994 | -0.1864 |
+| `readlik` | Deletion (<50 bp) | 0.8832 | 0.8697 | -0.0134 |
+| `readlik-nomismap` | ALL | 0.9150 | 0.8351 | -0.0799 |
 | `readlik-nomismap` | SNV | 0.9839 | 0.9758 | -0.0081 |
-| `readlik-nomismap` | Insertion (<50 bp) | 0.7105 | 0.5177 | -0.1928 |
-| `readlik-nomismap` | Deletion (<50 bp) | 0.8814 | 0.8793 | -0.0021 |
-| `readlik-z` | ALL | 0.9227 | 0.8312 | -0.0916 |
+| `readlik-nomismap` | Insertion (<50 bp) | 0.7564 | 0.5847 | -0.1717 |
+| `readlik-nomismap` | Deletion (<50 bp) | 0.8750 | 0.8580 | -0.0170 |
+| `readlik-z` | ALL | 0.9259 | 0.8521 | -0.0739 |
 | `readlik-z` | SNV | 0.9843 | 0.9801 | -0.0042 |
-| `readlik-z` | Insertion (<50 bp) | 0.7724 | 0.5497 | -0.2227 |
-| `readlik-z` | Deletion (<50 bp) | 0.8880 | 0.8931 | +0.0051 |
+| `readlik-z` | Insertion (<50 bp) | 0.7862 | 0.6000 | -0.1862 |
+| `readlik-z` | Deletion (<50 bp) | 0.8831 | 0.8739 | -0.0091 |
 
 ## Structural variants — truvari (GIAB `stvar`)
 
 The SV metric. Reciprocal-overlap matching against the structural benchmark, `--sizemin 50`. This replaced aardvark's `Sv*` categories, which are scored against the *small-variant* truth set and therefore have essentially no truth to match above 50 bp (plan §9.22).
 
+**These errors are broken down per record in [tier2-sv-errors.md](tier2-sv-errors.md)**, and three findings there bear directly on this table. The 34-haplotype false-positive rise is not the same errors plus more — only about two thirds of the 4-haplotype false calls survive the graph change, and the new ones are disproportionately calls with no truth candidate at all. A quarter of all false positives are placement or bookkeeping artefacts of the metric. And harmonising representation with `truvari refine` lifts every arm by roughly 0.05 F1.
+
 | arm | 4-hap recall | 34-hap recall | 4-hap prec | 34-hap prec | 4-hap F1 | 34-hap F1 | **Δ F1** |
 |---|---|---|---|---|---|---|---|
 | `poisson` | 0.5469 | 0.5320 | 0.5512 | 0.4618 | 0.5490 | 0.4944 | **-0.0546** |
 | `poisson-z` | 0.5488 | 0.5417 | 0.5468 | 0.4442 | 0.5478 | 0.4881 | **-0.0597** |
-| `readlik` | 0.5036 | 0.4848 | 0.5539 | 0.4541 | 0.5276 | 0.4690 | **-0.0586** |
-| `readlik-nomismap` | 0.5087 | 0.4990 | 0.5278 | 0.4165 | 0.5181 | 0.4540 | **-0.0641** |
-| `readlik-z` | 0.5120 | 0.5055 | 0.5599 | 0.4434 | 0.5349 | 0.4724 | **-0.0624** |
+| `readlik` | 0.5301 | 0.5107 | 0.5638 | 0.4628 | 0.5464 | 0.4856 | **-0.0609** |
+| `readlik-nomismap` | 0.5339 | 0.5236 | 0.5374 | 0.4283 | 0.5357 | 0.4712 | **-0.0645** |
+| `readlik-z` | 0.5385 | 0.5301 | 0.5688 | 0.4549 | 0.5532 | 0.4896 | **-0.0636** |
 
 ## Small variants restricted to <50 bp — BASEPAIR
 
@@ -117,9 +117,9 @@ The `smvar` truth set holds no record >=50 bp, so a large insertion called insid
 | `sm50-poisson-z` | Insertion | 0.7938 | 0.8019 | 0.8825 | 0.8645 | 0.8358 | 0.8320 | **-0.0038** |
 | `sm50-poisson-z` | Deletion | 0.8945 | 0.9239 | 0.8348 | 0.7428 | 0.8636 | 0.8235 | **-0.0401** |
 | `sm50-poisson-z` | ALL | 0.9219 | 0.9271 | 0.9498 | 0.9091 | 0.9356 | 0.9180 | **-0.0176** |
-| `sm50-readlik-z` | Insertion | 0.8859 | 0.9140 | 0.8853 | 0.8699 | 0.8856 | 0.8914 | **+0.0058** |
-| `sm50-readlik-z` | Deletion | 0.8925 | 0.9247 | 0.9098 | 0.8847 | 0.9011 | 0.9043 | **+0.0032** |
-| `sm50-readlik-z` | ALL | 0.9439 | 0.9545 | 0.9715 | 0.9588 | 0.9575 | 0.9566 | **-0.0009** |
+| `sm50-readlik-z` | Insertion | 0.8835 | 0.9108 | 0.8876 | 0.8759 | 0.8855 | 0.8930 | **+0.0074** |
+| `sm50-readlik-z` | Deletion | 0.8954 | 0.9276 | 0.9071 | 0.8793 | 0.9012 | 0.9028 | **+0.0016** |
+| `sm50-readlik-z` | ALL | 0.9441 | 0.9543 | 0.9714 | 0.9588 | 0.9575 | 0.9566 | **-0.0009** |
 
 ## Quality fields
 
