@@ -63,8 +63,8 @@ Insertions ≥1 kb, as a control: het 0.691 → 0.721 and hom 0.923 → 0.923. N
 and the read model is slightly ahead.
 
 So the failure needs *all three* of: a deletion, heterozygous, and long. Homozygous
-deletions of the same size are called normally. On chr6-4hap the read model recovers
-6 of 94 large heterozygous deletions against the Poisson caller's 63.
+deletions of the same size are called normally. Across the two 4-haplotype datasets the
+read model recovers 6 of 94 large heterozygous deletions against the Poisson caller's 63.
 
 ### What it is not
 
