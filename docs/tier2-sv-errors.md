@@ -26,6 +26,8 @@ representation is harmonised the read model wins on SVs in three of the four dat
 | Is that the mismapping term? | No. `readlik-nomismap` fails identically. |
 | Is it enumeration? | No. `poisson-z` uses the same `-z` haplotype enumeration and is fine. |
 | Is it representation? | No. The gap is unchanged after `truvari refine`. |
+| So what is it? | Reads inside a deleted interval outvote the few junction-spanning reads, by `ln 2` each against a cap of `ln(0.5/mismap-min)`. Break-even ≈ 700 bp. Confirmed against the likelihood matrices to within 15% at 8 of 10 sites, and causally by moving the cap. |
+| Can a knob fix it? | No. Lowering `--mismap-min` recovers about a third of it and confirms the mechanism, but the model needs a term that reads *missing coverage*. |
 | What is the 34-hap precision loss? | Not extra copies of the same errors — a substantially *different* error set, dominated by calls with no truth candidate at all. |
 | How much of "FP" is real? | 25–27% of 4-hap FPs are placement or bookkeeping artefacts before any biology is considered. |
 
@@ -83,49 +85,102 @@ At the record level the caller simply emits nothing. At chr6:19547689, a 1041 bp
 heterozygous deletion, `poisson-z` emits `dlen −1041, GT 1/0, DP 23`; `readlik-z`
 emits no record within 2 kb. Same graph, same enumeration.
 
-### The mechanism is not settled
+### The mechanism: interior reads outvote junction reads
 
-The obvious candidate — that reads lying *inside* a deleted interval outvote the few
-junction-spanning reads — is arithmetically attractive and has the right shape. Each
-interior read favours the homozygous long genotype by `ln 2 = 0.693` nats, while each
-junction read favours the heterozygote by at most `ln(0.5 / mismap-min) = ln 25 = 3.22`
-nats. Interior reads scale with deletion length and junction reads do not, so the
-break-even sits at `4.64 × 151 ≈ 700 bp` — which would predict partial failure in the
-300–999 bin and collapse above 1 kb, exactly what the table shows.
+At a heterozygous deletion, the reads lying *inside* the deleted interval all come from
+the intact haplotype and fit a long allele. The only reads that support the deletion are
+the few spanning its junction. Under
 
-**The likelihood dumps refute it.** Dumping the read/allele matrices for large snarls
-(`--dump-likelihoods` with `-c 800`, verified to reproduce the arm's behaviour at these
-loci) and scoring every genotype by hand gives, at all ten discordant deletion sites
-that could be mapped back:
+```
+ln P(reads | G) = Σ_r ln[ (1 − e_r) · mean_{h∈G} rel(r,h) + e_r ]
+```
 
-| | |
-|---|---|
-| winning genotype | homozygous **non-reference** at 10/10 |
-| rank of homozygous reference | **worst of all genotypes** at 10/10 |
-| reads best-fitting the reference allele | 1.1–9.8% |
+an interior read scores `1` under a homozygous long genotype and `0.5` under the correct
+heterozygote, so it favours the **wrong** answer by `ln 2 = 0.693` nats. A junction read
+favours the heterozygote by `ln(0.5 / e_r)` — at most `ln 25 = 3.22` nats at the shipped
+`--mismap-min` of 0.02, and by *nothing at all* for a read sitting at the `--mismap-max`
+cap.
 
-Homozygous reference is the *worst* genotype at these sites, not the winner, so
-"interior reads drag it to reference" is wrong as stated. What happens instead is that
-the model settles on a homozygous long allele — at one site an allele differing from
-the reference traversal by a single base over a 1781 bp window — in preference to any
-genotype containing the deletion. The interior/junction asymmetry may still be the
-reason a *long* allele beats the deletion, but that is now a conjecture, not a result.
+Interior reads grow with deletion length; junction reads do not. Break-even is at
+`3.22 / 0.693 = 4.64` interior per junction read, so with 151 bp reads the model should
+begin losing heterozygous deletions around **700 bp** and lose them badly above 1 kb.
+That is the observed shape: het deletion recall falls from 0.586 to 0.395 in the 300–999
+bin and from 0.670 to 0.064 above 1 kb.
 
-Two things block settling it, both concrete:
+Tested rather than asserted (`hetdel_mechanism.py`). For each discordant site, split the
+reads and predict the margin between the homozygous long genotype and the best genotype
+containing the deletion, then compare against the margin the model actually produces:
 
-- **`--dump-likelihoods` records no allele identity.** It emits `rel(read, allele)`
-  columns indexed by position with no length, sequence or traversal, so a matrix cannot
-  be tied back to which column is the deletion. Adding the `AT` traversal or the allele
-  lengths to the dump header would make this a half-hour question.
-- **Whether the deletion traversal reaches the matrix at all is untested.** At the site
-  examined closely, none of the four alleles looked like a 2.6 kb deletion, which would
-  mean an enumeration difference rather than a scoring one — but `poisson-z` calls that
-  deletion from the same graph. `-T/--traversals` reports candidate traversals without
-  genotyping and would answer this directly.
+| snarl | svlen | reads | interior | junction | observed | predicted | ratio |
+|---|---|---|---|---|---|---|---|
+| `175895886` | −7466 | 709 | 701 | 8 | 444.7 | 460.1 | 0.97 |
+| `175751591` | −3039 | 366 | 347 | 19 | 173.5 | 181.9 | 0.95 |
+| `173428820` | −2648 | 357 | 321 | 22 | 140.7 | 151.7 | 0.93 |
+| `177703025` | −2931 | 310 | 290 | 20 | 128.6 | 136.6 | 0.94 |
+| `175991492` | −1454 | 227 | 219 | 8 | 124.1 | 129.0 | 0.96 |
+| `177587516` | −1515 | 165 | 156 | 9 | 75.6 | 79.2 | 0.96 |
+| `176391477` | −1412 | 166 | 152 | 14 | 61.9 | 60.3 | 1.03 |
+| `176377415` | −1339 | 164 | 148 | 16 | 47.1 | 51.1 | 0.92 |
+| `178573961` | −2647 | 172 | 160 | 12 | 31.8 | 72.3 | 0.44 |
+| `176749777` | −6094 | 215 | 196 | 19 | 10.1 | 90.8 | 0.11 |
+
+Eight of ten within 15%. The two low ratios are sites where the model comes *closer* to
+being right than the two-term account predicts, because some reads fit both alleles in
+part and so neither vote cleanly nor cancel.
+
+**The deletion allele is enumerated in every case**, so this is a scoring failure and not
+a missing allele. `-T/--traversals`, which reports candidate traversals without
+genotyping at all, gives `[296, 2943, 2944, 2945]` bp at the snarl where the benchmark
+records a 2648 bp deletion, and `[2, 6096]` where it records 6094 bp — 10 of 10.
+
+### The causal test
+
+Everything above is observational. The mechanism makes a falsifiable prediction with a
+knob attached: the junction read's contribution is capped at `ln(0.5 / mismap-min)`, so
+lowering `--mismap-min` should raise the break-even length — 701 bp at the shipped 0.02,
+1354 bp at 1e-3, 1853 bp at 1e-4 — and should move **heterozygous deletions only**,
+leaving insertions untouched.
+
+Re-calling chr6-4hap `readlik-z` at each setting:
+
+| `--mismap-min` | predicted break-even | het DEL 1k+ recall | overall SV F1 | TP-base | FP |
+|---|---|---|---|---|---|
+| 0.02 (shipped) | 701 bp | 4/61 = **0.066** | 0.5349 | 792 | 613 |
+| 1e-3 | 1354 bp | 11/61 = **0.180** | 0.5449 | 824 | 647 |
+| 1e-4 | 1853 bp | 18/61 = **0.295** | 0.5463 | 836 | 672 |
+| `poisson-z`, for scale | — | 51/61 = 0.836 | 0.5478 | 849 | 692 |
+
+Monotone in the predicted direction, and the control does not move at all: heterozygous
+insertion recall is **0.659 and 0.708** at 300–999 and 1k+ under *both* 0.02 and 1e-4,
+identical to four decimal places. The knob touches precisely the class the mechanism
+names and nothing else.
+
+**This is a diagnostic, not a recommendation.** `--mismap-min` is a floor on how
+unreliable any read may be, and lowering it by two orders of magnitude lets a single
+misaligned read veto a genotype; false positives rise from 613 to 672 here, and the
+effect on small variants has not been measured. It closes about a third of the
+heterozygous-deletion gap and buys +0.011 SV F1, which brings `readlik-z` to within
+0.0015 of `poisson-z` — enough to confirm the mechanism, not enough to be the fix.
+
+The fix is not a knob. This is a structural property of the likelihood: the model asks
+how well each *observed* read fits each allele, and a deletion's evidence is largely the
+**absence** of reads, which contributes nothing to a sum over reads that exist. The
+Poisson caller measures depth and so reads that absence directly, which is why it scores
+0.861 where the read model scores 0.194. A real repair needs a term that sees missing
+coverage — which is what the design's §5.3.3 depth-plausibility term was for, and it is
+the second independent reason to want it after the `BL` sign reversal.
 
 Sizing the prize: on chr6-4hap, het deletions cost the read model 87 truth records
 while insertions gain it 34. Bringing heterozygous deletions merely to parity would move
 `readlik-z` from 57 behind to about 30 ahead, and it already has the better precision.
+
+**One tooling gap this ran into.** `--dump-likelihoods` records `rel(read, allele)`
+columns with no allele length, sequence or traversal, and the column order does *not*
+agree with the order `-T` reports, so a matrix cannot be tied to which column is the
+deletion by lookup. The analysis above identifies it from the data — at these sites
+exactly one allele is fit well by under 15% of reads while the rest are fit by 45% or
+more — which is unambiguous here but would not be in general. Emitting the allele lengths
+in the dump header would remove the guesswork.
 
 ---
 

@@ -113,6 +113,17 @@ python3 scripts/tier2/patch_truvari_pysam.py          # once: truvari refine is 
 python3 scripts/tier2/sv_error_atlas.py               # per-record FP/FN/TP tables -> work/sv-atlas/
 python3 scripts/tier2/sv_metric_sensitivity.py --refine
 python3 scripts/tier2/sv_error_report.py              # every table in docs/tier2-sv-errors.md
+python3 scripts/tier2/hetdel_mechanism.py            # the heterozygous-deletion mechanism test
+```
+
+The mechanism test needs likelihood matrices and a traversal enumeration, both restricted to
+large snarls so they are cheap:
+
+```bash
+vg call work/tier2-chr6/chr6_0_chr6.gbz -p CHM13#0#chr6 --read-likelihood -z -c 800 \
+    --dump-likelihoods work/sv-atlas/chr6-large.dump.tsv --gaf-base … --gbz-base … > /dev/null
+vg call work/tier2-chr6/chr6_0_chr6.gbz -p CHM13#0#chr6 -z -T -k work/tier2-chr6/chr6.pack -c 800 \
+    > work/sv-atlas/chr6-trav.gaf
 ```
 
 `prep_contig.sh` extracts the reference FASTA from *each* graph and stops if two graphs for the same
@@ -129,4 +140,8 @@ Not yet built: tier 1 (vg's HGSVC fixture), the `read_weight` calibration fit (s
 size-conditional depth or `best_ln` term — blocked on the sign reversal documented in
 [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md).
 
-Open and specific: the heterozygous-deletion defect in the read-likelihood genotyper ([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)). The behaviour is pinned down; the mechanism is not, and settling it needs `--dump-likelihoods` to record allele identity and a `-T/--traversals` enumeration check.
+Open and specific: the heterozygous-deletion defect in the read-likelihood genotyper
+([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)). Behaviour and mechanism are both settled — reads inside a
+deleted interval outvote the junction-spanning reads, break-even around 700 bp — so what is open is the *fix*.
+It is a structural property of a likelihood over observed reads, not a tuning problem, so it needs a term that
+reads the absence of coverage rather than a knob.
