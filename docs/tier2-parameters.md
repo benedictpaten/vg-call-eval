@@ -29,17 +29,15 @@ chr20-34hap, at fixed floor 0.02:
 | small-variant GT F1 | 0.9547 | 0.9546 | 0.9543 | 0.9543 |
 
 chr20-4hap, same slice: SV F1 0.4907 / 0.4890 / 0.4903 / 0.4903, small-variant GT F1
-0.9489 / 0.9488 / 0.9487 / 0.9486. Spread of 0.0044 and 0.0003 respectively, with no
-consistent ordering between the two graphs — noise.
+0.9489 / 0.9488 / 0.9487 / 0.9486. Spreads of 0.0044 and 0.0003, and on this slice alone
+the two graphs do not even agree on an ordering.
 
-Why it went inert. The clamp only binds on reads whose phred-derived `e_r` exceeds it,
-and at 0.5 that is already just MAPQ 0, 1 and 2 (`phred_to_prob(1) = 0.79`). Raising it
-further affects a shrinking set of reads that carry almost no information either way.
 0.99 is the practical ceiling: vg enforces the open interval `(0,1)`, and at exactly 1
 every read's term collapses to `ln(1) = 0` for every genotype, so reads would contribute
 nothing at all.
 
-Read one slice at a time it looks like noise. Read the whole surface and it is not:
+Read one slice at a time it looks like noise, and on first reading it was called noise.
+Read the whole surface and it is not:
 **0.7 beats 0.5 on structural-variant F1 in 8 of 10 chr20 slices**, by more as the floor
 rises (+0.0014 at floor 0.02, +0.0094 at floor 0.20). At the shipped floor of 0.02,
 across all four datasets:

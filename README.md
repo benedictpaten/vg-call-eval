@@ -16,7 +16,7 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full five-arm accuracy tables per chromosome, small variants and SVs |
 | [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
-| [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters re-swept after the mixture change: why `--mismap-max` is now inert, why `--mismap-min` stays at 0.02, and why `--read-weight` cannot change a genotype at all |
+| [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters re-swept after the mixture change: why `--mismap-max` moved to 0.7, why `--mismap-min` stays at 0.02, and why `--read-weight` was removed |
 | [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
