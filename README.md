@@ -123,8 +123,14 @@ Parameter sweeps, searched on chr20 and validated on chr6 so the validation set 
 ```bash
 python3 scripts/tier2/param_sweep.py --param mismap-max --values 0.5 0.7 0.9 0.99 \
     --param2 mismap-min --values2 0.01 0.02 0.05 --datasets chr20-34hap chr20-4hap
-python3 scripts/tier2/param_sweep.py --param read-weight --values 0.5 1.0 2.0 --datasets chr20-4hap
+python3 scripts/tier2/param_sweep.py --param mismap-min --values 0.01 0.02 0.05 0.10 0.20 \
+    --datasets chr20-34hap chr20-4hap
 ```
+
+Every point is scored on **both** benchmarks plus the heterozygous SV class breakdown and the
+genotype mix, and the surface is printed whole. There is deliberately no single objective: a
+setting that buys SV F1 with small-variant genotype F1 is a judgement about what the caller is
+for, and picking one number to maximise is how the mismapping cap ended up at 0.1 originally.
 
 The mechanism test needs likelihood matrices and a traversal enumeration, both restricted to
 large snarls so they are cheap:
