@@ -24,7 +24,9 @@ The rows to watch are the **`-z` arms**, which enumerate alleles from the GBWT h
 
 The read-likelihood caller's margin over the Poisson caller goes from **+0.0119** on the 4-haplotype graph to **+0.0297** on the 34-haplotype one — 2.5x wider.
 
-**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The fall is precision, not recall, and plan §9.24 traces it to exposure: 32 extra haplotypes offer multi-allelic sites the 4-haplotype graph cannot produce at all, and those sites are harder. Multi-allelic records go from about 2.3% of the call set to about 3.4% on both chromosomes tested.
+**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The SV fall is **entirely precision** — recall is flat on chr6 and slightly better on chr20 — and most of it is not the caller getting worse. Two thirds to all of it is records that are not structural variants plus the cost of scoring unfiltered; at matched sensitivity the residual is 0.021 on chr6 and zero on chr20. [tier2-sv-errors.md](tier2-sv-errors.md) has the decomposition.
+
+Exposure to multi-allelic sites was the earlier explanation and it does not survive measurement: precision falls within the biallelic stratum, which is 78-82% of records, by nearly the whole amount. Multi-allelic records do grow (17.6% to 22.1% of SV-sized records) and are harder, but they are a minor term rather than the mechanism.
 
 **This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph looked like a precision-for-recall trade (measured on chr20: 1,597 false-positive SNVs against 375). The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
 

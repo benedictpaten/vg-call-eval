@@ -18,7 +18,7 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, the size-gated depth discount behind it, and the filters that turned out not to help |
 | [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters, re-swept twice: why `--mismap-max` moved to 0.7, why `--read-weight` was removed, and why `--mismap-min` stays at 0.02 even though the depth term dissolved the trade it was balancing |
 | [docs/tier2-depth-term.md](docs/tier2-depth-term.md) | the depth term, predicted offline and then built: `--depth-term` puts the read model ahead of both Poisson arms on all four datasets, and a read counts toward depth as `1 − e_r` rather than as one read |
-| [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
+| [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trailed on structural variants (heterozygous deletions, and nothing else), why the 34-haplotype graph's SV penalty is mostly not the caller — at matched sensitivity it is 0.021 on chr6 and zero on chr20 — and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
 
@@ -124,6 +124,7 @@ python3 scripts/tier2/depth_gq.py \
     --tag dgrid-w0.1-f0.02-c0.7                 # DR as a GQ discount, 8 cells
 python3 scripts/tier2/depth_grid.py \
     --datasets chr20-4hap                       # depth weight x mismapping floor
+python3 scripts/tier2/hap32_precision.py            # why 34-hap emits more false SVs
 ```
 
 A caller-side change can be put through the whole five-arm matrix without editing the arm list:

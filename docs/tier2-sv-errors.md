@@ -482,6 +482,89 @@ share for `readlik-z` SV calls on chr6:
 Separation is much stronger on the rich graph, which is why the share discount bought
 +0.037 AUC there and +0.010 on the 4-haplotype graph.
 
+### What the extra false calls are — measured, and the earlier answer refuted
+
+Re-asked against the refreshed arms with `hap32_precision.py`. The framing has to change
+first: **the loss is entirely precision.** `readlik-z` recall is 0.5507 → 0.5456 on chr6
+and 0.4915 → **0.4967** on chr20, with true positives essentially flat (852 → 844,
+376 → 380) while false positives rise 35–52%. The richer graph finds the same events and
+adds false ones. It is also **not the genotyper**: all five arms lose 0.034–0.063 F1, and
+on chr20 `readlik-z` loses the *least* of the five.
+
+**A third of the inflation is records that are not structural variants.** Splitting false
+positives by whether `|ALT| = |REF|`:
+
+| dataset | same-length FP | ever a TP | median span | median divergence | ≤3 mismatches |
+|---|---|---|---|---|---|
+| chr20-4hap | 16 | **0** | — | — | — |
+| chr20-34hap | 56 | **0** | — | — | — |
+| chr6-4hap | 39 | **0** | — | — | — |
+| chr6-34hap | **153** | **0** | 1,110 bp | 0.0041 | 73 of 153 |
+
+Zero of 264 such records across all four datasets is ever a true positive. They are long
+alleles that differ from the reference at a *handful of bases*: one spans 18,181 bp and
+differs at **3** positions. That is a few SNVs written as an enormous replacement record.
+Truvari sizes it by span rather than by length change, so it enters the structural
+comparison where nothing can match it; aardvark never sees it either, because the
+small-variant truth holds no record above 50 bp. **Invisible to both benchmarks, and pure
+precision loss on one.** They quadruple on the richer graph, which makes larger bubbles
+with more divergent-but-same-length traversals, and they account for 32–35% of the
+inflation.
+
+The fix is atomisation — emitting the differing bases rather than the whole bubble — and it
+costs no recall by construction, since none of these records ever matches.
+
+**Most of the rest is the cost of scoring unfiltered.** Layered, `readlik-z` precision:
+
+| | chr6 4-hap → 34-hap | gap | chr20 4-hap → 34-hap | gap |
+|---|---|---|---|---|
+| as scored | 0.5728 → 0.4716 | 0.1012 | 0.5084 → 0.4380 | 0.0704 |
+| drop same-length records | 0.5885 → 0.5155 | 0.0730 | 0.5201 → 0.4690 | 0.0510 |
+| + match true-positive yield via `GQ` | 0.6029 → 0.5815 | **0.0213** | 0.5323 → 0.5354 | **−0.0031** |
+
+At matched sensitivity, with non-SV records excluded, the 34-haplotype precision penalty is
+**0.021 on chr6 and nothing at all on chr20** — against headline figures of 0.101 and 0.070.
+Both adjustments help the 4-haplotype arm too, so neither is one-sided. The second layer is
+just comparing at matched sensitivity instead of at two arbitrary unfiltered operating
+points, which is what any downstream user does anyway.
+
+**Exposure to multi-allelic sites was the earlier explanation, and it does not survive
+measurement.** Counting split records that share a position, in the exact file truvari
+consumed:
+
+| dataset | biallelic precision | 2-ALT | 3+ | multi-allelic share |
+|---|---|---|---|---|
+| chr6-4hap | 0.591 | 0.500 | 0.375 | 17.6% |
+| chr6-34hap | **0.491** | 0.416 | 0.314 | 22.1% |
+| chr20-4hap | 0.512 | 0.500 | 0.417 | 18.5% |
+| chr20-34hap | **0.446** | 0.404 | 0.423 | 20.9% |
+
+Precision falls **within the biallelic stratum** — 78–82% of records — by 0.100 on chr6
+against an overall 0.101. Multi-allelic records do grow and are harder, but they are a minor
+term, not the mechanism. Plan §9.24's exposure account is superseded for SVs.
+
+**Where the remaining false calls sit, and what the caller already knows.** The buckets, and
+what share of the inflation each contributes:
+
+| bucket | chr6 Δ | chr20 Δ | chr6-34hap median `GQ` | `share` | `DR` | `BL` |
+|---|---|---|---|---|---|---|
+| true positives | — | — | 42 | 0.773 | 0.860 | 93.0 |
+| no candidate | **+197 (61%)** | **+96 (77%)** | 16 | 0.567 | 0.745 | **121.6** |
+| dissimilar | +109 (34%) | +36 (29%) | 3 | 0.409 | 0.484 | 75.2 |
+| consumed | +16 | −1 | 6 | 0.530 | 0.447 | 61.4 |
+| placement | +2 | −6 | 8 | 0.600 | 0.460 | 58.5 |
+
+`dissimilar`, `consumed` and `placement` all sit at `GQ` 3–8 against 42 for true positives —
+the shipped discounts already down-rank them, which is why layer 2 above recovers so much.
+
+**`no candidate` is the interesting population.** It dominates the inflation, and it is the
+one false class with *good* read support: `BL` 121.6 against 93.0 for true positives, and
+`DR` 0.745 — reads fit well and the depth is plausible. Since truvari runs with
+`--includebed`, these are inside the region the benchmark claims to characterise. That is
+consistent with real sequence the draft benchmark does not carry, and equally consistent
+with collapsed repeats where reads fit many things; `BL` is not normalised for site size, so
+it cannot separate those two. Unresolved, and the honest bound rather than a claim.
+
 ---
 
 ## Q3 — how much of the error budget is the ruler
