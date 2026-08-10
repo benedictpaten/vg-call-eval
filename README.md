@@ -17,6 +17,7 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
 | [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters re-swept after the mixture change: why `--mismap-max` moved to 0.7, why `--mismap-min` stays at 0.02, and why `--read-weight` was removed |
+| [docs/tier2-depth-term.md](docs/tier2-depth-term.md) | Stage 0 of a depth term, predicted offline before building it: the signal is real, it fixes four of ten missed deletions, and the other six turn out to be a different failure |
 | [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
@@ -116,6 +117,7 @@ python3 scripts/tier2/sv_metric_sensitivity.py --refine
 python3 scripts/tier2/sv_error_report.py              # every table in docs/tier2-sv-errors.md
 python3 scripts/tier2/hetdel_mechanism.py            # the heterozygous-deletion mechanism test
 python3 scripts/tier2/score_vcf.py --vcf … --label … # score any experimental VCF on BOTH benchmarks
+python3 scripts/tier2/depth_term_offline.py          # Stage 0 depth-term prediction
 ```
 
 Parameter sweeps, searched on chr20 and validated on chr6 so the validation set stays held out:
