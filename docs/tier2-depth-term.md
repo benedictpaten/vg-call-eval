@@ -144,6 +144,41 @@ pile-ups), **raw `N` against a locally estimated rate for genotype selection** (
 This is also a second, independent argument for estimating `c` locally: a global
 recalibration artefact is what cost the flip here.
 
+## Where the local rate comes from: reads, not the pack — and not from within the site
+
+The rate must be derived from the reads rather than a pack file, and not only to keep
+`readlik-z` pack-free. `N` is *rows in the likelihood matrix*, which is neither coverage
+nor what a pack reports: it depends on the read-fetch window and the placement filter.
+Estimating the rate through the same fetch and placement path makes the units match by
+construction, where a pack-derived rate would be a cross-unit comparison with a silent
+scale error in it.
+
+**The elegant version does not work.** Reads lying in a snarl's *shared* sequence fit
+every allele equally, so they are genotype-independent and would give a local rate for
+free, with no extra fetching, no global state and no second pass. Measured on the ten
+missed deletions, the number of such reads is **0 at nine sites and 2 at the tenth**.
+Snarl boundary nodes are too short to contain a read, and anything extending past them
+reaches variable sequence and discriminates. There is no within-site control available at
+exactly the sites that need one.
+
+So the local rate has to come from outside the site. Three read-based options:
+
+| | how | cost | risk |
+|---|---|---|---|
+| widen the fetch | extend the node-ID range to pull flanking reads; `--read-window` already exists | more reads per site, on the hot path | the flank may be repetitive too |
+| coarse pre-pass | stream the read source once, bin read starts into ~10 kb windows | one extra pass over the read source | the cost is the open question |
+| rolling estimate | accumulate `N_i / Σ e_i` from sites already processed | free | thread-unsafe under `-t`, plus a warm-up problem |
+
+The pre-pass is the recommendation: it is computing the pack ourselves, coarsely, from the
+same source that feeds the matrices, and it is read-only once built, so it is thread-safe
+where a rolling estimate is not. Widening the fetch is the fallback if streaming proves
+too expensive, and measuring that cost is the first task of Stage 1.
+
+**A local rate does not replace the global one.** Any near-local control normalises away
+exactly the whole-region anomaly the pile-up signal needs to see — if a repeat is
+collapsed, its flank is frequently piled up as well. Group A wants *relative* depth within
+a site; group B wants *absolute* depth against the genome. One term, two reference rates.
+
 ## Two requirements this puts on Stage 1
 
 **A global `c` is too crude to ship.** The per-site ratio has an interquartile range of
