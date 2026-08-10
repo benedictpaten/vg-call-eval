@@ -12,6 +12,32 @@ of it is written. `depth_term_offline.py`.
 **Verdict: build it, but it solves half the problem, and the other half is not what it
 looked like.**
 
+**Built, and Stage 1 beat the Stage 0 prediction.** `--depth-term W`, off by default,
+with the rate measured over the read source's own fetch window. Structural-variant F1 at
+`w = 0.25`, searched on chr20 and validated on chr6:
+
+| dataset | `readlik-z` | **+ depth term** | `poisson` | `poisson-z` |
+|---|---|---|---|---|
+| chr20-4hap | 0.4890 | **0.5024** | 0.4954 | 0.4930 |
+| chr6-4hap | 0.5542 | **0.5639** | 0.5490 | 0.5478 |
+| chr6-34hap | 0.4963 | **0.5076** | 0.4944 | 0.4881 |
+
+Heterozygous deletion recall above 1 kb — the class it was built for:
+
+| dataset | flat mixture | + weighted mixture | **+ depth term** | `poisson-z` |
+|---|---|---|---|---|
+| chr20-4hap | 0.061 | 0.212 | **0.394** | 0.364 |
+| chr6-4hap | 0.066 | 0.443 | **0.787** | 0.836 |
+| chr6-34hap | 0.082 | 0.443 | **0.721** | 0.787 |
+
+Small-variant genotype F1 does not move to four decimal places on any dataset, the
+heterozygous fraction of calls shifts by 0.005, and chr20 runs in 111 s against a
+120–170 s baseline. Stage 0 predicted 4 of 10 sites with a deliberately naive global
+rate; a local rate does better, as Stage 0 said it would.
+
+Details of what was built, and what the in-tree suite caught, are at the end of this
+page.
+
 ---
 
 ## The formulation
@@ -207,3 +233,51 @@ generalises to the pile-ups, which are the same sites.
 - `--dump-likelihoods` still records no allele identity. Fixing that is a prerequisite
   for turning Stage 0 into a measurement, and is the same gap flagged during the
   heterozygous-deletion mechanism work.
+
+
+---
+
+# Stage 1: what was built
+
+`--depth-term W` adds `W · ln Poisson(N ; λ_G)` to each genotype's log-likelihood, and
+`DR` — observed reads over what the called genotype predicts — is emitted **whether or
+not the term is armed**, so the observable can be measured as a ranking signal before the
+model is trusted to act on it. That is the order the explained-share discount was
+established in. On chr20 `DR` has a median of 0.60, a 99th percentile of 2.05 and a
+maximum of 15.5.
+
+## The rate comes from the fetch window
+
+Stage 0 ruled out a within-site control and recommended a coarse pre-pass. The
+implementation does something cheaper that was available all along: `WindowedSiteReadSource`
+already fetches and caches a **4096-node window** around each site to answer the site's own
+query, which is thousands of times wider than a snarl. Asking it for the window is a cache
+hit. The per-window rate is memoised, so counting a window's reads happens once per window
+rather than once per site — without that the diagnostic would cost more than the
+genotyping. Measured cost: **111 s against a 120–170 s baseline**, i.e. inside the noise.
+
+No pre-pass, no pack, no extra I/O.
+
+## Two mistakes worth recording
+
+**The unit test I wrote first asserted a false premise.** It set up a heterozygous
+deletion and claimed the mixture alone would get it wrong. With alleles of 2000 and 50 bp
+the length-weighted mixture already calls it correctly — that is the fix shipped earlier.
+The test now uses a geometry where the mixture genuinely still fails (40 interior reads
+against 1 junction read), which is the residual the depth term exists for.
+
+**`DR` depended on which read source supplied the reads.** The neighbourhood width was
+taken from the read source's own fetch window, and an in-memory source answers every range
+exactly and so has none — it produced no rate, emitted no `DR`, and therefore a different
+VCF from an indexed source over identical reads. `18_vg_call.t` asserts those two agree
+and caught it immediately. The neighbourhood is caller policy, not a backend property, and
+now falls back to `--depth-window` when the source has no window of its own.
+
+## Still open
+
+- **Off by default**, pending replication beyond two chromosomes.
+- **Group B is untouched.** The term detects collapsed repeats emphatically and still
+  cannot outvote the read evidence there; that needs `DR` wired into the quality field,
+  which is why `DR` is emitted now.
+- `w` was chosen from three values on one dataset. 0.25 beat 0.5 and 1.0 on chr20 and was
+  not re-optimised on chr6, so it is a defensible setting rather than a fitted one.
