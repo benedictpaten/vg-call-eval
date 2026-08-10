@@ -12,6 +12,9 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 VG=${VG:-$HOME/CLionProjects/vg/bin/vg}
 THREADS=${THREADS:-5}
+# Extra flags for the three read-likelihood arms only, so a caller-side change can be
+# measured across the whole matrix before it becomes a default. Empty by default.
+READLIK_EXTRA=${READLIK_EXTRA:-}
 
 # run_arms.py shells out to gbz-base by name and does not take a binary path, so it
 # has to be on PATH. A non-interactive shell does not inherit the login PATH, and the
@@ -42,7 +45,7 @@ while IFS=: read -r label sub contig gbzdb gafdb; do
         --reference "$W/${contig}.fa" \
         --truth-vcf "$W/truth.${contig}.smvar.vcf.gz" \
         --truth-bed "$W/truth.${contig}.smvar.bed" \
-        --out "$W/results"
+        --out "$W/results" ${READLIK_EXTRA:+--readlik-extra "$READLIK_EXTRA"}
 
     echo "### $label truvari"
     python3 "$REPO/scripts/tier2/truvari_sv.py" --contig "$contig" --work "$W" \

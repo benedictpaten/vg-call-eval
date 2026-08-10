@@ -250,8 +250,11 @@ generalises to the pile-ups, which are the same sites.
 `DR` — observed reads over what the called genotype predicts — is emitted **whether or
 not the term is armed**, so the observable can be measured as a ranking signal before the
 model is trusted to act on it. That is the order the explained-share discount was
-established in. On chr20 `DR` has a median of 0.60, a 99th percentile of 2.05 and a
-maximum of 15.5.
+established in. On chr20 `DR` has a median of **0.98**, a 99th percentile of 2.56 and a
+maximum of 37.8 — after the λ correction below. Before it, the median was 0.59: those are
+the numbers this page carried until the cause was found, and they are recorded here rather
+than quietly replaced, because designing a discount against a mis-centred `DR` selects the
+wrong formula, which is exactly what happened.
 
 ## The rate comes from the fetch window
 
@@ -264,6 +267,47 @@ rather than once per site — without that the diagnostic would cost more than t
 genotyping. Measured cost: **111 s against a 120–170 s baseline**, i.e. inside the noise.
 
 No pre-pass, no pack, no extra I/O.
+
+The window width is **saturated at the 4096 default**. Varying it (through `--read-window`,
+because `--depth-window` is inert whenever the read source supplies a window of its own,
+which every tier-2 run does) gives SV F1 0.4961 / 0.4998 / 0.5008 at 1024 / 4096 / 16384 on
+chr20-4hap. A 1024-node window is roughly 30 kb, narrow enough that the rate's variance
+shows; by 4096 the estimate has converged and widening buys one record. The measurement is
+confounded — `--read-window` also sets fetch and cache granularity — but the confound runs
+against the conclusion, since the wider window costs more per fetch and scored no better.
+
+## λ counts the interior of a traversal, not the whole of it
+
+`DR`'s median was 0.59, not 1, on all four datasets — 0.586 to 0.595, stable across two
+chromosomes and two graphs with very different node content, which ruled out anything about
+graph composition and pointed at the geometry.
+
+A `SnarlTraversal` runs from the snarl's start visit to its end visit **inclusive**, so its
+length includes both boundary nodes. But `get_read_steps` drops a read lying entirely within
+one boundary node as uninformative — it contributes an identical constant to every allele —
+so those bases recruit no row. λ was counting positions that cannot produce a read.
+
+That predicts the shape of the error exactly: a fixed overhead matters less the longer the
+allele, so `DR` should climb with event size. It did, 0.581 at SNVs to 0.869 above 1 kb.
+Working back from the SNV median, the overhead needed is ≈109 bp — about 54 bp per anchor,
+1.9× the graph's 28.9 bp mean node length, which is what conserved anchors between bubbles
+should look like.
+
+Interior length only:
+
+| | median | SNV | 1–9 | 10–49 | 50–299 | 300–999 | 1k+ |
+|---|---|---|---|---|---|---|---|
+| whole traversal | 0.591 | 0.581 | 0.625 | 0.648 | 0.591 | 0.708 | 0.869 |
+| **interior only** | **0.977** | **0.995** | 0.918 | 0.859 | 0.678 | 0.876 | 0.927 |
+
+46% of sites now sit above 1, so it is a genuinely two-sided statistic.
+
+**It is close to F1-neutral for the term itself**, and the first version of this page said
+otherwise. At matched `w_d = 0.25` the four-dataset mean moves by 0.0002; the anchor constant
+is added to both haplotypes' λ and largely cancels in the ratio that decides between
+genotypes. What it buys is that `DR` means what its header says — which is what made the
+quality discount designable at all, and the reason the ranking result below reverses when
+measured against a centred `DR`.
 
 ## A read counts as `1 − e_r` of a read, not one
 

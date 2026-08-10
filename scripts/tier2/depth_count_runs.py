@@ -39,8 +39,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["chr20-4hap"])
     ap.add_argument("--weight", default="0.25")
+    ap.add_argument("--dq-exponent", default="0.75",
+                    help="exponent for the `dq` arm's --depth-quality")
     ap.add_argument("--arms", nargs="+", default=["raw", "eff"],
-                    choices=["raw", "eff", "off"])
+                    choices=["raw", "eff", "off", "dq"])
+    ap.add_argument("--suffix", default="",
+                    help="appended to every tag, so a rebuilt vg can be measured "
+                         "without colliding with the cached runs of the old one")
     ap.add_argument("--vg", default=str(Path.home() / "CLionProjects/vg/bin/vg"))
     ap.add_argument("--threads", type=int, default=5)
     args = ap.parse_args()
@@ -51,13 +56,19 @@ def main() -> None:
         "off": {},
         "raw": {"depth-term": args.weight, "depth-count-raw": ""},
         "eff": {"depth-term": args.weight},
+        # Ranking only: the depth-implausibility discount changes GQ and nothing else,
+        # so this arm's genotypes must come out identical to `off`. They do, and that is
+        # worth asserting rather than assuming -- it is what makes the two arms'
+        # benchmark labels interchangeable and the ranking comparison like for like.
+        "dq": {"depth-quality": args.dq_exponent},
     }
 
     rows = []
     for ds in args.datasets:
         for arm in args.arms:
             params = {k: v for k, v in arms[arm].items()}
-            tag = f"{ds}-depthcount-{arm}{'' if arm == 'off' else args.weight}"
+            knob = {"off": "", "dq": args.dq_exponent}.get(arm, args.weight)
+            tag = f"{ds}-depthcount-{arm}{knob}{args.suffix}"
             print(f"=== {ds} {arm}", flush=True)
             vcf = ps.call(args.vg, ds, tag, params, args.threads)
             rows.append((ds, arm, ps.score(vcf, ds, tag, args.threads)))
@@ -76,7 +87,7 @@ def main() -> None:
               f"{ps.cls(s, 'INS 1k+ het'):>9s} "
               f"{(s.get('genotype_mix') or {}).get('het_frac', 0):9.4f}")
 
-    dest = WORK / "sv-atlas" / "sweep-depth-count.json"
+    dest = WORK / "sv-atlas" / f"sweep-depth-count{args.suffix}.json"
     dest.write_text(json.dumps(
         [{"dataset": d, "arm": a, "sv": s.get("sv"),
           "smallvar_all_f1": ps.smallvar_f1(s), "smallvar_snv_f1": ps.smallvar_f1(s, "Snv"),

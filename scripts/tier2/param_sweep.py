@@ -45,10 +45,13 @@ DATASETS = {
     "chr20-34hap": ("tier2-chr20-hap32", "chr20", "graph.hap32.gbz.db", "reads.hap32.gaf.db"),
 }
 
-# The shipped operating point. Sweeping one parameter holds the others here.
+# The shipped operating point. Sweeping one parameter holds the others here, so this
+# has to track vg's own defaults or "holding the others fixed" quietly means holding
+# them somewhere vg no longer is: the cap moved to 0.7 as a *result* of this sweep and
+# this line kept the pre-sweep value.
 # --read-weight was removed from vg after this sweep showed it cannot change a
 # genotype; passing it to a current build is an argument error, not a no-op.
-DEFAULTS = {"mismap-max": "0.5", "mismap-min": "0.02"}
+DEFAULTS = {"mismap-max": "0.7", "mismap-min": "0.02"}
 
 
 def gbz_base_binary() -> str:

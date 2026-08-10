@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 import time
@@ -56,7 +57,16 @@ class Arm:
     metrics: dict = field(default_factory=dict)
 
 
-def arms() -> list[Arm]:
+def arms(readlik_extra: list[str] | None = None) -> list[Arm]:
+    """The five fixed arms.
+
+    `readlik_extra` is appended to the three read-likelihood arms only, so a caller-side
+    change under evaluation can be measured across the whole matrix without editing this
+    list -- and without touching the Poisson arms, which it must not affect. Passing
+    something that *does* affect them would break the comparison silently, so keep it to
+    read-likelihood flags.
+    """
+    extra = list(readlik_extra or [])
     return [
         Arm("poisson", [], True, False,
             "current default: Poisson genotyping, support enumeration"),
@@ -65,11 +75,11 @@ def arms() -> list[Arm]:
         # enumeration comes from haplotypes.
         Arm("poisson-z", ["-z"], True, False,
             "Poisson genotyping, haplotype enumeration from the 4 graph haplotypes"),
-        Arm("readlik", ["--read-likelihood"], True, True,
+        Arm("readlik", ["--read-likelihood"] + extra, True, True,
             "read-level likelihoods, support enumeration -- the like-for-like caller comparison"),
-        Arm("readlik-nomismap", ["--read-likelihood", "--no-mismap-term"], True, True,
+        Arm("readlik-nomismap", ["--read-likelihood", "--no-mismap-term"] + extra, True, True,
             "as readlik, MAPQ mismapping term disabled, to measure its contribution"),
-        Arm("readlik-z", ["--read-likelihood", "-z"], False, True,
+        Arm("readlik-z", ["--read-likelihood", "-z"] + extra, False, True,
             "read-level likelihoods, haplotype enumeration, no pack file"),
     ]
 
@@ -141,6 +151,13 @@ def main() -> None:
     p.add_argument("--read-window", type=int, default=0)
     p.add_argument("--out", default=str(HERE / "results"))
     p.add_argument("--only", nargs="*", help="run only these arms")
+    # One shell-quoted string, shlex-split here, rather than nargs="*": argparse stops
+    # consuming a variadic list at the first token that looks like an option, so
+    # `--readlik-extra --depth-term 0.1` silently became two stray positionals.
+    p.add_argument("--readlik-extra", default="",
+                   help="extra flags appended to the three read-likelihood arms only, as "
+                        "one quoted string, for evaluating a caller-side change across the "
+                        "whole matrix")
     p.add_argument("--contig", default="chr20",
                    help="contig to call; sets both the reference path and the "
                         "name written into the output VCF")
@@ -153,7 +170,8 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    selected = [a for a in arms() if not args.only or a.name in args.only]
+    selected = [a for a in arms(shlex.split(args.readlik_extra))
+                if not args.only or a.name in args.only]
 
     for arm in selected:
         print(f"\n=== {arm.name}: {arm.description}", flush=True)

@@ -186,6 +186,10 @@ AUC from 0.719 to 0.571 on chr20 34-hap).
 Both need conditioning on called-allele size before they can be used. That remains open, and it
 is the concrete obstacle in front of the depth-plausibility term the design doc §5.3.3 proposed.
 
+> **Resolved for depth, and the conditioning is what did it** — see *Depth implausibility* below.
+> Gated at 50 bp the sign reversal goes away; ungated it reappears exactly as described here. `BL`
+> is untouched, so the second half of this finding still stands.
+
 ### Weaker variants of things that do work
 
 **`share_resid`**, share minus its length-class baseline: about +0.003 over raw `share`, not
@@ -193,6 +197,76 @@ worth a length table.
 
 **A Hardy–Weinberg genotype prior** reallocates precision and recall without adding
 discrimination (plan §9.23).
+
+---
+
+## Depth implausibility: a flag, not a default
+
+`DR` — the site's read count over what the called genotype predicts — is the observable behind the
+depth term, and it is emitted whether or not that term is armed. The question here is the one `share`
+was asked: is there a **single fixed formula, nothing fitted**, that improves the ranking in all
+eight cells? Three families were tried: two-sided `exp(−a·|ln DR|)`, excess-only
+`exp(−a·max(0, ln DR))`, and a phred reading of the excess with a tolerance. Measured by
+`depth_gq.py`.
+
+### The first answer was wrong because the observable was mis-centred
+
+This is the most transferable thing on this page. With the median `DR` at 0.59 — the λ defect
+diagnosed in [tier2-depth-term.md](tier2-depth-term.md) — `|ln DR|` fined nearly every ordinary site
+about 0.53 nats for being normal, and almost nothing sat above 1 for excess-only to act on. Measured
+that way, excess-only looked like the winner and two-sided looked harmful. Correct λ and the two
+**swap places**. chr20-4hap, AUC against the shipped `GQ`:
+
+| form | before the λ fix | after |
+|---|---|---|
+| two-sided a=1, small variants | −0.0072 | **+0.0060** |
+| two-sided a=1, SVs | +0.0084 | **+0.0267** |
+| excess-only a=1, small variants | +0.0038 | **−0.0060** |
+| phred of the excess, t=0.1, small variants | −0.0053 | **−0.1611** |
+
+A discount designed on the earlier numbers would have shipped the form that is actively harmful once
+the observable is right. It is not enough for a ranking signal to be measured: the quantity being
+ranked on has to mean what it claims.
+
+### Ungated it reproduces the sign reversal; gated at 50 bp it does not
+
+| form | AUC up | operating points, of 16 |
+|---|---|---|
+| ungated a=0.5 | 8/8 | 9 better, 7 worse |
+| **gated ≥50, a=0.5** | 7/8 | 13 better, 3 worse |
+| **gated ≥50, a=0.75** | 7/8 | **13 better, 2 tie, 1 worse** |
+| gated ≥300, a=1 | 4/8 | 5 better, 8 worse |
+
+Ungated, all eight cells gain on AUC but seven of sixteen operating points get worse, and the
+failures are entirely small variants on the 34-haplotype graphs — where `GQ` already ranks far better
+(AUC 0.927 against 0.823), so there is little room and the discount mostly adds noise.
+
+The gate has a mechanism rather than a fitted threshold: at a SNV, λ's geometry is dominated by the
+read length, so `DR` largely reports local coverage scatter; at a large event the geometry is
+dominated by the allele, so `DR` reports whether the called sequence is present. 50 bp is the boundary
+the two benchmarks already draw, and the small-variant truth set holds no record above it.
+
+**Gating at 300 bp destroys it** — all four SV cells go negative. The signal lives in the 50–300 bp
+band, which is where the centred `DR` deviates most (median 0.678 there, the lowest of any size
+class). Mid-size events are where the read count and the claimed sequence disagree most informatively.
+
+### Why it is not on by default
+
+`chr6-34hap` SVs go negative at **every** exponent tried — −0.0005 at a=0.1 rising monotonically to
+−0.0083 at a=1.5 — with the depth term armed or not. That is a property of the dataset, not of the
+tuning. The bar that put the explained-share discount on by default was 8 of 8 on AUC; this is 7.
+So `--depth-quality A` is a flag, `A = 0.5` when used.
+
+One caveat this data cannot settle: 34-haplotype false positives are disproportionately calls with no
+truth candidate anywhere nearby, and some are likely real variation the draft benchmark lacks. If so,
+a signal that correctly flags implausible depth would not rank them badly, and the measured AUC
+understates it. Consistent with the data; not evidence for it.
+
+### Invariants, checked rather than assumed
+
+Across four datasets and 780,356 records the `--depth-quality` arms differ from the plain arms in
+`GQ` alone — **0 genotype changes, 0 `GQI` changes, 0 `DR` changes** — and `GQ` was raised at **0**
+records. Aggregate F1 is unmoved on every benchmark, as it must be for a ranking change.
 
 ---
 

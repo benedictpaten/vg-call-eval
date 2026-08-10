@@ -162,6 +162,121 @@ enter the *per-read* term, as `e_r` does and as the mixture weights do. A per-re
 that down-weights mates and pile-up reads would do it; a global scalar provably cannot.
 Anyone wanting to rescale confidence should get a knob that says so.
 
+---
+
+# Re-searching again, after λ was corrected
+
+The depth term's weight had never been searched against the λ the caller now uses.
+`depth_grid.py`, 27 points: a 15-point `w_d` × floor grid on chr20-4hap, six candidate points
+on chr20-34hap, six validation points on chr6 both graphs.
+
+**Why these two axes together.** `e_r` now enters the objective in three places — the per-read
+background term, the observation `N_eff = Σ(1 − e_r)`, and the local rate `c(s)`, which carries
+the same weighting so the correction stays relative. `--mismap-min` therefore moves the depth
+term as well as the read term, by more than one route, and coordinate descent on a surface like
+that finds whichever corner it started nearest.
+
+Deliberately excluded: `--depth-quality`, which cannot change a genotype and so is free to sweep
+offline afterwards; `--depth-ploidy`, which is structural; `--depth-count-raw`, already settled on
+all four datasets; and the rate's window width, which gets its own scan below.
+
+## `--depth-term`: 0.25 survives, but 0.1 is the better default
+
+Structural-variant F1 at floor 0.02, cap 0.7:
+
+| `w_d` | chr20-4hap | chr20-34hap | chr6-4hap | chr6-34hap | mean |
+|---|---|---|---|---|---|
+| 0 | 0.4890 | 0.4588 | 0.5542 | 0.4963 | 0.4996 |
+| **0.1** | 0.4998 | **0.4655** | 0.5616 | **0.5059** | **0.5082** |
+| **0.25** | **0.5011** | 0.4627 | **0.5645** | 0.5053 | **0.5084** |
+| 0.5 | 0.4943 | — | — | — | — |
+| 1.0 | 0.4894 | — | — | — | — |
+
+`w_d` is unimodal and turns over sharply above 0.25: on chr20-4hap at floor 0.01, true positives go
+370 → 385 across the range while false positives go 354 → 405.
+
+The mean is a tie, and the structure underneath is not noise: **the 4-haplotype graphs prefer 0.25
+and the 34-haplotype graphs prefer 0.1, two for two, on both chromosomes.** More alleles means more
+genotypes for λ to discriminate between, and a heavier weight starts overfitting to depth — on
+chr6-34hap the step to 0.25 buys 9 true positives for 26 false ones, where on chr6-4hap it buys 13
+for 17.
+
+**0.1 is the recommendation:** aggregate F1 gives up nothing, it wins on precision, it wins on the
+richer graph, and the graph-dependence points toward smaller weights as haplotype counts rise — the
+direction pangenomes are going. The cost is explicit. Heterozygous deletion recall above 1 kb:
+
+| dataset | `w_d`=0 | 0.1 | 0.25 | `poisson-z` |
+|---|---|---|---|---|
+| chr20-4hap | 0.212 | 0.394 | 0.394 | 0.364 |
+| chr20-34hap | 0.303 | 0.424 | 0.424 | 0.333 |
+| chr6-4hap | 0.443 | 0.689 | **0.754** | 0.836 |
+| chr6-34hap | 0.459 | 0.656 | **0.738** | 0.787 |
+
+0.25 returns 0.065–0.082 more of the class the term was built for. If that class is the objective
+rather than aggregate SV F1, 0.25 is the right choice. Small-variant genotype F1 is identical to four
+decimal places at every point on all four datasets.
+
+## The floor's trade dissolved, exactly as predicted
+
+The section above rejected `--mismap-min` 0.01 on the grounds that *"buying deletion recall by
+loosening the floor is exactly the pattern that was just removed… the right fix for the remaining
+deletion deficit is a depth term, not a detuned floor."* That was written before the term existed.
+
+Heterozygous deletion recall above 1 kb, chr20-4hap:
+
+| `w_d` | floor 0.01 | floor 0.02 | floor 0.05 |
+|---|---|---|---|
+| 0 | 0.273 | 0.212 | 0.121 |
+| ≥0.1 | **0.394** | **0.394** | 0.364–0.394 |
+
+At `w_d = 0` the familiar gradient is there. With the term on, the floor stops mattering — the term
+has taken over the job the floor was doing. The same happens on chr20-34hap: 0.303 / 0.152 at
+`w_d = 0`, and 0.424 at both floors with the term on.
+
+**Floor stays at 0.02.** Floor 0.05 wins SV F1 at `w_d = 0.1` on chr20-4hap (0.5023) and
+small-variant ALL genotype F1 (0.9489), but costs 0.0020 SNV genotype F1 — about 150 records on
+75,000, on the largest class. It is closer than that makes it sound: on chr20-34hap the ALL-class
+gain is larger (+0.0023) and the SNV cost smaller (−0.0018), so the two graphs disagree about the
+sign of the net. 0.02 is a compromise here rather than a clear optimum.
+
+## The harm check, and what it can and cannot show
+
+λ grows with allele length, so an anomalously large read count mechanically favours whichever
+genotype presents the most sequence. That is a preference for long alleles, not a rejection of the
+site, and it is how this term does damage — Stage 0's kill criterion. It cleared at `w_d = 0.25`
+then, but the anchor constant used to damp λ's length dependence and no longer does.
+
+Records with a called allele ≥ 50 bp at pile-up sites (`DR > 3`), chr20-4hap:
+
+| `w_d` | large calls at `DR > 3` | median footprint | mean \|ln DR\| over large calls |
+|---|---|---|---|
+| 0 | 17 | 122 | 0.584 |
+| 0.1 | 17 | 122 | 0.560 |
+| 0.25 | 17 | 122 | 0.546 |
+| 0.5 | 16 | 124 | 0.532 |
+| 1.0 | 12 | 124 | 0.509 |
+
+No long-allele preference: the footprint is flat and the *count* of large calls at pile-ups falls.
+The first version of this check ran over all records and reported a median footprint of 2 bp at every
+point — true, and useless, because pile-up sites are overwhelmingly SNVs, so it was measuring the
+wrong population.
+
+The falling `|ln DR|` column is **not** evidence the term is right: it is the quantity the term
+optimises, so it would fall by construction. The F1 and class-recall tables are the evidence.
+
+`medDR` held at 0.976–0.988 across all 27 points, so λ's centring is insensitive to both axes.
+
+## The rate's neighbourhood is saturated
+
+`--depth-window` is **inert** whenever the read source supplies a window of its own, which every
+tier-2 run does — so the neighbourhood can only be varied through `--read-window`. chr20-4hap at
+`w_d = 0.1`: SV F1 **0.4961 / 0.4998 / 0.5008** at 1024 / 4096 / 16384. A 1024-node window is about
+30 kb, narrow enough that the rate's variance shows; by 4096 it has converged and widening buys one
+record. Confounded, since `--read-window` also sets fetch and cache granularity — but the confound
+runs against the conclusion, because the wider window costs more per fetch and scored no better.
+
+---
+
 ## What this cost, and what it bought
 
 24 grid points plus 8 high-floor points plus 10 read-weight points on chr20, and 8

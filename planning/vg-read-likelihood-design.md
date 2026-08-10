@@ -240,6 +240,114 @@ private:
 
 ## 4. The model
 
+### 4.0 The objective as built — superseding the derivation below
+
+**Read this first.** §4.1–4.3 derive the model as originally specified and are kept because the
+reasoning behind each piece is still the reasoning; §4.3a and this section record what the pieces
+became. Where they disagree, this section is the code. Three things here are not in the derivation
+at all: the mixture weights are length-aware, the observation is a *fractional* read count, and there
+is a depth factor in `GQ`.
+
+At each site `s`, with alleles `A = {0,…,K−1}`, reads `R(s)` — the rows of the site's likelihood
+matrix — and ploidy `k`:
+
+```
+Ĝ(s) = argmax over G ∈ 𝒢(K,k) of  ℒ(G)
+
+ℒ(G) = w_d · ln Poisson(N_eff ; λ_G)
+     + Σ_{r ∈ R(s)} ln[ (1 − e_r) · Σ_{i=1..k} ω_i(G) · rel(r, h_i) + e_r ]
+```
+
+`𝒢(K,k)` is every multiset of size `k` from `A`, enumerated exhaustively. `R(s) = ∅` gives a
+**no-call**, not hom-ref: absence of reads is absence of evidence to a read-conditioned model.
+
+**The per-read term.** `rel(r,a) = exp( ℓ(r,a) − max_{a'} ℓ(r,a') )`, where `ℓ` is the edit-aware
+alignment log-likelihood (quality-adjusted where base qualities exist) and `−∞` where the read
+cannot be placed. The divisor runs over *all* alleles at the site, not those in `G`, which is what
+makes it genotype-independent and lets it cancel from every comparison — and why the background
+term below is exactly 1.
+
+`e_r = clamp( phred_to_prob(MAPQ_r), e_min, e_max )`, with `e_min = 0.02`, `e_max = 0.7`. The
+bracket therefore lies in `[e_r, 1]`: the log is always finite and no single read can penalise a
+genotype without bound.
+
+**The mixture weights** (§4.3a, sharpened). With `unique(a,b)` the length of nodes in allele `a`'s
+content but not `b`'s, a node visited twice counted once, and `R̄` the mean read length in this
+site's matrix:
+
+```
+U_i = min over j ≠ i of unique(h_i, h_j)
+ω_i = max(U_i + R̄ − 1, 1) / Σ_j max(U_j + R̄ − 1, 1)
+```
+
+`U_i` is the sequence on which haplotype `i` can be *told apart* from the others; `U_i + R̄ − 1` the
+read start positions that can see it. Equal-length alleles give exactly `1/2`, so SNVs and balanced
+indels are unchanged bit for bit. A homozygote gives `unique(a,a) = 0`, hence `ω = (½,½)` and
+`Σ ω_i rel = rel(r,a)` — hom and het need no special casing.
+
+**The depth term.**
+
+```
+N_eff = Σ_{r ∈ R(s)} (1 − e_r)
+λ_G   = c(s) · Σ_{i=1..k} max( T_{h_i} + R̄ − 1, 1 )
+c(s)  = Σ_{r ∈ W(s)} (1 − e_r) / ( 2 · Σ_{v ∈ W(s)} |v| )
+ln Poisson(n; λ) = n ln λ − λ − ln Γ(n+1)
+```
+
+Three details, each of which was got wrong once and is worth stating as a constraint:
+
+- `N_eff` is **not** a read count. A read the mapper places at MAPQ 0 enters the per-read term at
+  `1 − e_r` of its weight, so counting it as a whole read of depth contradicts the term one line
+  above. `Γ` rather than a factorial follows: `N_eff` is fractional by construction.
+- `c(s)` carries **the same weighting**, over the node-ID window the read source already fetched to
+  answer this site's own query. Weighting one side only puts a constant factor between `N` and `λ`
+  and pushes every ratio the same way — a bias, not a signal. Weighting both makes the correction
+  *relative*: it cancels wherever a site's mapping quality matches its neighbourhood's.
+- `T_a` is the allele's **interior** traversal length. A `SnarlTraversal` runs from the snarl's start
+  visit to its end visit inclusive, but a read lying entirely within a boundary node cannot
+  discriminate and is dropped before it becomes a row — so those bases recruit nothing. Counting
+  them made `λ` too large by roughly the two anchors' length, a fixed overhead per site, which put
+  the median `DR` at 0.59 instead of 1 and left typical sites being scored on the Poisson's steep
+  low-count flank. A traversal with no interior is the deletion edge, where `max(·,1)` correctly
+  leaves the `R − 1` junction positions.
+
+**Reported quantities. None of these enter the argmax.** With `L₁ ≥ L₂` the two best `ℒ`:
+
+```
+share = min( 1, Σ_{a ∈ distinct(Ĝ)} AD_a / |R(s)| )
+DR    = N_eff / λ_Ĝ
+δ     = exp( −A · |ln DR| )  if A > 0 and max_a |T_a − T_ref| ≥ 50 bp, else 1
+
+GQI  = (10 / ln 10) · (L₁ − L₂)
+GQ   = clamp( GQI · share · δ, 0, 256 )
+GL   = ℒ(G) / ln 10, per genotype
+post = L₁ − ln Σ_G exp( ℒ(G) )
+```
+
+`share` and `δ` are ranking discounts and can only lower `GQ` — verified end to end: `GQ` was raised
+at 0 of 780,356 records across four datasets. `GQI` keeps the raw ratio for anything needing a
+posterior. `DR` is emitted whether or not `w_d > 0`, which is deliberate: the observable was measured
+as a ranking signal before the model was allowed to act on it, the same order the share discount was
+established in.
+
+**Parameters, and where each number comes from.**
+
+| symbol | flag | default | basis |
+|---|---|---|---|
+| `e_min` | `--mismap-min` | 0.02 | swept; interior optimum, and its old job is now the depth term's |
+| `e_max` | `--mismap-max` | 0.7 | swept 0.5→0.7; 0.5 clamps every read at MAPQ ≤ 3 to a coin flip |
+| `ω_i` | `--flat-mixture`, `--length-weight-whole-traversal` | unique content | §4.3a |
+| `w_d` | `--depth-term` | 0 | 0.1 when armed; 4-hap graphs prefer 0.25, 34-hap prefer 0.1 |
+| `N_eff` | `--depth-count-raw` | effective | genotype-neutral; chosen for `DR`'s ranking power |
+| `c(s)` window | `--depth-window` | source's own (4096) | saturated by 4096 |
+| `A` | `--depth-quality` | 0 | 0.5 when armed; 7 of 8 cells improve, one does not |
+
+**Two invariants worth keeping in mind when changing any of this.** The weights sum to 1, so adding
+an allele still costs and a clean homozygote still beats the heterozygote. And a global scalar on the
+read term cannot change a genotype — `argmax_G w·ℒ(G) = argmax_G ℒ(G)` — which is why `--read-weight`
+was removed rather than fitted, and why any effective-sample-size correction has to enter the
+*per-read* term, as `e_r` and the mixture weights do.
+
 ### 4.1 Genotype likelihood
 
 A genotype `G` is a multiset of allele indices with `|G| == ploidy`. Assuming each read is drawn from
@@ -327,6 +435,12 @@ where `e_r` is the read's mismapping probability from MAPQ:
 explanation here.* That bounds how much any single read can penalise a genotype.
 
 ### 4.3a The mixture weights are not flat — superseding the `1/|G|` above
+
+> Sharpened again since: the weight counts sequence *unique* to each allele rather than whole
+> traversal length, and §4.0 states the shipped form. Whole traversal length is still available as
+> `--length-weight-whole-traversal`, and one thing found later explains part of why it underperforms:
+> a traversal includes the snarl's two boundary anchors, which every allele shares, so counting them
+> inflates both alleles alike and pulls the weights back toward flat.
 
 **`1/|G|` is wrong wherever the alleles differ in length, and the formula above is kept only because
 section numbers are stable.** The shipped model uses

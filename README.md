@@ -15,8 +15,8 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 |---|---|
 | [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full five-arm accuracy tables per chromosome, small variants and SVs |
 | [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
-| [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
-| [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters re-swept after the mixture change: why `--mismap-max` moved to 0.7, why `--mismap-min` stays at 0.02, and why `--read-weight` was removed |
+| [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, the size-gated depth discount behind it, and the filters that turned out not to help |
+| [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters, re-swept twice: why `--mismap-max` moved to 0.7, why `--read-weight` was removed, and why `--mismap-min` stays at 0.02 even though the depth term dissolved the trade it was balancing |
 | [docs/tier2-depth-term.md](docs/tier2-depth-term.md) | the depth term, predicted offline and then built: `--depth-term` puts the read model ahead of both Poisson arms on all four datasets, and a read counts toward depth as `1 − e_r` rather than as one read |
 | [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
@@ -120,6 +120,16 @@ python3 scripts/tier2/score_vcf.py --vcf … --label … # score any experimenta
 python3 scripts/tier2/depth_term_offline.py          # Stage 0 depth-term prediction
 python3 scripts/tier2/depth_count_runs.py \
     --datasets chr20-4hap chr6-4hap             # depth counted raw vs as 1 - e_r
+python3 scripts/tier2/depth_gq.py \
+    --tag dgrid-w0.1-f0.02-c0.7                 # DR as a GQ discount, 8 cells
+python3 scripts/tier2/depth_grid.py \
+    --datasets chr20-4hap                       # depth weight x mismapping floor
+```
+
+A caller-side change can be put through the whole five-arm matrix without editing the arm list:
+
+```bash
+READLIK_EXTRA="--depth-term 0.1" scripts/tier2/refresh_all.sh
 ```
 
 Parameter sweeps, searched on chr20 and validated on chr6 so the validation set stays held out:
