@@ -104,6 +104,46 @@ number moved to a longer-footprint genotype is **5 of 58** at `w = 0.25` and `w 
 The term churns some genotypes at these sites but does not systematically inflate them.
 Proceed.
 
+## Should low-MAPQ reads count less toward the observed depth?
+
+Yes, and the model already carries the right quantity: `e_r` is "this read came from
+somewhere else", so the expected number of reads genuinely from this locus is
+
+```
+N_eff = Σ_r (1 − e_r)
+```
+
+Comparing raw `N` against a locus-specific expectation is the inconsistency; `N_eff` is
+the observable `λ_G` should be measured against. But measuring it splits group B again:
+
+| group B sub-case | sites | reads at the `e_r` cap | median `e_r` | density `N` → `N_eff` |
+|---|---|---|---|---|
+| multi-mapping | 2 | 91%, 56% | 0.700 | 0.707 → **0.251**, 0.267 → **0.160** |
+| confidently mapped | 4 | 0–2.4% | 0.020 (the floor) | 0.745 → 0.728 |
+
+At four of six pile-ups the reads sit at the *floor* — MAPQ ≥ 17. The mapper is
+confident, and it is confidently placing seven times too many reads there.
+
+**That has a mechanism, and it is the argument for a depth term rather than against
+one.** If a repeat is collapsed in the graph, reads from every copy pile onto the single
+copy and there is no alternative placement to be ambiguous about, so MAPQ is high. MAPQ
+measures ambiguity *within the graph*, not correctness relative to the real genome, so it
+is blind to graph collapse by construction. Depth sees exactly the failure MAPQ cannot,
+which is why the two are complementary rather than redundant.
+
+**`N_eff` does not improve genotype flips** — it slightly reduces them, 4/10 to 3/10 at
+`w = 0.5`. 38.7% of reads across these large sites sit at the cap, so recalibrating `c`
+globally against `N_eff` mostly rescales it (0.1022 → 0.0795); group A sites have `e_r`
+at the floor, so their `N_eff` is 98% of `N` while their `λ` falls 22%, which makes them
+look better covered and weakens the heterozygote's advantage. The correction lands on the
+sites that do not flip anyway.
+
+So the two uses of depth separate cleanly, and should be implemented separately:
+**`N_eff` for judging whether a site's depth is plausible** (the quality signal, and the
+pile-ups), **raw `N` against a locally estimated rate for genotype selection** (group A).
+This is also a second, independent argument for estimating `c` locally: a global
+recalibration artefact is what cost the flip here.
+
 ## Two requirements this puts on Stage 1
 
 **A global `c` is too crude to ship.** The per-site ratio has an interquartile range of
