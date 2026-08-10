@@ -46,7 +46,9 @@ DATASETS = {
 }
 
 # The shipped operating point. Sweeping one parameter holds the others here.
-DEFAULTS = {"mismap-max": "0.5", "mismap-min": "0.02", "read-weight": "1.0"}
+# --read-weight was removed from vg after this sweep showed it cannot change a
+# genotype; passing it to a current build is an argument error, not a no-op.
+DEFAULTS = {"mismap-max": "0.5", "mismap-min": "0.02"}
 
 
 def gbz_base_binary() -> str:
@@ -64,7 +66,10 @@ def call(vg: str, ds: str, tag: str, params: dict, threads: int) -> Path:
     sub, contig, gbzdb, gafdb = DATASETS[ds]
     w = WORK / sub
     out = w / "results" / f"sweep-{tag}.vcf.gz"
-    if out.exists() and (out.with_suffix(".gz.tbi")).exists():
+    # Size, not just existence. A failed `vg call` still leaves a 28-byte empty
+    # bgzip and a valid index behind, and an existence check happily caches that
+    # forever -- the point re-reads as "already measured" on every later run.
+    if out.exists() and out.stat().st_size > 4096 and out.with_suffix(".gz.tbi").exists():
         print(f"  {ds} {tag}: cached", flush=True)
         return out
     cmd = [vg, "call", str(w / f"{contig}_0_{contig}.gbz"), "-p", f"CHM13#0#{contig}",
@@ -75,8 +80,11 @@ def call(vg: str, ds: str, tag: str, params: dict, threads: int) -> Path:
         cmd += [f"--{k}", str(v)]
     log = w / "results" / f"sweep-{tag}.log"
     with open(out.with_suffix(""), "wb") as fh, open(log, "wb") as errfh:
-        rc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=errfh).stdout
-        subprocess.run(["bgzip", "-c"], input=rc, stdout=fh, check=True)
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=errfh)
+        if proc.returncode != 0 or not proc.stdout:
+            out.with_suffix("").unlink(missing_ok=True)
+            sys.exit(f"vg call failed for {tag} (rc={proc.returncode}); see {log}")
+        subprocess.run(["bgzip", "-c"], input=proc.stdout, stdout=fh, check=True)
     shutil.move(str(out.with_suffix("")), str(out))
     subprocess.run(["tabix", "-f", "-p", "vcf", str(out)], check=True)
     return out
