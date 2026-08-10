@@ -17,7 +17,7 @@ Implements stages 3b, 4 and 4b of the read-likelihood design.
 | [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, and the filters that turned out not to help |
 | [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters re-swept after the mixture change: why `--mismap-max` moved to 0.7, why `--mismap-min` stays at 0.02, and why `--read-weight` was removed |
-| [docs/tier2-depth-term.md](docs/tier2-depth-term.md) | Stage 0 of a depth term, predicted offline before building it: the signal is real, it fixes four of ten missed deletions, and the other six turn out to be a different failure |
+| [docs/tier2-depth-term.md](docs/tier2-depth-term.md) | the depth term, predicted offline and then built: `--depth-term` puts the read model ahead of both Poisson arms on all four datasets, and a read counts toward depth as `1 − e_r` rather than as one read |
 | [docs/tier2-sv-errors.md](docs/tier2-sv-errors.md) | what the SV errors *are*, per record: why the read model trails on structural variants (heterozygous deletions, and nothing else), what the 34-haplotype precision loss is made of, and how much of "false positive" is the metric rather than the caller |
 | [docs/findings.md](docs/findings.md), [docs/results.md](docs/results.md) | tier 0, superseded for accuracy but kept for its method lessons |
 | [docs/simulation.md](docs/simulation.md) | how tier 0 works and what it cannot tell you |
@@ -118,6 +118,8 @@ python3 scripts/tier2/sv_error_report.py              # every table in docs/tier
 python3 scripts/tier2/hetdel_mechanism.py            # the heterozygous-deletion mechanism test
 python3 scripts/tier2/score_vcf.py --vcf … --label … # score any experimental VCF on BOTH benchmarks
 python3 scripts/tier2/depth_term_offline.py          # Stage 0 depth-term prediction
+python3 scripts/tier2/depth_count_runs.py \
+    --datasets chr20-4hap chr6-4hap             # depth counted raw vs as 1 - e_r
 ```
 
 Parameter sweeps, searched on chr20 and validated on chr6 so the validation set stays held out:
@@ -154,14 +156,21 @@ Working: tier-0 simulation, tier-2 real data on two chromosomes and two graphs, 
 aardvark and truvari comparison, size-matched controls, sanity controls, per-arm timing, the
 quality-signal analysis behind the `GQ` change, and the per-record SV error atlas.
 
-Not yet built: tier 1 (vg's HGSVC fixture), the `read_weight` calibration fit (stage 4b), and a
-size-conditional depth or `best_ln` term — blocked on the sign reversal documented in
-[docs/tier2-quality-signals.md](docs/tier2-quality-signals.md).
+Not yet built: tier 1 (vg's HGSVC fixture), and a `best_ln` filter — blocked on the sign reversal
+documented in [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md). Stage 4b's `read_weight`
+calibration fit is not pending but **cancelled**: the parameter provably cannot change a genotype, and
+has been removed from vg ([docs/tier2-parameters.md](docs/tier2-parameters.md)).
 
-Open and specific: a **depth-plausibility term**. The read-likelihood model computes P(reads | genotype)
-conditioned on the reads it is given and never asks whether that many reads should be there, which is why
-collapsed-repeat pile-ups survive it and why the Poisson caller still leads on heterozygous deletions above
-1 kb (0.79-0.84 against 0.44). The length-weighted mixture fixed the *relative* weight between a genotype's
-haplotypes ([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)) and is now the default; absolute depth is the
-remaining half. It is blocked on the same sign reversal as above — depth discriminates in opposite directions
-for small variants and SVs — so it needs conditioning on called-allele size.
+Built since, and no longer open: the **depth-plausibility term**. The read-likelihood model computed
+P(reads | genotype) conditioned on the reads it was given and never asked whether that many reads should be
+there, which is why collapsed-repeat pile-ups survived it and why the Poisson caller led on heterozygous
+deletions above 1 kb. The length-weighted mixture fixed the *relative* weight between a genotype's haplotypes
+([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)) and is the default; `--depth-term` supplies the absolute
+half and puts the read model ahead of both Poisson arms on all four datasets. It is **not** on by default
+yet — see [docs/tier2-depth-term.md](docs/tier2-depth-term.md) for what remains.
+
+Still open: **`DR` in the quality field**. The term detects collapsed repeats emphatically and still cannot
+outvote the read evidence at them. `DR` is emitted whether or not the term is armed, and counting each read
+as `1 − e_r` rather than as one read raises its power to rank false positives above true ones from 0.51–0.55
+to 0.62–0.64 on all four datasets — which is the signal a depth-implausibility discount would be built on,
+as a sibling of the explained-share discount already in `GQ`.

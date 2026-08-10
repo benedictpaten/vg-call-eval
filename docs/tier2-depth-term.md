@@ -14,29 +14,36 @@ looked like.**
 
 **Built, and Stage 1 beat the Stage 0 prediction.** `--depth-term W`, off by default,
 with the rate measured over the read source's own fetch window. Structural-variant F1 at
-`w = 0.25`, searched on chr20 and validated on chr6:
+`w = 0.25`, searched on chr20 and validated on chr6, now replicated on **all four
+datasets**:
 
 | dataset | `readlik-z` | **+ depth term** | `poisson` | `poisson-z` |
 |---|---|---|---|---|
-| chr20-4hap | 0.4890 | **0.5024** | 0.4954 | 0.4930 |
-| chr6-4hap | 0.5542 | **0.5639** | 0.5490 | 0.5478 |
-| chr6-34hap | 0.4963 | **0.5076** | 0.4944 | 0.4881 |
+| chr20-4hap | 0.4890 | **0.5007** | 0.4954 | 0.4930 |
+| chr20-34hap | 0.4588 | **0.4616** | 0.4535 | 0.4391 |
+| chr6-4hap | 0.5542 | **0.5650** | 0.5490 | 0.5478 |
+| chr6-34hap | 0.4963 | **0.5059** | 0.4944 | 0.4881 |
+
+Ahead of both Poisson arms everywhere. chr20-34hap is the weak case and worth naming:
+`readlik-z` was already ahead of both Poisson arms there without any depth term, and the
+term adds only +0.0028 against +0.010 to +0.012 on the other three.
 
 Heterozygous deletion recall above 1 kb — the class it was built for:
 
 | dataset | flat mixture | + weighted mixture | **+ depth term** | `poisson-z` |
 |---|---|---|---|---|
 | chr20-4hap | 0.061 | 0.212 | **0.394** | 0.364 |
-| chr6-4hap | 0.066 | 0.443 | **0.787** | 0.836 |
-| chr6-34hap | 0.082 | 0.443 | **0.721** | 0.787 |
+| chr20-34hap | — | 0.303 | **0.424** | 0.333 |
+| chr6-4hap | 0.066 | 0.443 | **0.770** | 0.836 |
+| chr6-34hap | 0.082 | 0.443 | **0.754** | 0.787 |
 
 Small-variant genotype F1 does not move to four decimal places on any dataset, the
 heterozygous fraction of calls shifts by 0.005, and chr20 runs in 111 s against a
 120–170 s baseline. Stage 0 predicted 4 of 10 sites with a deliberately naive global
 rate; a local rate does better, as Stage 0 said it would.
 
-Details of what was built, and what the in-tree suite caught, are at the end of this
-page.
+Details of what was built, what the in-tree suite caught, and why a read now counts as
+`1 − e_r` of a read rather than one, are at the end of this page.
 
 ---
 
@@ -258,6 +265,73 @@ genotyping. Measured cost: **111 s against a 120–170 s baseline**, i.e. inside
 
 No pre-pass, no pack, no extra I/O.
 
+## A read counts as `1 − e_r` of a read, not one
+
+Stage 1 compared a raw row count `N` against `λ_G`. That asserts something the rest of
+the model explicitly declines to assert: the read term already believes each read only to
+the extent of `1 − e_r`, so a MAPQ 0 read enters it at 0.3 of its weight and then, one
+line later, was counted as a whole read of depth. The observation is now
+`N_eff = Σ_r (1 − e_r)`, the expected number of reads genuinely from this locus.
+
+**The rate is weighted identically, and that is the whole design.** `local_read_rate`
+accumulates `1 − e_r` over the window using the same MAPQ, the same clamps and the same
+`--no-mismap-term` switch. Weighting only the site would put a constant factor between
+`N` and `λ` and push every `DR` the same direction, which is a bias rather than a signal.
+With both weighted the factor cancels wherever a site's mapping quality matches its
+neighbourhood's — so the correction is **relative**, and moves only where a site is more
+or less ambiguously mapped than the sequence around it. `--depth-count-raw` restores the
+Stage 1 behaviour exactly, which is how the two were compared.
+
+Two mechanical consequences. The Poisson takes real `n` through `lgamma`, since `N_eff`
+is fractional by construction; the `−ln n!` normaliser is constant across a site's
+genotypes and cancels in every comparison, but it is carried because `GL` is reported
+rather than only ranked. And `DR`'s meaning changes slightly, so its header says so.
+
+**On genotypes it is a wash, exactly as the cancellation argument predicts.**
+Structural-variant F1 at `w = 0.25`:
+
+| dataset | raw count | `1 − e_r` | Δ |
+|---|---|---|---|
+| chr20-4hap | 0.5024 | 0.5007 | −0.0017 |
+| chr20-34hap | 0.4595 | 0.4616 | +0.0021 |
+| chr6-4hap | 0.5639 | 0.5650 | +0.0011 |
+| chr6-34hap | 0.5076 | 0.5059 | −0.0017 |
+
+Mean −0.0005, two up and two down. Small-variant genotype F1 is identical to four decimal
+places on all four. On chr20-4hap **42 genotypes changed out of 104,148** — 0.04% of the
+call set. Heterozygous deletion recall above 1 kb is the one class that leans positive
+(0.000, +0.091, −0.017, +0.033), which is suggestive and not more than that.
+
+**On `DR` as a ranking signal it is decisive, and `DR` ships by default.** Scoring each
+called structural variant by `|ln DR|` — how far its read count is from what the call
+predicts, in either direction — and asking how well that ranks truvari's false positives
+above its true positives:
+
+| dataset | raw count | `1 − e_r` | Δ |
+|---|---|---|---|
+| chr20-4hap | 0.5545 | **0.6342** | +0.080 |
+| chr20-34hap | 0.5250 | **0.6183** | +0.093 |
+| chr6-4hap | 0.5542 | **0.6446** | +0.090 |
+| chr6-34hap | 0.5067 | **0.6204** | +0.114 |
+
+Under raw counting `DR` is barely distinguishable from a coin flip (0.51–0.55). Under
+effective counting it is a usable signal (0.62–0.64), on all four datasets, by +0.08 to
++0.11. AUC is rank-based and so invariant to any transform applied to every value alike;
+added noise would lower it, not raise it. The distribution confirms the shape: median
+`DR` barely moves (0.596 → 0.591) while the tail sharpens — sites above `DR > 3` go 305 →
+459 on chr20-4hap, and sites *already* above 3 move by a median factor of 0.9925, so the
+growth is sites crossing the line rather than existing outliers inflating.
+
+That is the direction that matters for group B. A collapsed repeat is precisely where
+MAPQ is high — the collapse removed the alternative placement to be ambiguous about — in
+a neighbourhood that is more ambiguous than it is, so the pile-up now stands out against
+its surroundings instead of against a global average.
+
+**On by default**, on the strength of the ranking result and the unit-consistency
+argument, not the genotype numbers: those say only that it costs nothing. `DR` is emitted
+whether or not `--depth-term` is armed, so this weighting reaches the default output even
+though the term does not. Measured by `depth_count_runs.py`.
+
 ## Two mistakes worth recording
 
 **The unit test I wrote first asserted a false premise.** It set up a heterozygous
@@ -275,9 +349,17 @@ now falls back to `--depth-window` when the source has no window of its own.
 
 ## Still open
 
-- **Off by default**, pending replication beyond two chromosomes.
+- **Still off by default**, though the replication it was waiting on is now done: all four
+  datasets gain, and all four are ahead of both Poisson arms. What is left before flipping
+  it is a full arm refresh with the term on, and a decision about `w`.
 - **Group B is untouched.** The term detects collapsed repeats emphatically and still
   cannot outvote the read evidence there; that needs `DR` wired into the quality field,
-  which is why `DR` is emitted now.
+  which is why `DR` is emitted now — and the effective read count makes that `DR` a much
+  better-separated signal to wire in.
 - `w` was chosen from three values on one dataset. 0.25 beat 0.5 and 1.0 on chr20 and was
-  not re-optimised on chr6, so it is a defensible setting rather than a fitted one.
+  not re-optimised on chr6, so it is a defensible setting rather than a fitted one. It has
+  also not been re-searched since the read count changed.
+- **`--mismap-min` interacts with all of this and has not been re-swept.** The floor was
+  left at 0.02 partly because it was compensating for depth blindness; now it also scales
+  every read's contribution to depth, so the 0.01-against-0.02 trade should look different
+  again.

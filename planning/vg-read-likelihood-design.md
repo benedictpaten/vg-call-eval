@@ -606,6 +606,21 @@ still have it as the default caller. *Signal to act:* hom-ref or SV recall mater
 Poisson caller at stage 4. *Fix:* add the depth term as an option — additive, since it is a separate
 factor in the per-site likelihood.
 
+> **Resolved. The signal fired and the fix is built, as specified.** Heterozygous deletion recall above
+> 1 kb came in at 0.21–0.44 against the Poisson caller's 0.36–0.84, which is the "SV recall materially
+> worse" condition. `--depth-term W` adds `W · ln Poisson(N ; λ_G)` — additive, optional, still off by
+> default — and puts the read model ahead of both Poisson arms on all four datasets. Keeping the two
+> sources separable paid off as argued: the mixture-weight defect (§4.3a) and the absolute-depth gap
+> were separately diagnosable and separately fixable, and each was measured against a model that did not
+> already contain the other. Numbers in `docs/tier2-depth-term.md`.
+>
+> One refinement the design did not anticipate. `N` is **not** a read count: it is `Σ_r (1 − e_r)`, and
+> the local rate is measured the same way. Counting a MAPQ 0 read as a whole read of depth contradicts
+> the per-read term, which already discounts that read to `1 − e_r`. Because both sides carry the same
+> weighting the correction is relative and cancels wherever a site's mapping quality matches its
+> neighbourhood's — it barely moves a genotype, but it takes `DR`'s power to rank false positives above
+> true ones from 0.51–0.55 to 0.62–0.64 on every dataset.
+
 **2. `GQ` will be over-confident, and this is the most likely of the three to bite.** §4.1 multiplies
 per-read likelihoods as if reads were independent. They are not: reads at a site share PCR duplicates,
 local misalignment, strand artefacts and graph misassembly. The product therefore accumulates

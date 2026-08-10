@@ -77,7 +77,8 @@ def call(vg: str, ds: str, tag: str, params: dict, threads: int) -> Path:
            "--gaf-base", str(WORK / gafdb), "--gbz-base", str(WORK / gbzdb),
            "--gaf-base-binary", gbz_base_binary()]
     for k, v in params.items():
-        cmd += [f"--{k}", str(v)]
+        # An empty value means a no-argument flag, not a flag with an empty argument.
+        cmd += [f"--{k}"] + ([] if v == "" else [str(v)])
     log = w / "results" / f"sweep-{tag}.log"
     with open(out.with_suffix(""), "wb") as fh, open(log, "wb") as errfh:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=errfh)
