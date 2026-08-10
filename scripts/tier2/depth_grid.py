@@ -22,7 +22,9 @@ change a genotype, so putting it in this grid would multiply vg runs for nothing
 swept offline from the winning point's VCF by depth_gq.py -- but it does have to be
 re-swept, because a non-zero `w_d` changes which genotypes are called and so changes the
 DR distribution it acts on. `--depth-ploidy` is structural, not free. `--depth-count-raw`
-was settled on all four datasets. `--depth-window` gets its own 1-D scan afterwards.
+was settled on all four datasets. The rate's neighbourhood width is not a parameter at all --
+it comes from the read source's own fetch window -- and is scanned separately through
+`--read-window`, where it saturates at the default.
 
 No single objective, on purpose: every point is scored on both benchmarks plus the
 heterozygous class breakdown, and the surface is printed whole.

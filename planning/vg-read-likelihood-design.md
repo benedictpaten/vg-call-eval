@@ -339,7 +339,7 @@ established in.
 | `ω_i` | `--flat-mixture`, `--length-weight-whole-traversal` | unique content | §4.3a |
 | `w_d` | `--depth-term` | 0.1 | 4-hap graphs prefer 0.25, 34-hap prefer 0.1; unimodal, turns over above 0.25 |
 | `N_eff` | `--depth-count-raw` | effective | genotype-neutral; chosen for `DR`'s ranking power |
-| `c(s)` window | `--depth-window` | source's own (4096) | saturated by 4096 |
+| `c(s)` window | none — source's own fetch window | 4096 in practice | saturated by 4096; a fixed fallback covers sources without one |
 | `A` | `--depth-quality` | 0 | 0.5 when armed; 7 of 8 cells improve, one does not |
 
 **Two invariants worth keeping in mind when changing any of this.** The weights sum to 1, so adding

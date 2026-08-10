@@ -268,8 +268,9 @@ optimises, so it would fall by construction. The F1 and class-recall tables are 
 
 ## The rate's neighbourhood is saturated
 
-`--depth-window` is **inert** whenever the read source supplies a window of its own, which every
-tier-2 run does — so the neighbourhood can only be varied through `--read-window`. chr20-4hap at
+There was no knob for this. The neighbourhood came from the read source's own fetch window,
+with a caller-side fallback only for sources that have none, so it could only be varied through
+`--read-window`. chr20-4hap at
 `w_d = 0.1`: SV F1 **0.4961 / 0.4998 / 0.5008** at 1024 / 4096 / 16384. A 1024-node window is about
 30 kb, narrow enough that the rate's variance shows; by 4096 it has converged and widening buys one
 record. Confounded, since `--read-window` also sets fetch and cache granularity — but the confound

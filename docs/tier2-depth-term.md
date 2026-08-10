@@ -283,8 +283,8 @@ genotyping. Measured cost: **111 s against a 120–170 s baseline**, i.e. inside
 No pre-pass, no pack, no extra I/O.
 
 The window width is **saturated at the 4096 default**. Varying it (through `--read-window`,
-because `--depth-window` is inert whenever the read source supplies a window of its own,
-which every tier-2 run does) gives SV F1 0.4961 / 0.4998 / 0.5008 at 1024 / 4096 / 16384 on
+because the width comes from the read source's own fetch window and every tier-2 run has one)
+gives SV F1 0.4961 / 0.4998 / 0.5008 at 1024 / 4096 / 16384 on
 chr20-4hap. A 1024-node window is roughly 30 kb, narrow enough that the rate's variance
 shows; by 4096 the estimate has converged and widening buys one record. The measurement is
 confounded — `--read-window` also sets fetch and cache granularity — but the confound runs
@@ -403,7 +403,10 @@ taken from the read source's own fetch window, and an in-memory source answers e
 exactly and so has none — it produced no rate, emitted no `DR`, and therefore a different
 VCF from an indexed source over identical reads. `18_vg_call.t` asserts those two agree
 and caught it immediately. The neighbourhood is caller policy, not a backend property, and
-now falls back to `--depth-window` when the source has no window of its own.
+now falls back to a fixed caller-side constant when the source has no window of its own.
+That fallback was briefly a tunable parameter. It has since been demoted to a constant: the
+width saturates, no indexed source ever reaches the fallback, and a knob nobody should turn is
+worse than no knob.
 
 ## Still open
 
