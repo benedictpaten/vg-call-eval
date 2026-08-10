@@ -337,7 +337,7 @@ established in.
 | `e_min` | `--mismap-min` | 0.02 | swept; interior optimum, and its old job is now the depth term's |
 | `e_max` | `--mismap-max` | 0.7 | swept 0.5→0.7; 0.5 clamps every read at MAPQ ≤ 3 to a coin flip |
 | `ω_i` | `--flat-mixture`, `--length-weight-whole-traversal` | unique content | §4.3a |
-| `w_d` | `--depth-term` | 0 | 0.1 when armed; 4-hap graphs prefer 0.25, 34-hap prefer 0.1 |
+| `w_d` | `--depth-term` | 0.1 | 4-hap graphs prefer 0.25, 34-hap prefer 0.1; unimodal, turns over above 0.25 |
 | `N_eff` | `--depth-count-raw` | effective | genotype-neutral; chosen for `DR`'s ranking power |
 | `c(s)` window | `--depth-window` | source's own (4096) | saturated by 4096 |
 | `A` | `--depth-quality` | 0 | 0.5 when armed; 7 of 8 cells improve, one does not |

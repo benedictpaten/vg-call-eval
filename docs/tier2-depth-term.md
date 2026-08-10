@@ -3,8 +3,10 @@
 The read-likelihood model scores `P(reads | G)` conditioned on the reads it was handed,
 and never asks whether that many reads should be there. That blindness is behind two
 known failures — collapsed-repeat pile-ups it cannot reject, and large heterozygous
-deletions it still loses at 0.44 recall against the Poisson caller's 0.79–0.84 even after
-the mixture fix.
+deletions it still lost at 0.44 recall against the Poisson caller's 0.79–0.84 even after
+the mixture fix. The second of those is what this page closes; the first is not, and is
+now the subject of `DR` and `--depth-quality` in
+[tier2-quality-signals.md](tier2-quality-signals.md).
 
 Stage 0 predicts what a depth term would do, from artefacts already on disk, before any
 of it is written. `depth_term_offline.py`.
@@ -12,35 +14,40 @@ of it is written. `depth_term_offline.py`.
 **Verdict: build it, but it solves half the problem, and the other half is not what it
 looked like.**
 
-**Built, and Stage 1 beat the Stage 0 prediction.** `--depth-term W`, off by default,
-with the rate measured over the read source's own fetch window. Structural-variant F1 at
-`w = 0.25`, searched on chr20 and validated on chr6, now replicated on **all four
-datasets**:
+**Built, measured across the whole five-arm matrix, and now the default at
+`--depth-term 0.1`**, with the rate measured over the read source's own fetch window.
+Structural-variant F1 for `readlik-z`, from the full refresh — `w_d` searched on chr20 and
+validated on chr6, then every arm re-run on one build:
 
-| dataset | `readlik-z` | **+ depth term** | `poisson` | `poisson-z` |
+| dataset | `readlik-z`, term off | **+ depth term 0.1** | `poisson` | `poisson-z` |
 |---|---|---|---|---|
-| chr20-4hap | 0.4890 | **0.5007** | 0.4954 | 0.4930 |
-| chr20-34hap | 0.4588 | **0.4616** | 0.4535 | 0.4391 |
-| chr6-4hap | 0.5542 | **0.5650** | 0.5490 | 0.5478 |
+| chr20-4hap | 0.4890 | **0.4998** | 0.4954 | 0.4930 |
+| chr20-34hap | 0.4588 | **0.4655** | 0.4535 | 0.4391 |
+| chr6-4hap | 0.5542 | **0.5616** | 0.5490 | 0.5478 |
 | chr6-34hap | 0.4963 | **0.5059** | 0.4944 | 0.4881 |
 
-Ahead of both Poisson arms everywhere. chr20-34hap is the weak case and worth naming:
-`readlik-z` was already ahead of both Poisson arms there without any depth term, and the
-term adds only +0.0028 against +0.010 to +0.012 on the other three.
+Ahead of both Poisson arms on all four, and gaining on all four (+0.0067 to +0.0108).
+`readlik` gains on three with the fourth flat, `readlik-nomismap` on all four, and both
+Poisson arms come out byte-identical — the control that makes the rest of the table
+comparable at all.
 
 Heterozygous deletion recall above 1 kb — the class it was built for:
 
-| dataset | flat mixture | + weighted mixture | **+ depth term** | `poisson-z` |
-|---|---|---|---|---|
-| chr20-4hap | 0.061 | 0.212 | **0.394** | 0.364 |
-| chr20-34hap | — | 0.303 | **0.424** | 0.333 |
-| chr6-4hap | 0.066 | 0.443 | **0.770** | 0.836 |
-| chr6-34hap | 0.082 | 0.443 | **0.754** | 0.787 |
+| dataset | flat mixture | + weighted mixture | **+ depth term 0.1** | at 0.25 | `poisson-z` |
+|---|---|---|---|---|---|
+| chr20-4hap | 0.061 | 0.212 | **0.394** | 0.394 | 0.364 |
+| chr20-34hap | — | 0.303 | **0.424** | 0.424 | 0.333 |
+| chr6-4hap | 0.066 | 0.443 | **0.689** | 0.754 | 0.836 |
+| chr6-34hap | 0.082 | 0.443 | **0.656** | 0.738 | 0.787 |
 
-Small-variant genotype F1 does not move to four decimal places on any dataset, the
-heterozygous fraction of calls shifts by 0.005, and chr20 runs in 111 s against a
-120–170 s baseline. Stage 0 predicted 4 of 10 sites with a deliberately naive global
-rate; a local rate does better, as Stage 0 said it would.
+The `w_d = 0.25` column is the trade the default declines: it returns more of this class
+but costs precision, and more of it on the richer graph. See
+[tier2-parameters.md](tier2-parameters.md) for the grid.
+
+Small-variant genotype F1 does not move to four decimal places on any dataset or any read
+arm, the heterozygous fraction of calls shifts by 0.005, and chr20-4hap `readlik-z` runs in
+110 s against a 120–170 s baseline. Stage 0 predicted 4 of 10 sites with a deliberately
+naive global rate; a local rate does better, as Stage 0 said it would.
 
 Details of what was built, what the in-tree suite caught, and why a read now counts as
 `1 − e_r` of a read rather than one, are at the end of this page.
@@ -63,8 +70,15 @@ ln P(data | G) = ln Poisson(N ; λ_G) + Σ_r ln[ (1−e_r)·Σ_h w_h·rel(r,h) +
 **The footprint appears twice and means two different things.** The mixture weight `w_h`
 wants sequence *unique* to an allele, because only reads over unique sequence can
 separate genotypes — reads in shared sequence fit everything and cancel. `λ_G` wants the
-*whole* traversal length, because every base generates reads whether or not those reads
-discriminate. Conflating them would be an easy and invisible error.
+length over which a read can be *recruited*, because every such base generates reads
+whether or not those reads discriminate. Conflating them would be an easy and invisible
+error.
+
+> Stage 0 wrote `L_h` here as the *whole* traversal length, and that was wrong in a way
+> that took a while to find: a traversal includes the snarl's two boundary nodes, and a
+> read lying entirely inside one of them is dropped as uninformative before it can become
+> a row. `λ_G` uses the **interior** length. See *λ counts the interior of a traversal*
+> below.
 
 `c` is calibrated as the median of `N / Σ_h(L_h + R − 1)` over the called genotype across
 all dumped sites, which puts it in the same units as `N` — "rows in the likelihood
@@ -393,9 +407,15 @@ now falls back to `--depth-window` when the source has no window of its own.
 
 ## Still open
 
-- **Still off by default**, though the replication it was waiting on is now done: all four
-  datasets gain, and all four are ahead of both Poisson arms. What is left before flipping
-  it is a full arm refresh with the term on, and a decision about `w`.
+- **On by default at `w_d = 0.1`.** The full five-arm refresh is what settled it: structural
+  variant F1 rises on 4 of 4 datasets for `readlik-z` (+0.0067 to +0.0108) and 3 of 4 for
+  `readlik` with the fourth flat, small-variant genotype F1 is unchanged to four decimal
+  places on every read arm, and **both Poisson arms are byte-identical**, which is the
+  control that makes the rest of the table comparable. `readlik-nomismap` gains too
+  (+0.0030 to +0.0053) — a useful partial control, because with `e_r` pinned to the floor
+  for every read the effective-count machinery is nearly inert there, so that gain is the
+  Poisson term itself. One ordering reverses: on chr20-4hap `readlik` now beats `readlik-z`,
+  0.5034 against 0.4998.
 - **Group B is untouched.** The term detects collapsed repeats emphatically and still
   cannot outvote the read evidence there; that needs `DR` wired into the quality field,
   which is why `DR` is emitted now — and the effective read count makes that `DR` a much

@@ -504,9 +504,14 @@ def main() -> None:
              "deletions above 1 kb and mis-genotyped two thirds of heterozygous insertions above 1 kb. "
              "Weighting each haplotype by the reads it is *expected* to contribute at the site is now "
              "the default and fixes both, without moving small variants at all — see "
-             "[tier2-sv-errors.md](tier2-sv-errors.md). It does not remove the need for a depth term: "
+             "[tier2-sv-errors.md](tier2-sv-errors.md). It did not remove the need for a depth term: "
              "it corrects the *relative* weight between a genotype's haplotypes, while the pile-ups "
-             "above are a statement about *absolute* depth.")
+             "above are a statement about *absolute* depth. That term is now also the default, at "
+             "`--depth-term 0.1`, and the read arms in the tables on this page carry it — see "
+             "[tier2-depth-term.md](tier2-depth-term.md). It does not resolve the pile-ups either: "
+             "it detects them emphatically and still cannot outvote the read evidence at them, "
+             "which is what the `DR` field and `--depth-quality` are for "
+             "([tier2-quality-signals.md](tier2-quality-signals.md)).")
     L.append("")
     L.append("Filtering on depth is **not** that remedy, and that has now been tested properly "
              "rather than by two spot checks. Sweeping a two-sided cut on DP over a rolling local "

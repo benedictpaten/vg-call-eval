@@ -176,8 +176,8 @@ P(reads | genotype) conditioned on the reads it was given and never asked whethe
 there, which is why collapsed-repeat pile-ups survived it and why the Poisson caller led on heterozygous
 deletions above 1 kb. The length-weighted mixture fixed the *relative* weight between a genotype's haplotypes
 ([docs/tier2-sv-errors.md](docs/tier2-sv-errors.md)) and is the default; `--depth-term` supplies the absolute
-half and puts the read model ahead of both Poisson arms on all four datasets. It is **not** on by default
-yet — see [docs/tier2-depth-term.md](docs/tier2-depth-term.md) for what remains.
+half and puts the read model ahead of both Poisson arms on all four datasets. It is **on by default** at
+`--depth-term 0.1` — see [docs/tier2-depth-term.md](docs/tier2-depth-term.md).
 
 Still open: **`DR` in the quality field**. The term detects collapsed repeats emphatically and still cannot
 outvote the read evidence at them. `DR` is emitted whether or not the term is armed, and counting each read
