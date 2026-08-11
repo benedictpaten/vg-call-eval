@@ -1,8 +1,14 @@
 # Linkage between sites: a PanGenie-style HMM over `vg call`'s existing likelihood
 
-**Status: designed and measured, not built.** The measurement came first deliberately, and it
-changes what is worth building: the prize is not the elimination of impossible calls, it is a
-modest reweighting of *undecided* sites. That argues for the cheap end of the design.
+**Status: designed, measured, and planned — not built.** The measurement came first
+deliberately, and it changed what is worth building: the prize is not the elimination of
+impossible calls, it is a modest reweighting of *undecided* sites. That argues for the cheap end
+of the design.
+
+**Read §7 first if you are deciding whether to proceed.** Stage 0 tests the entire model offline
+with no changes to vg, because `vg call` already emits per-genotype likelihoods (`GL`) and
+`vg deconstruct` supplies the panel matrix on matching snarl IDs. Roughly a day, no calling runs,
+and it can sweep every parameter. Everything after it is gated on that result.
 
 `vg call` genotypes each snarl independently. The emitted call set is the concatenation of
 per-site argmaxes, which corresponds to a pair of haplotypes free to switch panel haplotype
@@ -382,7 +388,137 @@ current per-site ratio.
 
 ---
 
-## 7. What would make this worth building
+## 7. Implementation plan
+
+Staged so that the expensive work is gated on evidence, following the pattern that worked for
+the depth term: predict offline, then build, then search, then refresh.
+
+### Stage 0 — the whole model offline, with no changes to vg
+
+**This is the stage that decides everything, and it needs no C++.** `vg call` already emits
+everything the HMM consumes:
+
+| needed | already available |
+|---|---|
+| per-site `ln P(reads | G)` for every genotype | **`GL`**, log10 P(reads \| genotype), per record |
+| haplotype → allele matrix | `vg deconstruct`, joined on snarl ID |
+| site order and gaps | `POS` |
+| allele identity across the two files | `AT` (allele traversal) |
+
+So Stage 0 is a Python forward–backward over the emitted `GL` values and the panel matrix,
+re-deciding each genotype and writing a modified VCF, then scoring it with the existing
+`score_vcf.py` on both benchmarks. It can sweep `w_t`, `β` and `L` freely because no run of
+`vg call` is involved — the emission is fixed and cached.
+
+Two approximations to state, both of which only *understate* the model:
+
+- `GL` covers the alleles that reached the record, not every allele enumerated at the site. At a
+  site where many alleles were enumerated and few emitted, the HMM sees fewer states than the
+  real implementation would.
+- Multi-allelic records that were split or merged downstream may not map cleanly onto panel
+  allele indices; those sites get skipped and counted.
+
+**Kill criterion.** If Stage 0 does not improve genotype concordance at low-`GQI` sites on
+chr20 at any `(w_t, β, L)`, stop. No vg work happens. Cost: ~1 day, no runs beyond scoring.
+
+### Stage 1 — implement in the caller
+
+Only if Stage 0 pays. Flags, all defaulting to off or to the measured value:
+
+```
+--linkage-weight W        w_t; 0 disables and must be bit-for-bit inert   [0]
+--linkage-block-switch B  β at sampling block boundaries                 [0]
+--linkage-scale L         distance scale in bp                           [10000]
+--linkage-window N        sites either side; 0 = exact chain-wide        [64]
+--linkage-escape E        off-panel wildcard mass ε                      [small]
+```
+
+`β` defaults to **0** rather than 0.57: a graph that is not haplotype-sampled has no blocks, and
+defaulting to a sampled graph's value would silently mis-model every full pangenome. Sampled
+graphs are detectable (`recombination` sample name), so the default can be raised *conditionally*
+later — but not before that detection is tested.
+
+Where the code goes: the haplotype→allele matrix comes from `find_gbwt_traversals`, which the `-z`
+path already calls and whose path identifiers it currently discards. Fragment and block structure
+come from `PathName` and, if present, the `.hapl` subchains. The HMM sits above the per-site
+likelihood, so `AlleleReadLikelihoods` is untouched — this is a new layer in the caller, not a
+change to the emission.
+
+### Stage 2 — search, on chr20, validate on chr6
+
+`w_t` × `β`, crossed rather than swept, because they interact by construction: a larger `β`
+weakens the effective transition, which a larger `w_t` compensates for. `L` on a 1-D scan
+afterwards, since the panel curve already localises it to ~10 kb. Reuse `depth_grid.py`'s
+structure and the config-hash cache.
+
+### Stage 3 — full matrix, then decide the default
+
+`CANARY=1 JOBS=2 refresh_all.sh` with `READLIK_EXTRA`, ~30 minutes. Default flips only if it
+holds on all four datasets, as `--depth-term` had to.
+
+### Stage 4 — phasing, separately justified
+
+A Viterbi pass over the same model, emitting `GT` with `|` and a `PS` tag. Deliberately last, and
+not part of the case for stages 0–3 (§5).
+
+---
+
+## 8. Testing plan
+
+### Unit tests (`src/unittest/`), mirroring the depth term's
+
+1. **`w_t = 0` is inert** — the HMM layer must reproduce the per-site argmax exactly, not
+   approximately. Same standard as `--depth-quality`: verified byte-identical on real data.
+2. **Linkage decides a flat site.** Two sites; site 2's reads are uninformative between two
+   alleles; the panel carries one of them on the same haplotype as site 1's call. Assert site 2
+   is called from linkage.
+3. **Linkage does not override decisive reads.** The same construction with site 2's reads
+   strongly favouring the *unlinked* allele. Assert the call follows the reads at a reasonable
+   `w_t`. This is the harm direction and the more important of the pair.
+4. **Off-panel alleles remain callable.** An allele carried by no panel haplotype, with reads
+   demanding it, must still be called. Guards the regression that would present as a precision
+   improvement.
+5. **Fragment boundaries block linkage.** A haplotype whose path ends between two sites must
+   contribute no linkage across the gap — treated as absent, not as switched.
+6. **`β = 1` equals a chain reset.** A block boundary with certain switching must give the same
+   posterior as starting a fresh chain.
+7. **Posteriors sum to 1** per site, and **argmax over genotypes ≠ argmax over states** on a
+   constructed case, asserting we do the former (§5).
+8. **Windowed equals exact** on a short chain, to tolerance, at a window wide enough to cover it.
+
+### In-tree tests (`test/t/18_vg_call.t`)
+
+- The existing invariant that **two read sources produce identical VCFs** must still hold.
+- **New: thread count must not change output.** A windowed HMM with parallelism over windows is
+  exactly the shape of change that introduces order dependence, and nothing currently asserts
+  `-t 1` and `-t 5` agree. This should be added *before* Stage 1, so it is a standing invariant
+  rather than a check invented to pass.
+
+### Tier-2 evaluation
+
+Fast tier first (`readlik-z`, four datasets, ~14 min), reporting on both benchmarks plus:
+
+| metric | why |
+|---|---|
+| genotype concordance at `GQI < 10` | the addressable population; where the gain must appear |
+| **fraction of `GQI ≥ 40` genotypes changed** | the harm metric; should be ≲0.1% |
+| apparent recombination rate, before and after | direct confirmation the mechanism engaged |
+| het fraction, SV recall by size, SNV F1 | the standing regression guards |
+| runtime and peak RSS | forward–backward over 561 states is new work |
+
+### Cost
+
+| stage | cost | gated on |
+|---|---|---|
+| 0 — offline | ~1 day, no vg runs | — |
+| 1 — implement | ~2–3 days | Stage 0 improving low-`GQI` concordance |
+| 2 — search | ~2 h compute | Stage 1 passing tests |
+| 3 — refresh | ~30 min | Stage 2 finding a stable operating point |
+| 4 — phasing | ~2 days | its own justification |
+
+---
+
+## 9. What would make this worth building
 
 The measurement sets a modest ceiling, so the decision rule should be set in advance:
 
@@ -397,7 +533,7 @@ The measurement sets a modest ceiling, so the decision rule should be set in adv
   would mean the prior is fighting recall, which is the thing this project has spent most of
   its effort recovering.
 
-## 8. Not measured, and worth knowing before committing
+## 10. Not measured, and worth knowing before committing
 
 - **How often HG002's true genotypes imply panel switching.** That bounds how much a linkage
   prior can help without hurting, and it is the single most useful missing number. It needs
