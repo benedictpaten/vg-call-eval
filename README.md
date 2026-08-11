@@ -125,6 +125,9 @@ python3 scripts/tier2/depth_gq.py \
 python3 scripts/tier2/depth_grid.py \
     --datasets chr20-4hap                       # depth weight x mismapping floor
 python3 scripts/tier2/hap32_precision.py            # why 34-hap emits more false SVs
+python3 scripts/tier2/fn_decomposition.py           # misses that were called, spelled smaller
+python3 scripts/tier2/sv_metric_sensitivity.py \
+    --arms readlik-z --refine --refdists 500        # harmonised representation
 ```
 
 A caller-side change can be put through the whole five-arm matrix without editing the arm list:

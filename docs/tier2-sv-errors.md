@@ -591,6 +591,40 @@ rejected, so this needs no new alignment. For `readlik-z`:
 
 Together those are 25–27% of 4-haplotype false positives before any question of biology.
 
+### Most "missed" structural variants in repeats were called, spelled smaller
+
+A tandem repeat expansion is one event to the benchmark and often many to the graph: the
+region is built as a chain of small bubbles, so a 300 bp expansion of a 30 bp period comes
+out as ten separate ~30 bp insertions. Each is below the 50 bp cut, so the structural
+comparison never sees them and the truth record scores as a miss — while the same calls are
+false positives against the small-variant benchmark, whose truth spells the locus as one
+large insertion. Lost twice, for a representation disagreement rather than a calling error.
+
+Testable without re-calling: for each false negative, sum the net length change of every
+call within a window and ask whether it matches the truth SVLEN. `fn_decomposition.py`.
+
+| dataset | ±200 bp, tol 0.1 | tol 0.2 | tol 0.3 | chance rate |
+|---|---|---|---|---|
+| chr6-4hap | 16.3% | 22.2% | **26.8%** | 1.2% |
+| chr6-34hap | 15.2% | 19.5% | 23.0% | 1.1% |
+| chr20-4hap | 11.1% | 14.9% | 17.7% | 1.3% |
+| chr20-34hap | 9.1% | 13.2% | 15.3% | 1.8% |
+
+Between a ninth and a quarter of all misses. Stable between ±200 and ±500 bp (±50 is too
+tight to reach the components), and **20× the chance rate** — measured by repeating the test
+at positions drawn from the call set itself, so local call density is preserved and only the
+truth position is wrong. Explained events use a median of 3–4 records, and 92–96% of them
+need more than one.
+
+This is a **bound, not a metric**: matching net length change is far weaker than matching
+sequence. It is here because `truvari refine`, which does the sequence version properly,
+agrees closely and independently — see below.
+
+It is also the mirror of the same-length records in Q2. There the caller merges too much,
+one record for a handful of scattered SNVs; here it splits too much, many records for one
+expansion. The same disagreement about decomposition, and record-by-record matching punishes
+it in whichever direction it runs.
+
 ### Widening the window, and harmonising representation
 
 | dataset | arm | `--refdist` 500 | 1000 | 2000 | `truvari refine` |
@@ -611,11 +645,42 @@ the ruler, and a wider window can manufacture matches between genuinely differen
 events. It moves both callers together and never changes their order.
 
 `truvari refine` is the principled version: MAFFT-harmonise the regions truvari itself
-flags, then re-compare. It is worth far more than the window — +0.095 F1 for `readlik-z`
-on chr6-4hap — and unlike the sweep it **changes the answer**. At the shipped setting the
-Poisson caller leads on SVs in three of four datasets; after refinement the read model
-leads in three of four. The SV deficit reported on the accuracy pages is substantially a
-statement about representation.
+flags, then re-compare. It is worth far more than the window, and unlike the sweep it
+**changes the answer**. At the shipped setting the Poisson caller leads on SVs in three of
+four datasets; after refinement the read model leads in three of four. The SV deficit
+reported on the accuracy pages is substantially a statement about representation.
+
+**Re-run on the current caller** (the table above predates the mixture and depth changes),
+`readlik-z` only:
+
+| dataset | F1 | recall | precision | TP-base | FP |
+|---|---|---|---|---|---|
+| chr6-4hap | 0.5616 → **0.6547** | 0.5507 → 0.6580 | 0.5728 → 0.6514 | 852 → 1018 | 625 → 510 |
+| chr6-34hap | 0.5059 → **0.6023** | 0.5456 → 0.6529 | 0.4716 → 0.5590 | 844 → 1010 | 949 → 792 |
+| chr20-4hap | 0.4998 → **0.5809** | 0.4915 → 0.5791 | 0.5084 → 0.5826 | 376 → 443 | 351 → 298 |
+| chr20-34hap | 0.4655 → **0.5497** | 0.4967 → 0.5961 | 0.4380 → 0.5100 | 380 → 456 | 476 → 415 |
+
++0.081 to +0.096 F1 on every dataset, collecting on both sides: a correct event written
+differently costs twice, once as a miss and once as a false call. Recall on chr6-4hap rises
+by 0.107, or 166 events — inside the 113–186 the decomposition arithmetic above predicts,
+from a method sharing none of its machinery.
+
+**Refinement does not close the 34-haplotype gap**: chr6 0.0557 → 0.0524, chr20 0.0343 →
+0.0312. That is consistent with Q2 — the 34-haplotype penalty is same-length records plus
+unfiltered scoring, not representation. Two separate problems, and refinement addresses one.
+
+**Unfinished, and recorded rather than quietly dropped.** Stratifying the refine gain by size
+band needs the final record set reconstructed from `phab_bench` plus the unrefined remainder.
+The obvious composition — phab_bench plus records outside the refined regions — gives 554
+TP / 113 FN against truvari's authoritative 443 / 322 on chr20-4hap, and no region-membership
+convention tried reproduced it. The first version of that table looked entirely plausible
+(+0.27 to +0.34 recall in every band) and was wrong; it was caught only because the script
+asserted against `refine.variant_summary.json`. Getting it properly means benching the
+harmonised VCFs directly, whose totals will not equal refine's headline and so need labelling
+as a different quantity.
+
+**These runs cover `readlik-z` only**, so the post-refinement caller *ordering* above still
+rests on the older numbers.
 
 That does not overturn Q1. The het-deletion collapse is untouched by refinement; it is
 the residual after representation is accounted for.
