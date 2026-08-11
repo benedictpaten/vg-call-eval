@@ -127,6 +127,9 @@ python3 scripts/tier2/depth_gq.py \
 python3 scripts/tier2/depth_grid.py \
     --datasets chr20-4hap                       # depth weight x mismapping floor
 python3 scripts/tier2/hap32_precision.py            # why 34-hap emits more false SVs
+vg deconstruct -p CHM13#0#chr20 graph.gbz > panel.vcf   # the haplotype panel matrix
+python3 scripts/tier2/apparent_recombination.py \
+    --calls … --panel panel.vcf --label chr20-34hap  # linkage the per-site model discards
 python3 scripts/tier2/fn_decomposition.py           # misses that were called, spelled smaller
 python3 scripts/tier2/sv_metric_sensitivity.py \
     --arms readlik-z --refine --refdists 500        # harmonised representation

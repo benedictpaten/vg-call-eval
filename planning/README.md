@@ -12,6 +12,7 @@ real HG002 data over two chromosomes and two graphs.
 | [vg-call-eval-plan.md](vg-call-eval-plan.md) | The evaluation harness, the full investigation log, and the forward plan | you need a number or the derivation behind one (**start at "Where this stands"**; Appendix A is the log, with an index), or you want to know what is left to do (**Appendix C**) |
 | [vg-call-characterization.md](vg-call-characterization.md) | How `vg call` works today, independent of this change | you are new to `vg call` |
 | [read-likelihood-genotyping-plan.md](read-likelihood-genotyping-plan.md) | Source reading, prior art in the tree, and the reasoning behind each settled decision | you want to know *why* a decision went the way it did |
+| [vg-call-linkage-hmm.md](vg-call-linkage-hmm.md) | A PanGenie-style HMM using linkage between sites: what it would buy (measured before designing it), and how to parameterise the transitions over a *haplotype-sampled* panel | you are considering linkage between sites, or wondering why the panel's recombination rate cannot come from `4rN_e` |
 
 Outbound drafts, standalone:
 
