@@ -87,7 +87,7 @@ def main() -> None:
     ap.add_argument("--datasets", nargs="+", default=["chr20-34hap"])
     ap.add_argument("--weights", nargs="+", default=["0", "0.5", "1", "2"])
     ap.add_argument("--block-switch", nargs="+", default=["0", "0.57"])
-    ap.add_argument("--scale", default="10000")
+    ap.add_argument("--scales", nargs="+", default=["10000"])
     ap.add_argument("--vg", default=str(Path.home() / "CLionProjects/vg/bin/vg"))
     ap.add_argument("--threads", type=int, default=5)
     args = ap.parse_args()
@@ -97,44 +97,51 @@ def main() -> None:
         # The w = 0 control is run, not carried over: it must come from this binary and these
         # flags, or the comparison is against a different experiment.
         baseline_vcf = None
-        for beta in args.block_switch:
-            for w in args.weights:
-                if float(w) == 0.0 and beta != args.block_switch[0]:
-                    continue      # beta is inert at zero weight; one control is enough
-                params = {"linkage-scale": args.scale}
-                if float(w) > 0:
-                    params["linkage-weight"] = w
-                    params["linkage-block-switch"] = beta
-                tag = (f"{ds}-lgrid-w{w}" if float(w) == 0.0
-                       else f"{ds}-lgrid-w{w}-b{beta}")
-                print(f"=== {ds} w={w} beta={beta}", flush=True)
-                vcf = ps.call(args.vg, ds, tag, params, args.threads)
-                s = ps.score(vcf, ds, tag, args.threads)
-                if float(w) == 0.0:
-                    baseline_vcf = vcf
-                shift = genotype_shift(baseline_vcf, vcf) if baseline_vcf else {}
-                rows.append((ds, w, beta, s, shift))
+        for scale in args.scales:
+            for beta in args.block_switch:
+                for w in args.weights:
+                    # Both beta and scale are inert at zero weight -- the transition is uniform --
+                    # so one control per dataset, not one per cell.
+                    if float(w) == 0.0 and (beta != args.block_switch[0]
+                                            or scale != args.scales[0]):
+                        continue
+                    params = {"linkage-scale": scale}
+                    if float(w) > 0:
+                        params["linkage-weight"] = w
+                        params["linkage-block-switch"] = beta
+                    # Scale belongs in the tag. It was previously fixed, so leaving it out was
+                    # harmless; with it swept, two scales would collide on one cached VCF and the
+                    # second point would silently report the first one's numbers.
+                    tag = (f"{ds}-lgrid-w{w}" if float(w) == 0.0
+                           else f"{ds}-lgrid-w{w}-b{beta}-s{scale}")
+                    print(f"=== {ds} w={w} beta={beta} scale={scale}", flush=True)
+                    vcf = ps.call(args.vg, ds, tag, params, args.threads)
+                    sc = ps.score(vcf, ds, tag, args.threads)
+                    if float(w) == 0.0:
+                        baseline_vcf = vcf
+                    shift = genotype_shift(baseline_vcf, vcf) if baseline_vcf else {}
+                    rows.append((ds, w, beta, scale, sc, shift))
 
-    hdr = (f"{'dataset':12s} {'w':>4s} {'beta':>5s} {'SV F1':>7s} {'SVrec':>7s} {'SVprec':>7s} "
+    hdr = (f"{'dataset':12s} {'w':>4s} {'beta':>5s} {'scale':>6s} {'SV F1':>7s} {'SVrec':>7s} {'SVprec':>7s} "
            f"{'smallGT':>8s} {'SNV':>7s} {'hDEL1k':>7s} {'moved@GQI<10':>13s} "
            f"{'moved@GQI>=40':>14s}")
     print("\n" + hdr)
     print("-" * len(hdr))
-    for ds, w, beta, s, shift in rows:
+    for ds, w, beta, scale, s, shift in rows:
         sv = s.get("sv") or {}
         hi = shift.get("hi_pct")
         flag = "" if hi is None or hi <= 0.1 else "  OVER BUDGET"
-        print(f"{ds:12s} {w:>4s} {beta:>5s} {sv.get('f1', 0):7.4f} {sv.get('recall', 0):7.4f} "
+        print(f"{ds:12s} {w:>4s} {beta:>5s} {scale:>6s} {sv.get('f1', 0):7.4f} {sv.get('recall', 0):7.4f} "
               f"{sv.get('precision', 0):7.4f} {(ps.smallvar_f1(s) or 0):8.4f} "
               f"{(ps.smallvar_f1(s, 'Snv') or 0):7.4f} {ps.cls(s, 'DEL 1k+ het'):>7s} "
               f"{shift.get('lo_pct', 0):12.2f}% {shift.get('hi_pct', 0):13.3f}%{flag}")
 
     dest = WORK / "sv-atlas" / "sweep-linkage-grid.json"
     dest.write_text(json.dumps(
-        [{"dataset": ds, "weight": w, "block_switch": beta, "sv": s.get("sv"),
+        [{"dataset": ds, "weight": w, "block_switch": beta, "scale": scale, "sv": s.get("sv"),
           "smallvar_all_f1": ps.smallvar_f1(s), "smallvar_snv_f1": ps.smallvar_f1(s, "Snv"),
           "sv_by_class": s.get("sv_by_class"), "shift": shift}
-         for ds, w, beta, s, shift in rows], indent=2))
+         for ds, w, beta, scale, s, shift in rows], indent=2))
     print(f"\nwrote {dest}")
 
 
