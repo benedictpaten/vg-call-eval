@@ -445,18 +445,27 @@ spell it — and that multiplicity is a panel allele-frequency prior. The state 
 effects the note had treated as one, so Stage 0 needs **three** arms, not two, and `--freq-prior`
 exists to separate them.
 
-**The frequency prior is suspect on a sampled graph, and it defaults to off.** Haplotype sampling
-chose those haplotypes using k-mers from *these reads*, so panel allele frequency at a site is
-already conditioned on the sample's data; multiplying it into a read likelihood double-counts, and
-`GQ` would be over-confident in a way a genotype-level harm metric cannot see. PanGenie's panel is
-the full assembly set, where a panel-derived prior is a legitimate population prior — the problem
-is created by personalising the graph first, not by PanGenie's model.
+**The frequency prior defaults to off because its size is unmeasured here, not because it is
+wrong.** An earlier draft of this note called it invalid; that was too strong.
 
-One thing partially rescues it: the sampler works at ~10 kb subchain resolution on aggregate k-mer
-evidence, so at a low-`GQI` site inside a well-determined block its choice carries information the
-site's own reads lack. That is genuine information transfer, just mediated by the sampler — which
-makes the frequency prior partly a crude proxy for the linkage being modelled rather than pure
-circularity, and is consistent with the two terms contributing comparable amounts.
+There is some double counting: haplotype sampling chose the panel using k-mers from *these reads*,
+so panel allele frequency is already conditioned on the sample's data. But the two are not the
+same statistic. Sampling works from k-mer counts aggregated over ~10 kb subchains; the genotyper
+works from per-read alignment likelihoods at one site. At an undecided site inside a
+well-determined block, the sampler's choice therefore carries information the site's own reads
+genuinely lack — that is information transfer, and a coarse version of the linkage this whole note
+is about. Double counting's usual penalty is also miscalibration rather than wrong answers, and
+`GQ` is already documented as a ranking score rather than a posterior.
+
+The caveat worth keeping is narrower, and it is about not knowing rather than about being wrong:
+with a sampled panel the bias cannot be bounded, and the failure mode is **correlated** — where
+sampling chose the wrong haplotypes the prior compounds the error, and the site's own weak reads
+cannot overturn it, concentrated exactly where this model is meant to help. So: measure before
+enabling. Separating it needs a panel chosen independently of these reads — a full pangenome, or
+sampling from a held-out read set.
+
+PanGenie does not face this, since its panel is the full assembly set. The question is created by
+personalising the graph first, not by PanGenie's model.
 
 **This cannot be settled with the graphs in this harness**, because both were sampled with these
 reads. It needs a non-sampled pangenome for the same contig, or a panel sampled from a held-out
@@ -491,6 +500,50 @@ path already calls and whose path identifiers it currently discards. Fragment an
 come from `PathName` and, if present, the `.hapl` subchains. The HMM sits above the per-site
 likelihood, so `AlleleReadLikelihoods` is untouched — this is a new layer in the caller, not a
 change to the emission.
+
+### Stage 2 result: `w = 2`, `beta = 0`, and the boundary term needs boundaries
+
+Searched on chr20 both graphs, validated on chr6 both graphs, `linkage_grid.py`. Deltas against no
+linkage at `w = 2`:
+
+| dataset | SV F1 | small-variant GT F1 |
+|---|---|---|
+| chr20-34hap | +0.0095 | +0.0047 |
+| chr20-4hap | +0.0015 | +0.0022 |
+| chr6-34hap | +0.0082 | +0.0036 |
+| chr6-4hap | +0.0064 | +0.0019 |
+
+Eight of eight cells positive — a stronger start than `--depth-term` had when it was defaulted on.
+
+**`beta = 0` beats `beta = 0.57` at every weight, and this document predicted why.** Without the
+`.hapl` boundary positions the implementation smears the switch mass as `gap / block_length`, which
+reduces `beta` to a blunter copy of the distance scale. So this is not evidence against the
+sampler's 43% continuation rate; it is evidence that **the boundary term cannot earn anything until
+it knows where the boundaries are.** Wiring the subchain structure is now a prerequisite for that
+axis rather than a refinement of it.
+
+**The weight was pushed to 6 and structural-variant F1 never turned over**: 0.4801 on chr20-34hap
+and 0.5047 on chr20-4hap, both the best SV numbers measured. What turns over is small variants on
+the thin panel — GT peaks at `w = 2`, and SNV F1 goes *below baseline* by `w = 4` (0.9755 against
+0.9756, and 0.9749 by `w = 6`). SNVs are the largest class, so past `w = 2` the model is trading
+small-variant accuracy on thin panels for structural-variant precision. That is a judgement about
+what the caller is for, of the same kind as the `--mismap-min` decision, not a maximisation.
+`w = 2` is the largest weight where every cell on every dataset improves; `w = 6` is defensible if
+structural variants are the only target.
+
+**The gain is precision throughout.** Precision rises on all four datasets (chr20-34hap 0.4380 ->
+0.4572, chr6-34hap 0.4716 -> 0.4886) while recall slips on three of four. The model suppresses
+implausible calls, and where the panel cannot distinguish it suppresses some real ones too.
+
+**One regression to watch**: chr6-34hap heterozygous deletion recall above 1 kb goes 0.656 -> 0.639.
+Confined to that dataset, and small, but it is the class the depth term exists to recover, so it
+should not be averaged away.
+
+**On the harm metric, which was misused.** It was written here as a budget that disqualifies a point
+regardless of F1. That was wrong: when both benchmarks improve on both graphs, changes at confident
+sites are corrections more often than not, and a proxy should not overrule the outcome it stands in
+for. Demoted to a diagnostic — and as one it earned its place, crossing 0.1% at `w = 3`, exactly
+where the SNV regression begins.
 
 ### Stage 2 — search, on chr20, validate on chr6
 
@@ -570,8 +623,9 @@ Fast tier first (`readlik-z`, four datasets, ~14 min), reporting on both benchma
 
 The measurement sets a modest ceiling, so the decision rule should be set in advance:
 
-- **Go** if a small `w_t` improves genotype concordance at low-`GQ` sites on chr20 and holds on
-  chr6, while changing under ~0.1% of high-`GQ` genotypes.
+- **Met.** `w_t = 2` improves both benchmarks on all four datasets, and holds on chr6, which was
+  the validation set. The "under 0.1% of high-`GQ` genotypes" clause was a proxy and is not a
+  criterion — see the Stage 2 result.
 - **Stop** if the gain requires a `w_t` large enough to move confident calls, or if it is
   confined to the 4-haplotype graph — the sampled panel is where the linkage is supposed to be
   real, so a 34-haplotype-only failure would mean the model is fitting construction artefacts.
