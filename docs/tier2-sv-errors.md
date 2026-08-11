@@ -514,6 +514,33 @@ inflation.
 The fix is atomisation — emitting the differing bases rather than the whole bubble — and it
 costs no recall by construction, since none of these records ever matches.
 
+**Built and measured, and not worth it.** `--atomize-substitutions N` splits a same-length
+biallelic record into one record per run of differing bases when that yields at most N of
+them. Same length is what makes it safe: position *i* of REF corresponds to position *i* of
+ALT, so the split needs no aligner. Recall came out identical to four decimals on all four
+datasets, small-variant genotype F1 identical, SNV F1 −0.0001 on two. Structural F1 and
+precision:
+
+| dataset | SV F1 | precision | FP |
+|---|---|---|---|
+| chr20-4hap | 0.4998 → 0.5015 | 0.5084 → 0.5120 | 351 → 346 |
+| chr20-34hap | 0.4655 → 0.4700 | 0.4380 → 0.4459 | 476 → 461 |
+| chr6-4hap | 0.5616 → 0.5633 | 0.5728 → 0.5763 | 625 → 616 |
+| chr6-34hap | 0.5059 → 0.5139 | 0.4716 → 0.4857 | 949 → 897 |
+
+About a third of what the offline projection above claims, and the restrictions that make it
+defensible are why. On chr6-34hap 52 of 153 such records go; of the 101 left, **72 sit at
+multi-allelic parent sites** and 29 have more than 8 differing runs. No atom was left above
+50 bp, so the mechanism works — the safety scope limits it. Note the multi-allelic blocker is
+larger than the allele-count table in this document suggests, because that table counts
+*split* records while atomisation runs before splitting.
+
+Rejected on cost: roughly 750 records are rewritten on chr6-34hap to remove 52 false
+positives, and every atom carries its parent's site-level `DP`, `AD` and `GQ` while losing the
+linkage the single traversal asserted. The cheaper and more honest fix is on the evaluation
+side — these are not structural variants by any definition, and truvari sizing them by span
+is the actual error. The branch was measured and deleted; this table is the record.
+
 **Most of the rest is the cost of scoring unfiltered.** Layered, `readlik-z` precision:
 
 | | chr6 4-hap → 34-hap | gap | chr20 4-hap → 34-hap | gap |
