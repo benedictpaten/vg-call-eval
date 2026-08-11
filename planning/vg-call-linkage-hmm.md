@@ -421,6 +421,54 @@ Two approximations to state, both of which only *understate* the model:
 **Kill criterion.** If Stage 0 does not improve genotype concordance at low-`GQI` sites on
 chr20 at any `(w_t, β, L)`, stop. No vg work happens. Cost: ~1 day, no runs beyond scoring.
 
+### Stage 0 result: passed, and it found a defect in the design
+
+`linkage_hmm_offline.py`, chr20-34hap. The baseline is the caller's own output scored through
+`score_vcf.py`, which reproduces the refresh **exactly** (0.9546 / 0.4655), so these deltas are
+not a scoring-path artefact:
+
+| arm | small-var GT F1 | SV F1 | `GQI≥40` changed |
+|---|---|---|---|
+| current caller | 0.9546 | 0.4655 | — |
+| **frequency prior only** (`w_t = 0`) | 0.9563 (+0.0017) | 0.4676 (+0.0021) | 0.029% |
+| + linkage `w_t = 1` | 0.9570 (+0.0024) | 0.4685 (+0.0030) | 0.032% |
+| + linkage `w_t = 2` | 0.9575 (**+0.0029**) | 0.4697 (**+0.0042**) | 0.062% |
+
+Small but real, inside the 0.1% harm budget, and **roughly half the gain is a frequency prior and
+half is linkage**.
+
+**The inertness check failed, and that is how the frequency prior was found.** At `w_t = 0` the
+transitions go uniform and the posterior should collapse to the emission, recovering the current
+caller. Instead 40% of `GQI < 10` genotypes changed. Summing the state posterior over the states
+implying each genotype weights that genotype by its **multiplicity** — how many haplotype pairs
+spell it — and that multiplicity is a panel allele-frequency prior. The state space bundles two
+effects the note had treated as one, so Stage 0 needs **three** arms, not two, and `--freq-prior`
+exists to separate them.
+
+**The frequency prior is suspect on a sampled graph, and it defaults to off.** Haplotype sampling
+chose those haplotypes using k-mers from *these reads*, so panel allele frequency at a site is
+already conditioned on the sample's data; multiplying it into a read likelihood double-counts, and
+`GQ` would be over-confident in a way a genotype-level harm metric cannot see. PanGenie's panel is
+the full assembly set, where a panel-derived prior is a legitimate population prior — the problem
+is created by personalising the graph first, not by PanGenie's model.
+
+One thing partially rescues it: the sampler works at ~10 kb subchain resolution on aggregate k-mer
+evidence, so at a low-`GQI` site inside a well-determined block its choice carries information the
+site's own reads lack. That is genuine information transfer, just mediated by the sampler — which
+makes the frequency prior partly a crude proxy for the linkage being modelled rather than pure
+circularity, and is consistent with the two terms contributing comparable amounts.
+
+**This cannot be settled with the graphs in this harness**, because both were sampled with these
+reads. It needs a non-sampled pangenome for the same contig, or a panel sampled from a held-out
+read set. Until then: `--freq-prior` defaults to 0, documented as defensible only on a full panel.
+The linkage half is a statement about co-occurrence rather than frequency and stands on its own.
+
+**A second defect, which unit test 4 was written for.** The wildcard state carries posterior mass
+but implies no *specific* genotype, so it is excluded from the genotype sum — meaning a genotype no
+panel haplotype pair can spell is unreachable, and 53 of 75,647 records could not be reproduced
+even at `(w_freq = 0, w_t = 0)`. The wildcard must contribute per-allele mass. Stage 1 must fix
+this, and it is the cheap place to have found it.
+
 ### Stage 1 — implement in the caller
 
 Only if Stage 0 pays. Flags, all defaulting to off or to the measured value:
