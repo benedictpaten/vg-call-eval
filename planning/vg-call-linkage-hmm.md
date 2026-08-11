@@ -192,19 +192,58 @@ this replaces a fudge factor with a lookup.
 
 | | source | value |
 |---|---|---|
-| `β` boundary switch probability | **known from construction**, 1 − 0.43 | ≈ 0.57 |
-| `L` distance scale | fitted by grid search on accuracy | start 10–50 kb |
+| `β` boundary switch probability | **user-specifiable**, estimated per graph, default 0 | ≈0.57 for this sampled panel |
+| `L` distance scale | estimated from the panel, overridable | ~10 kb here |
 | `ρ_min` floor | fixed; a switch must never be impossible | ~10⁻³ |
 | `ε` off-panel escape | fixed, see below | small |
 | `w_t` transition weight | **searched, default 0** | — |
+
+**`β` must be a user parameter with a per-graph default, not a constant.** It is a property of
+how a particular GBZ was built: the block size and the sampler's continuation rate both vary
+between graphs, and a full HPRC pangenome has no sampling blocks at all, so `β = 0` there. Any
+fixed value would be wrong on some graph, silently. It should also be explorable, on the same
+footing as `--depth-term` and `--mismap-max`, because there is no reason to believe the
+construction's nominal rate is the one that genotypes best.
 
 **No `4rN_e`.** Over a panel whose members are synthetic recombinants, effective population size
 has no meaning; the number it produces would be doing `L`'s job while implying a provenance it
 does not have.
 
-**`L` fitted against accuracy, not against the measurement above.** The distance profile
-conflates real switches with our own call errors, so fitting to it would partly fit our
-mistakes. What it legitimately says is that `ρ_min` will do more work than `L`.
+### Both parameters are estimable from the panel alone
+
+`vg deconstruct` output is enough — no reads, no truth, no metadata. Median lift against
+distance:
+
+| distance | chr20-4hap | chr20-34hap |
+|---|---|---|
+| 0–300 bp | 3.00 | 2.36 |
+| 300 bp–1 kb | 3.00 | 1.94 |
+| 1–3 kb | 1.50 | 1.94 |
+| 3–10 kb | 1.50 | **1.81** |
+| 10–30 kb | 1.50 | **1.50** |
+| 30–100 kb | 1.50 | 1.27 |
+| 100–300 kb | 1.50 | 1.24 |
+
+The 34-haplotype curve is **flat from 300 bp to 10 kb and then breaks** — the knee sits at the
+stated block size. That is the signature of a sampled panel: inside a block a haplotype is a
+contiguous piece of one assembly, so linkage is near-constant; past the block scale, identity
+has been reshuffled. So the block scale can be read off the panel rather than taken on trust,
+and the same procedure applied to a real pangenome measures genuine LD decay instead. **The
+fitting method does not need to know which kind of graph it has.**
+
+The 4-haplotype curve is useless for this and shows why a thin panel cannot be calibrated: with
+3 haplotypes the lift is quantised to 3.00 and 1.50 and never decays, even at 300 kb.
+
+**`β` and block length are not separately identifiable** from an aggregate curve, since survival
+goes as `(1 − β)^(x / L_block)`; only the product — the effective per-bp switch rate — is. That
+is sufficient, because the effective rate is what the transition consumes. Knowing `β`
+separately only helps when the boundary *positions* are known, in which case the switch mass can
+be placed where it belongs instead of smeared uniformly.
+
+**Fit against accuracy too, not only against the panel.** The panel curve calibrates the
+*panel's* structure; how far to trust it against read evidence is `w_t`'s job, and the
+apparent-recombination-versus-distance profile in §3 conflates real switches with our own call
+errors, so fitting to that alone would partly fit our mistakes.
 
 ### `w_t`, and why it defaults to 0
 
@@ -230,11 +269,40 @@ a flat cost. Without it the HMM would systematically suppress novel alleles, whi
 opposite of what the SV recall work has been trying to achieve — and it would be easy to miss,
 because it would present as a precision improvement.
 
+### Three kinds of discontinuity, and only one of them is about sampling
+
+Checking the GBWT metadata corrected an assumption. Path names are
+`sample#phase#contig#fragment`, and on chr20 the 4-haplotype graph stores 4 haplotypes as **16
+paths**, the 34-haplotype graph 34 as **137**:
+
+```
+recombination#1#chr20#0   recombination#1#chr20#1   recombination#1#chr20#2
+GRCh38#0#chr20[60296]     GRCh38#0#chr20[28728974]  …   (9 fragments)
+```
+
+**GRCh38 — a real assembly, not a sampled recombinant — is in 9 fragments.** So continuity is
+not a sampled-graph question, and the model has to distinguish:
+
+1. **Fragment boundaries.** The haplotype path ends. Readable from `PathName`'s fragment field
+   **in any graph**. There is no linkage across it whatsoever, so the haplotype must be treated
+   as *absent* rather than as having switched — a different transition, not a more expensive
+   one. This applies to full pangenomes too.
+2. **Sampling block boundaries.** The path is contiguous but its identity changed. Sampled
+   graphs only, and invisible in the path itself: detectable from the `.hapl` subchain
+   structure, from the `recombination` sample name (vg's documented convention, see
+   `recombinator.cpp`), or from the empirical knee above.
+3. **Biological recombination** in the sample's own mosaic — what `L` and `ρ_min` model.
+
+Conflating 1 with 2 would be the worst of the three errors: it would charge a switch penalty for
+crossing a place where the panel simply has no information, and then let the HMM carry a
+haplotype identity across a gap where none exists.
+
 ### Chain structure
 
 Transitions need a linear order with meaningful gaps: top-level chains from the snarl distance
-index, resetting to the stationary prior at chain boundaries, contig boundaries, and any gap
-beyond a few `L`. `x_t` comes from reference positions, which `vg call` already has.
+index, resetting to the stationary prior at chain boundaries, contig boundaries, fragment
+boundaries (above), and any gap beyond a few `L`. `x_t` comes from reference positions, which
+`vg call` already has.
 
 ---
 
@@ -272,6 +340,10 @@ The measurement sets a modest ceiling, so the decision rule should be set in adv
   the panel — a Viterbi parse rather than a pairwise count. The pairwise measure here is a
   lower bound on disagreement, because it cannot see a switch that is locally consistent but
   globally impossible.
+- **Whether `β` fitted for accuracy matches `β` read off the panel.** The construction implies
+  ~0.57 and the knee implies a ~10 kb scale, but nothing says the value that genotypes best is
+  the value the sampler used. If they disagree sharply, the transition model is absorbing
+  something other than sampling structure and should be distrusted.
 - **Whether the 0.6% apparent recombinations are enriched for errors.** If they are truth-set
   false positives, the prior would fix real mistakes; if they are true novel haplotypes, it
   would suppress correct calls. Joining them to the truth would say which, and it decides
