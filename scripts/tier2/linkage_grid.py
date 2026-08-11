@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Stage 2 of the linkage HMM: search the transition weight against the block-switch rate.
+"""Stage 2 of the linkage HMM: search the transition weight against the distance scale.
 
-Crossed rather than swept one at a time, because the two interact by construction. A larger
-`beta` raises the switch probability, which weakens the transition; a larger `w_t` tempers the
-switch probability downward, which strengthens it. Coordinate descent over that surface finds
-whichever corner it started nearest -- the same argument that put the depth weight and the
-mismapping floor on one grid.
+`w_t` and `scale` are crossed rather than swept one at a time, because they interact by
+construction. A longer scale lowers the switch probability at a given gap, which strengthens the
+transition; a larger `w_t` tempers the switch probability downward, which also strengthens it.
+Coordinate descent over that surface finds whichever corner it started nearest -- the same
+argument that put the depth weight and the mismapping floor on one grid.
 
-`beta` is a per-graph property and the reason it is an axis rather than a constant: a
-haplotype-sampled GBZ continues the same haplotype across a block boundary only some of the time
-(about 43% for these graphs, so beta ~ 0.57), while a full pangenome has no sampling blocks and
-wants zero. Both ends are worth measuring, because nothing says the sampler's nominal rate is the
-one that genotypes best -- and if the fitted value lands far from it, the transition model is
-absorbing something other than sampling structure and should be distrusted.
+The block-switch rate `beta` used to be the second axis, and it is gone. Two findings retired it,
+both recorded in `subchain_linkage.py` and in the `scale` comment in `linkage_model.hpp`. It was
+not a second axis: smeared over `gap / block_length` it is exactly a shorter `scale`, so
+`beta = 0.57` at 10 kb blocks was `--linkage-scale 5423` and the grid was measuring one axis
+twice. And the premise failed on its own terms -- panel linkage across a real subchain boundary is
+weaker by only 0.008 NMI at the gaps where adjacent calls actually sit (z = 1.1, gap-matched with
+a permutation control), because the sampler switches to another assembly in the same panel and
+human haplotypes mostly agree.
 
 `--linkage-freq-prior` stays at its default of 0 and is *not* an axis here. Over a panel that
 haplotype sampling selected against these same reads, panel allele frequency is already
@@ -22,8 +24,11 @@ switched on without a graph whose panel was chosen independently.
 
 Reported per point: both benchmarks, the heterozygous class breakdown, and the two numbers this
 model is judged on -- the share of undecided genotypes it moves, and the share of confident ones
-it moves. The second is a harm metric with a budget of about 0.1%, and a point that breaks it is
-disqualified whatever its F1 does.
+it moves. The second is a diagnostic rather than a veto: it was written as a 0.1% budget, but
+that budget was invented here rather than measured, and at `w = 2` it flags points whose F1 is
+better on every cell of every dataset. It tracks something real -- it first crosses 0.1% at the
+same weight where thin-panel SNV F1 starts to regress -- so it is still printed, and it is not
+allowed to disqualify a measured outcome on its own.
 """
 
 from __future__ import annotations
@@ -86,7 +91,6 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["chr20-34hap"])
     ap.add_argument("--weights", nargs="+", default=["0", "0.5", "1", "2"])
-    ap.add_argument("--block-switch", nargs="+", default=["0", "0.57"])
     ap.add_argument("--scales", nargs="+", default=["10000"])
     ap.add_argument("--vg", default=str(Path.home() / "CLionProjects/vg/bin/vg"))
     ap.add_argument("--threads", type=int, default=5)
@@ -98,50 +102,47 @@ def main() -> None:
         # flags, or the comparison is against a different experiment.
         baseline_vcf = None
         for scale in args.scales:
-            for beta in args.block_switch:
-                for w in args.weights:
-                    # Both beta and scale are inert at zero weight -- the transition is uniform --
-                    # so one control per dataset, not one per cell.
-                    if float(w) == 0.0 and (beta != args.block_switch[0]
-                                            or scale != args.scales[0]):
-                        continue
-                    params = {"linkage-scale": scale}
-                    if float(w) > 0:
-                        params["linkage-weight"] = w
-                        params["linkage-block-switch"] = beta
-                    # Scale belongs in the tag. It was previously fixed, so leaving it out was
-                    # harmless; with it swept, two scales would collide on one cached VCF and the
-                    # second point would silently report the first one's numbers.
-                    tag = (f"{ds}-lgrid-w{w}" if float(w) == 0.0
-                           else f"{ds}-lgrid-w{w}-b{beta}-s{scale}")
-                    print(f"=== {ds} w={w} beta={beta} scale={scale}", flush=True)
-                    vcf = ps.call(args.vg, ds, tag, params, args.threads)
-                    sc = ps.score(vcf, ds, tag, args.threads)
-                    if float(w) == 0.0:
-                        baseline_vcf = vcf
-                    shift = genotype_shift(baseline_vcf, vcf) if baseline_vcf else {}
-                    rows.append((ds, w, beta, scale, sc, shift))
+            for w in args.weights:
+                # Scale is inert at zero weight -- the transition is uniform -- so one control
+                # per dataset, not one per scale.
+                if float(w) == 0.0 and scale != args.scales[0]:
+                    continue
+                params = {"linkage-scale": scale}
+                if float(w) > 0:
+                    params["linkage-weight"] = w
+                # Scale belongs in the tag. It was fixed when this was written, so leaving it out
+                # was harmless; with it swept, two scales would collide on one cached VCF and the
+                # second point would silently report the first one's numbers.
+                tag = (f"{ds}-lgrid-w{w}" if float(w) == 0.0
+                       else f"{ds}-lgrid-w{w}-s{scale}")
+                print(f"=== {ds} w={w} scale={scale}", flush=True)
+                vcf = ps.call(args.vg, ds, tag, params, args.threads)
+                sc = ps.score(vcf, ds, tag, args.threads)
+                if float(w) == 0.0:
+                    baseline_vcf = vcf
+                shift = genotype_shift(baseline_vcf, vcf) if baseline_vcf else {}
+                rows.append((ds, w, scale, sc, shift))
 
-    hdr = (f"{'dataset':12s} {'w':>4s} {'beta':>5s} {'scale':>6s} {'SV F1':>7s} {'SVrec':>7s} {'SVprec':>7s} "
+    hdr = (f"{'dataset':12s} {'w':>4s} {'scale':>6s} {'SV F1':>7s} {'SVrec':>7s} {'SVprec':>7s} "
            f"{'smallGT':>8s} {'SNV':>7s} {'hDEL1k':>7s} {'moved@GQI<10':>13s} "
            f"{'moved@GQI>=40':>14s}")
     print("\n" + hdr)
     print("-" * len(hdr))
-    for ds, w, beta, scale, s, shift in rows:
+    for ds, w, scale, s, shift in rows:
         sv = s.get("sv") or {}
         hi = shift.get("hi_pct")
         flag = "" if hi is None or hi <= 0.1 else "  OVER BUDGET"
-        print(f"{ds:12s} {w:>4s} {beta:>5s} {scale:>6s} {sv.get('f1', 0):7.4f} {sv.get('recall', 0):7.4f} "
+        print(f"{ds:12s} {w:>4s} {scale:>6s} {sv.get('f1', 0):7.4f} {sv.get('recall', 0):7.4f} "
               f"{sv.get('precision', 0):7.4f} {(ps.smallvar_f1(s) or 0):8.4f} "
               f"{(ps.smallvar_f1(s, 'Snv') or 0):7.4f} {ps.cls(s, 'DEL 1k+ het'):>7s} "
               f"{shift.get('lo_pct', 0):12.2f}% {shift.get('hi_pct', 0):13.3f}%{flag}")
 
     dest = WORK / "sv-atlas" / "sweep-linkage-grid.json"
     dest.write_text(json.dumps(
-        [{"dataset": ds, "weight": w, "block_switch": beta, "scale": scale, "sv": s.get("sv"),
+        [{"dataset": ds, "weight": w, "scale": scale, "sv": s.get("sv"),
           "smallvar_all_f1": ps.smallvar_f1(s), "smallvar_snv_f1": ps.smallvar_f1(s, "Snv"),
           "sv_by_class": s.get("sv_by_class"), "shift": shift}
-         for ds, w, beta, scale, s, shift in rows], indent=2))
+         for ds, w, scale, s, shift in rows], indent=2))
     print(f"\nwrote {dest}")
 
 

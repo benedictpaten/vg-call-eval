@@ -179,6 +179,12 @@ strands with PanGenie's convention, `q = (1−ρ) + ρ/N` to stay and `p = ρ/N`
 ρ_t  ←  1 − (1 − ρ_t) · (1 − β · b_t)                      sampling block boundary
 ```
 
+> The second line was implemented, measured and **removed**; only the first survives. Note that
+> it is written here with `b_t` an *indicator* — the localised form, which would have been a real
+> second mechanism. What shipped had no boundary positions to set `b_t` from, so it became
+> `gap / L_block`, and at that point it is the first line again with a shorter `L`. See
+> [the Stage 2 result](#stage-2-result-w--2-and-the-boundary-term-deleted).
+
 `x_t` is the bp gap; `b_t` is 1 if a haplotype-sampling block boundary falls between the sites.
 
 **Why the boundary term is separate rather than folded into `L`.** The panel in a sampled GBZ is
@@ -196,6 +202,12 @@ subchain structure `Haplotypes`/`Recombinator` already builds and stores in the 
 this replaces a fudge factor with a lookup.
 
 ### Parameters
+
+> **`β` was removed after Stage 2 — see [that result](#stage-2-result-w--2-and-the-boundary-term-deleted).**
+> Everything in this section about it is the design as written, kept for the record. Two things
+> broke it: smeared over `gap / block_length` it is *algebraically* the distance scale rather than
+> a second parameter, and the panel linkage break it exists to model is +0.008 NMI (z = 1.1) at
+> the gaps that matter. `L` and `w_t` below are unaffected.
 
 | | source | value |
 |---|---|---|
@@ -246,6 +258,15 @@ goes as `(1 − β)^(x / L_block)`; only the product — the effective per-bp sw
 is sufficient, because the effective rate is what the transition consumes. Knowing `β`
 separately only helps when the boundary *positions* are known, in which case the switch mass can
 be placed where it belongs instead of smeared uniformly.
+
+> **This paragraph is where the error entered, and it is left standing because the tell is in it.**
+> The non-identifiability was noticed and then filed as harmless. It was not harmless: it was the
+> whole finding, one step short. If survival goes as `(1 − β)^(x/L_block)` and only the per-bp
+> product is identifiable, then the term is `exp(−x · rate)` — which is what the distance term
+> already is, so the two compose into a single scale and `β` adds no freedom whatever. "Only the
+> product is identifiable" and "this is a reparameterisation of `L`" are the same statement; the
+> first was written down and the second was not. The design then went on to build a grid crossing
+> the two.
 
 **Fit against accuracy too, not only against the panel.** The panel curve calibrates the
 *panel's* structure; how far to trust it against read evidence is `w_t`'s job, and the
@@ -484,16 +505,15 @@ Only if Stage 0 pays. Flags, all defaulting to off or to the measured value:
 
 ```
 --linkage-weight W        w_t; 0 disables and must be bit-for-bit inert   [0]
---linkage-block-switch B  β at sampling block boundaries                 [0]
 --linkage-scale L         distance scale in bp                           [10000]
 --linkage-window N        sites either side; 0 = exact chain-wide        [64]
 --linkage-escape E        off-panel wildcard mass ε                      [small]
 ```
 
-`β` defaults to **0** rather than 0.57: a graph that is not haplotype-sampled has no blocks, and
-defaulting to a sampled graph's value would silently mis-model every full pangenome. Sampled
-graphs are detectable (`recombination` sample name), so the default can be raised *conditionally*
-later — but not before that detection is tested.
+A `--linkage-block-switch B` flag was shipped alongside these and has since been **removed**. It
+defaulted to 0 rather than 0.57 on the argument that a full pangenome has no blocks and that
+defaulting to a sampled graph's value would silently mis-model every other graph. That reasoning
+was right and the flag was still wrong; see the Stage 2 result.
 
 Where the code goes: the haplotype→allele matrix comes from `find_gbwt_traversals`, which the `-z`
 path already calls and whose path identifiers it currently discards. Fragment and block structure
@@ -501,7 +521,7 @@ come from `PathName` and, if present, the `.hapl` subchains. The HMM sits above 
 likelihood, so `AlleleReadLikelihoods` is untouched — this is a new layer in the caller, not a
 change to the emission.
 
-### Stage 2 result: `w = 2`, `beta = 0`, and the boundary term needs boundaries
+### Stage 2 result: `w = 2`, and the boundary term deleted
 
 Searched on chr20 both graphs, validated on chr6 both graphs, `linkage_grid.py`. Deltas against no
 linkage at `w = 2`:
@@ -515,12 +535,53 @@ linkage at `w = 2`:
 
 Eight of eight cells positive — a stronger start than `--depth-term` had when it was defaulted on.
 
-**`beta = 0` beats `beta = 0.57` at every weight, and this document predicted why.** Without the
-`.hapl` boundary positions the implementation smears the switch mass as `gap / block_length`, which
-reduces `beta` to a blunter copy of the distance scale. So this is not evidence against the
-sampler's 43% continuation rate; it is evidence that **the boundary term cannot earn anything until
-it knows where the boundaries are.** Wiring the subchain structure is now a prerequisite for that
-axis rather than a refinement of it.
+**`beta` has been removed from the model.** It lost at every weight, and the first reading here was
+that it was starved of boundary positions — that smearing the switch mass as `gap / block_length`
+made it a blunter copy of the distance scale, so wiring the `.hapl` subchains was a prerequisite
+rather than a refinement. That reading was too generous by half, in both directions.
+
+*It was not a blunter copy of the distance scale; it was exactly the distance scale.* Writing out
+the smeared form:
+
+```
+1 − ρ' = (1−ρ_min)·exp(−g/scale)·(1−β)^(g/block_length)
+       = (1−ρ_min)·exp(−g/scale_eff),   1/scale_eff = 1/scale + −ln(1−β)/block_length
+```
+
+`β = 0.57` over a 10 kb block **is** `--linkage-scale 5423`, to floating point. The Stage 2 grid
+was crossing one axis with itself. Made `scale` a real axis (it had been pinned at 10 kb through
+every experiment to date) and swept it: 10k → 20k → 40k moves chr20-34hap SV F1 by 0.0009 and
+chr20-4hap by 0.0017, 20 kb weakly best. So the whole smeared-β family is worth ~0.001, in either
+direction, and no value of β was ever going to be found.
+
+*And the premise fails, so the localised form is not worth building either.* `subchain_linkage.py`
+asks the prior question directly — does panel linkage actually break at subchain boundaries? —
+measuring NMI between adjacent sites in the panel matrix, needing no genotyping. Boundaries from
+`vg haplotypes -H` on the sampled chr20 GBZ: 5511 subchains, 12 kb median, 82 seconds.
+
+Two corrections during, the second of which reversed the answer:
+
+- **Coarse distance bins do not control for gap.** Crossing probability rises with gap *inside* a
+  bin, so crossing pairs pile up at the top of each bin while NMI falls across it. Permuted
+  boundaries produced a *larger* apparent drop below 200 bp (0.090) than real ones (0.059). The
+  first verdict — "worth wiring" — was that artefact. Replaced with narrow gap-matched strata,
+  after which the permutation control sits at zero, which is the check that the matching worked.
+- The surviving `z = 3.9` is 253 pairs in the 5–20 kb bin, whose *non*-crossing members must sit
+  inside unusually long subchains and so are a different population.
+
+At the gaps where every adjacent call pair actually sits: **+0.0076 NMI, z = +1.1 under 5 kb**;
++0.0119, z = +1.6 under 2 kb. An offset scan peaks at zero shift, so the recomputed partition is
+not badly misphased — which was the one caveat that would have left a null ambiguous.
+
+Mechanism, in hindsight: at a boundary the sampler switches to **another assembly in the same
+panel**, and human haplotypes agree at the overwhelming majority of sites. Switching source
+changes the allele only where the two assemblies differ, so adjacent-site NMI — dominated by
+shared background — barely moves. β assumed a switch destroys linkage; it mostly preserves it.
+This is the 43% continuation figure holding up *better* than the model gave it credit for, and it
+retires the per-haplotype ρ_h refinement for the same reason.
+
+The flag is gone rather than pinned at 0: a knob that is secretly `--linkage-scale` invites
+setting both and believing they are independent.
 
 **The weight was pushed to 6 and structural-variant F1 never turned over**: 0.4801 on chr20-34hap
 and 0.5047 on chr20-4hap, both the best SV numbers measured. What turns over is small variants on
@@ -581,8 +642,11 @@ not part of the case for stages 0–3 (§5).
    improvement.
 5. **Fragment boundaries block linkage.** A haplotype whose path ends between two sites must
    contribute no linkage across the gap — treated as absent, not as switched.
-6. **`β = 1` equals a chain reset.** A block boundary with certain switching must give the same
-   posterior as starting a fresh chain.
+6. **A certain switch equals a chain reset.** Where the switch probability saturates, the
+   transition must carry nothing across, giving the same posterior as starting a fresh chain.
+   Written against `β = 1`; now reached by making the sites effectively infinitely far apart,
+   which is the only route to `ρ = 1` since `β` was removed. The property is the valuable part
+   and it survived the removal unchanged.
 7. **Posteriors sum to 1** per site, and **argmax over genotypes ≠ argmax over states** on a
    constructed case, asserting we do the former (§5).
 8. **Windowed equals exact** on a short chain, to tolerance, at a window wide enough to cover it.
@@ -644,10 +708,12 @@ The measurement sets a modest ceiling, so the decision rule should be set in adv
   the panel — a Viterbi parse rather than a pairwise count. The pairwise measure here is a
   lower bound on disagreement, because it cannot see a switch that is locally consistent but
   globally impossible.
-- **Whether `β` fitted for accuracy matches `β` read off the panel.** The construction implies
-  ~0.57 and the knee implies a ~10 kb scale, but nothing says the value that genotypes best is
-  the value the sampler used. If they disagree sharply, the transition model is absorbing
-  something other than sampling structure and should be distrusted.
+- ~~**Whether `β` fitted for accuracy matches `β` read off the panel.**~~ **Answered, and the
+  question was malformed.** No `β` could be fitted, because smeared it is not a free parameter at
+  all — it is the distance scale. And the panel-side reading came out at +0.008 NMI (z = 1.1) at
+  the gaps that matter, so there was nothing to match against. The instinct behind the question
+  was right — a fitted value far from the construction's nominal rate would have meant the
+  transition was absorbing something else — but it presumed the axis existed.
 - **Whether the 0.6% apparent recombinations are enriched for errors.** If they are truth-set
   false positives, the prior would fix real mistakes; if they are true novel haplotypes, it
   would suppress correct calls. Joining them to the truth would say which, and it decides

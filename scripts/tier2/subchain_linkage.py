@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Does panel linkage actually break at haplotype-sampling subchain boundaries?
 
-This is the gate on `--linkage-block-switch`, and it has to be passed before any of the
-boundary plumbing is worth writing.
+This was the gate on `--linkage-block-switch`. It did not pass, and the flag is gone; this is
+kept as the record of why, and as the measurement to redo if a graph with a genuinely different
+sampling structure ever makes the question live again.
 
 Why it is needed. As implemented, `beta` spreads its switch mass as `crossings = gap /
 block_length`, and that makes it *algebraically identical* to shortening the distance scale:
