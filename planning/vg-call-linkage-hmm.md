@@ -153,7 +153,8 @@ genotype. Nothing is rescaled; this is why the whole thing is tractable.
 ### State: unordered pairs of panel haplotypes
 
 `N(N+1)/2` states. For N = 33 that is 561 per site, ~100k sites, forward–backward ≈ 10⁸
-operations per chromosome. Fine.
+operations per chromosome. Fine — though see §5 on windowing, which matters for parallelism
+rather than for raw cost.
 
 **Not GBWT search states, at least not first.** They are more elegant — the state is a BWT range
 and a recombination is literally the operation of widening back to `find(node)`, so the model
@@ -306,19 +307,82 @@ boundaries (above), and any gap beyond a few `L`. `x_t` comes from reference pos
 
 ---
 
-## 5. What this costs downstream
+## 5. Inference: forward–backward marginals, not Viterbi
 
-Genotypes would come from forward–backward posteriors, so **`GQ`, `GL`, the explained-share
-discount and the depth discount all need restating**: they are currently defined against the
-ratio of the top two *per-site* genotype likelihoods. That is real bookkeeping and should be
-costed before starting, not discovered halfway.
+**Forward–backward, and the argmax taken over genotypes rather than over states.** Those are
+two different things and the distinction matters:
 
-Against that, forward–backward yields a **phased** genotype per site as a by-product, which
-`vg call` does not currently emit.
+```
+posterior over states     γ_v(H_{v,i,j})  =  α_v(H) · β_v(H) / Z
+posterior over genotypes  P(g | reads)    =  Σ over states implying g of γ_v(H)
+call                      ĝ_v             =  argmax_g P(g | reads)
+```
+
+Taking the most likely *state* and reading its genotype off is not the same as taking the most
+likely *genotype*: a genotype reachable by many moderately-likely haplotype pairs can beat one
+reachable by a single very likely pair. Since the panel is redundant — a called allele is
+typically carried by 17 of 33 haplotypes — many states imply the same genotype, so the two
+answers genuinely differ. Summing is the correct one, and it is what PanGenie does.
+
+**Why not Viterbi.** Viterbi maximises the joint probability of the whole state path, which is
+the wrong loss for how we are scored: aardvark and truvari score records, not haplotypes, so
+what we want is to maximise expected per-site accuracy — exactly what marginal posteriors give.
+Viterbi also yields no per-site confidence, and with an approximate transition model plus a
+wildcard escape state, a single path is more brittle than a marginal. It would also be the
+wrong tool for the population the measurement identified: undecided sites, where the point is
+that the posterior is genuinely spread and we want to know it.
+
+**Correcting an earlier claim in this note: forward–backward does *not* give phasing.** Marginal
+posteriors are per-site and unphased; the per-site argmaxes need not lie on any single
+high-probability path. Coherent phasing is what *Viterbi* gives, because a state path assigns
+alleles to strands consistently across sites. So phasing is available, but as a **separate
+Viterbi pass over the same model**, not as a by-product of the genotyping pass — and it should
+be reported as such rather than as free.
+
+### How this maps onto the existing quality fields
+
+Better than I expected, and it follows the precedent already set by the explained-share
+discount:
+
+```
+GQI  =  the per-site value, transitions off       (what GQ is today)
+GQ   =  -10 log10 (1 - P(ĝ_v | reads))            from the posterior
+```
+
+`GQI` already means "the quality before the discount", and keeping it as the transition-free
+per-site value preserves that meaning exactly while making the before/after pair directly
+comparable — the same structure that let the share discount be measured end to end. It also
+*improves* the semantics: the current `GQ` is the ratio of the top two genotypes and ignores
+everything else at the site, whereas a posterior accounts for the whole distribution.
+
+`GL` becomes the per-genotype posterior rather than the per-site likelihood. The explained-share
+and depth discounts still multiply `GQ` and remain ranking-only.
+
+### Windowed, not chain-wide
+
+**`vg call` is parallel over snarls; a chain-wide forward–backward serialises within a chain**,
+and top-level chains here are whole chromosome arms. That is a real cost and is an argument for
+a bounded window rather than exact global inference.
+
+The measurement says a window is nearly free of approximation error: lift decays to ~1.50 by
+10–30 kb and ~1.25 by 100 kb, so sites beyond a few tens of kilobases contribute almost nothing
+to the posterior at a given site. A window of ±50 kb, or a fixed number of neighbouring sites,
+captures essentially all of the available signal while keeping memory bounded, preserving
+parallelism over windows, and leaving the streaming structure intact. Exact chain-wide inference
+should be the thing we compare against on one chromosome, not the thing we ship.
 
 ---
 
-## 6. What would make this worth building
+## 6. What this costs downstream
+
+`GQ`, `GL` and the two ranking discounts all need restating as above. That is real bookkeeping
+and should be costed before starting, not discovered halfway — and it means the tier-2 quality
+analysis (`share_gq.py`, `depth_gq.py`) has to be re-run, since both are defined against the
+current per-site ratio.
+
+---
+
+## 7. What would make this worth building
 
 The measurement sets a modest ceiling, so the decision rule should be set in advance:
 
@@ -327,11 +391,13 @@ The measurement sets a modest ceiling, so the decision rule should be set in adv
 - **Stop** if the gain requires a `w_t` large enough to move confident calls, or if it is
   confined to the 4-haplotype graph — the sampled panel is where the linkage is supposed to be
   real, so a 34-haplotype-only failure would mean the model is fitting construction artefacts.
+- **Do not count phasing as part of the case.** It needs a separate Viterbi pass (§5), so it is
+  additional work rather than a by-product, and it should be justified on its own.
 - **Stop** if the off-panel escape has to be tuned to avoid suppressing novel alleles. That
   would mean the prior is fighting recall, which is the thing this project has spent most of
   its effort recovering.
 
-## 7. Not measured, and worth knowing before committing
+## 8. Not measured, and worth knowing before committing
 
 - **How often HG002's true genotypes imply panel switching.** That bounds how much a linkage
   prior can help without hurting, and it is the single most useful missing number. It needs
