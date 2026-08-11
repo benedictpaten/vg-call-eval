@@ -1,4 +1,9 @@
-# A depth term: Stage 0, predicted offline before building it
+# The depth term: predicted offline, built, and now the default
+
+*This page grew from a Stage 0 prediction into the record of a shipped default. The
+prediction is kept below, unedited, because it is worth knowing which parts of it held —
+it called the size of the gain and split the problem correctly, and it was wrong about
+which half was fixable.*
 
 The read-likelihood model scores `P(reads | G)` conditioned on the reads it was handed,
 and never asks whether that many reads should be there. That blindness is behind two

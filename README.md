@@ -7,7 +7,9 @@ It exists to answer one question that vg's own test suite cannot: **is a change 
 more accurate?** vg's in-tree harness has exactly one truth-based concordance assertion, and it covers
 the `-v` re-genotyping path — the default de novo path has never been measured against truth.
 
-Implements stages 3b, 4 and 4b of the read-likelihood design.
+Implements stages 3b and 4 of the read-likelihood design. Stage 4b — fitting `read_weight` —
+was **cancelled rather than completed**: the parameter provably cannot change a genotype, so the
+quantity it was to be fitted against cannot move. See [docs/tier2-parameters.md](docs/tier2-parameters.md).
 
 ## Where the numbers are
 
@@ -133,8 +135,45 @@ python3 scripts/tier2/sv_metric_sensitivity.py \
 A caller-side change can be put through the whole five-arm matrix without editing the arm list:
 
 ```bash
-READLIK_EXTRA="--depth-term 0.1" scripts/tier2/refresh_all.sh
+READLIK_EXTRA="--depth-term 0.1" CANARY=1 JOBS=2 scripts/tier2/refresh_all.sh
 ```
+
+### What a refresh costs, and where to spend less
+
+Measured on the depth-term refresh, and it is worth knowing before optimising the wrong
+thing: **95% of the time is `vg call`.** All the aardvark, truvari and size-matched scoring
+for twenty arms comes to **four minutes**, so parallelising the scoring buys nothing.
+
+| | time | share |
+|---|---|---|
+| `vg call`, 20 arms | 1.36 h | 95% |
+| all scoring | 4 min | 4% |
+| **total** | **1.43 h** | |
+
+Within the calling, most of it is arms that cannot answer the question:
+
+| | time |
+|---|---|
+| the two Poisson arms — untouched by any read-likelihood change | **36 min (43%)** |
+| `readlik` + `readlik-nomismap` — diagnostics | 32 min |
+| **`readlik-z`, all four datasets — the arm that decides** | **14 min** |
+
+So there are two tiers, and most of this project's work happened at the fast one:
+
+* **Fast (~14 min):** `readlik-z` on all four datasets, both benchmarks. Use `param_sweep.py`
+  or `depth_grid.py`. Enough for a go/no-go on a caller change.
+* **Full matrix (~30 min with `CANARY=1 JOBS=2`, 86 min without):** all five arms, one build,
+  every page regenerated. Needed before changing a default or publishing numbers.
+
+`CANARY=1` re-runs one cheap Poisson arm and compares it byte for byte against the cached
+copy, reusing the Poisson rows only if they are identical. That is **stronger** than
+re-running them, not weaker: a mismatch means something touched shared code, which blind
+re-running would have absorbed silently. `JOBS=2` runs two datasets at once — peak RSS is
+6–8 GB per call, so two fit in 32 GB.
+
+Sweep runners key their cache on `(binary, dataset, flags)` rather than on the tag, so the
+same configuration under a different name is free. Tags are hand-written and collide: three
+separate tags in one session here were the same experiment.
 
 Parameter sweeps, searched on chr20 and validated on chr6 so the validation set stays held out:
 
@@ -168,7 +207,8 @@ accuracy difference.
 
 Working: tier-0 simulation, tier-2 real data on two chromosomes and two graphs, the caller matrix,
 aardvark and truvari comparison, size-matched controls, sanity controls, per-arm timing, the
-quality-signal analysis behind the `GQ` change, and the per-record SV error atlas.
+quality-signal analysis behind the `GQ` change, the per-record SV error atlas, the depth-term grid
+search, and the representation analysis behind the SV numbers.
 
 Not yet built: tier 1 (vg's HGSVC fixture), and a `best_ln` filter — blocked on the sign reversal
 documented in [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md). Stage 4b's `read_weight`

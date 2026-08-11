@@ -1,10 +1,19 @@
 # Structural variants: what the errors actually are
 
-Two gaps show up in the SV tables and neither is interpretable from an F1 column. The
-read-likelihood caller trails the Poisson caller on structural variants, which is the
+Two gaps showed up in the SV tables and neither was interpretable from an F1 column. The
+read-likelihood caller trailed the Poisson caller on structural variants, which was the
 opposite of every small-variant result. And both callers lose SV precision on the
 34-haplotype graph. This page takes the truvari error sets apart per record and says
 what each gap is made of.
+
+**Both are now largely answered, and the answers are different in kind.** The first was a
+model defect and is fixed: the flat mixture weight, then the missing depth term, and
+`readlik-z` is now ahead of both Poisson arms on all four datasets. The second is mostly
+*not* the caller — at matched sensitivity, with records that are not structural variants
+excluded, the 34-haplotype precision penalty is 0.021 on chr6 and zero on chr20. Along the
+way the SV numbers themselves turned out to understate the caller by about a tenth of an F1
+point, because record-level matching punishes representation differences in both
+directions (Q3).
 
 Everything here comes from `sv_error_atlas.py`, which joins truvari's `tp-base`,
 `tp-comp`, `fp` and `fn` files per dataset and arm, plus `sv_metric_sensitivity.py`
@@ -30,8 +39,9 @@ Where that leaves the arms, structural-variant F1 on the current build:
 
 `readlik-z` now leads on two of four and beats `poisson-z` on three of four, where before the
 change it lost on all four. Small-variant genotype F1 moved by at most 0.0001 on any arm or
-dataset. The residual — the Poisson caller still leads on heterozygous deletions above 1 kb,
-0.79–0.84 against 0.44 — is the part that needs a depth term rather than a better mixture.
+dataset. The residual — the Poisson caller still led on heterozygous deletions above 1 kb,
+0.79–0.84 against 0.44 — is the part that needed a depth term rather than a better mixture.
+That term was built and is now the default; see [tier2-depth-term.md](tier2-depth-term.md).
 
 ---
 

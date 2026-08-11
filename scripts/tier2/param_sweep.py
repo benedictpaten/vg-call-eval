@@ -28,6 +28,7 @@ maximise is how the mismapping cap ended up at 0.1 in the first place.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -65,16 +66,63 @@ def gbz_base_binary() -> str:
     sys.exit("gbz-base not found")
 
 
+def config_key(vg: str, ds: str, params: dict) -> str:
+    """What actually determines the output: the binary, the dataset, the flags.
+
+    Tags are hand-named, so the same configuration gets measured repeatedly under different
+    names -- three times in one session here, because `depthcount-off` and
+    `dgrid-w0-f0.02-c0.7` are the same binary and the same flags. Keying on content rather
+    than on the name makes the repeat free and, more usefully, makes an accidental
+    *collision* visible: two tags with the same key are the same experiment.
+    """
+    h = hashlib.sha256()
+    exe = Path(vg)
+    h.update(str(int(exe.stat().st_mtime)).encode())
+    h.update(str(exe.stat().st_size).encode())
+    h.update(ds.encode())
+    for k in sorted(params):
+        h.update(f"{k}={params[k]}".encode())
+    return h.hexdigest()[:16]
+
+
 def call(vg: str, ds: str, tag: str, params: dict, threads: int) -> Path:
     sub, contig, gbzdb, gafdb = DATASETS[ds]
     w = WORK / sub
     out = w / "results" / f"sweep-{tag}.vcf.gz"
+    key = config_key(vg, ds, params)
+    keyfile = w / "results" / f"sweep-{tag}.config"
     # Size, not just existence. A failed `vg call` still leaves a 28-byte empty
     # bgzip and a valid index behind, and an existence check happily caches that
     # forever -- the point re-reads as "already measured" on every later run.
     if out.exists() and out.stat().st_size > 4096 and out.with_suffix(".gz.tbi").exists():
-        print(f"  {ds} {tag}: cached", flush=True)
-        return out
+        stored = keyfile.read_text().strip() if keyfile.exists() else None
+        if stored == key:
+            print(f"  {ds} {tag}: cached", flush=True)
+            return out
+        if stored is None:
+            # Predates config keying. Adopt it rather than invalidate an hours-deep cache
+            # wholesale, and say so, because provenance genuinely is unknown for these.
+            print(f"  {ds} {tag}: cached (pre-dates config keying, provenance unverified)",
+                  flush=True)
+            keyfile.write_text(key + "\n")
+            return out
+        # A tag whose flags or binary changed underneath it is the cache bug this harness
+        # has already been bitten by once, in truvari_sv.py. Re-run rather than silently
+        # compare today's question against yesterday's answer.
+        print(f"  {ds} {tag}: config changed since last run, recomputing", flush=True)
+
+    # Same configuration under a different tag: link rather than re-run.
+    for other in sorted((w / "results").glob("sweep-*.config")):
+        if other.read_text().strip() != key:
+            continue
+        src = other.with_suffix(".vcf.gz")
+        if src.exists() and src.stat().st_size > 4096 and src != out:
+            print(f"  {ds} {tag}: identical configuration to {other.stem[6:]}, reusing",
+                  flush=True)
+            for suffix in ("", ".tbi"):
+                shutil.copyfile(str(src) + suffix, str(out) + suffix)
+            keyfile.write_text(key + "\n")
+            return out
     cmd = [vg, "call", str(w / f"{contig}_0_{contig}.gbz"), "-p", f"CHM13#0#{contig}",
            "-t", str(threads), "--read-likelihood", "-z",
            "--gaf-base", str(WORK / gafdb), "--gbz-base", str(WORK / gbzdb),
@@ -91,6 +139,7 @@ def call(vg: str, ds: str, tag: str, params: dict, threads: int) -> Path:
         subprocess.run(["bgzip", "-c"], input=proc.stdout, stdout=fh, check=True)
     shutil.move(str(out.with_suffix("")), str(out))
     subprocess.run(["tabix", "-f", "-p", "vcf", str(out)], check=True)
+    keyfile.write_text(key + "\n")
     return out
 
 
