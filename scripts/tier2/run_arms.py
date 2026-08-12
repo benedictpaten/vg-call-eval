@@ -57,7 +57,8 @@ class Arm:
     metrics: dict = field(default_factory=dict)
 
 
-def arms(readlik_extra: list[str] | None = None) -> list[Arm]:
+def arms(readlik_extra: list[str] | None = None,
+         readlik_z_extra: list[str] | None = None) -> list[Arm]:
     """The five fixed arms.
 
     `readlik_extra` is appended to the three read-likelihood arms only, so a caller-side
@@ -65,8 +66,16 @@ def arms(readlik_extra: list[str] | None = None) -> list[Arm]:
     list -- and without touching the Poisson arms, which it must not affect. Passing
     something that *does* affect them would break the comparison silently, so keep it to
     read-likelihood flags.
+
+    `readlik_z_extra` goes to `readlik-z` alone, for flags that require haplotype enumeration.
+    `--linkage-weight` is the case that forced this: it needs a panel, so `vg call` refuses it
+    without `-z`, and putting it in `readlik_extra` makes the two support-enumeration arms exit
+    immediately. They then score as zero variants with empty metrics, the matrix completes
+    "successfully", and the page build is what finally fails -- several arms and forty minutes
+    downstream of the actual error.
     """
     extra = list(readlik_extra or [])
+    z_extra = list(readlik_z_extra or [])
     return [
         Arm("poisson", [], True, False,
             "current default: Poisson genotyping, support enumeration"),
@@ -79,7 +88,7 @@ def arms(readlik_extra: list[str] | None = None) -> list[Arm]:
             "read-level likelihoods, support enumeration -- the like-for-like caller comparison"),
         Arm("readlik-nomismap", ["--read-likelihood", "--no-mismap-term"] + extra, True, True,
             "as readlik, MAPQ mismapping term disabled, to measure its contribution"),
-        Arm("readlik-z", ["--read-likelihood", "-z"] + extra, False, True,
+        Arm("readlik-z", ["--read-likelihood", "-z"] + extra + z_extra, False, True,
             "read-level likelihoods, haplotype enumeration, no pack file"),
     ]
 
@@ -158,6 +167,10 @@ def main() -> None:
                    help="extra flags appended to the three read-likelihood arms only, as "
                         "one quoted string, for evaluating a caller-side change across the "
                         "whole matrix")
+    p.add_argument("--readlik-z-extra", default="",
+                   help="extra flags for the readlik-z arm alone, as one quoted string, for "
+                        "flags that require haplotype enumeration (-z) and would make the "
+                        "support-enumeration arms exit immediately")
     p.add_argument("--contig", default="chr20",
                    help="contig to call; sets both the reference path and the "
                         "name written into the output VCF")
@@ -170,7 +183,8 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    selected = [a for a in arms(shlex.split(args.readlik_extra))
+    selected = [a for a in arms(shlex.split(args.readlik_extra),
+                                shlex.split(args.readlik_z_extra))
                 if not args.only or a.name in args.only]
 
     for arm in selected:
@@ -223,6 +237,17 @@ def main() -> None:
             arm.metrics = {"summary": aardvark.read_summary(adir)}
         except Exception as exc:  # noqa: BLE001
             print(f"  aardvark failed: {exc}", flush=True)
+
+    # An arm that produced nothing is a failed run, not a result. Until this check existed a
+    # dead arm was logged, skipped, and written out as zero variants with empty metrics -- the
+    # matrix then "succeeded", and the first visible symptom was a KeyError in the page build,
+    # forty minutes and several arms downstream of the flag that caused it. Fail here instead,
+    # where the log that explains it is one line up.
+    empty = [a.name for a in selected if a.variants == 0]
+    if empty:
+        print(f"\nERROR: no variants from {', '.join(empty)} -- see the .call.log for each",
+              file=sys.stderr)
+        sys.exit(1)
 
     payload = [
         {"arm": a.name, "description": a.description, "variants": a.variants,

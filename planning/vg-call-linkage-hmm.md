@@ -1,9 +1,21 @@
 # Linkage between sites: a PanGenie-style HMM over `vg call`'s existing likelihood
 
-**Status: designed, measured, and planned — not built.** The measurement came first
-deliberately, and it changed what is worth building: the prize is not the elimination of
-impossible calls, it is a modest reweighting of *undecided* sites. That argues for the cheap end
-of the design.
+**Status: built, searched on two chromosomes and two graphs, awaiting the full-matrix refresh
+before the default flips.** Shipped as `--linkage-weight` (opt-in, 0 by default) and
+`--linkage-freq-prior` (5). Read §7 for the staged results, and **Stage 2b first** — it is where
+the conclusions changed most.
+
+The measurement came first deliberately, and it changed what is worth building: the prize is not
+the elimination of impossible calls, it is a modest reweighting of *undecided* sites. That
+argues for the cheap end of the design — and, in the event, understated the prize by a factor of
+two, because the parameter that turned out to dominate was excluded from the search by an
+argument in this document that did not survive contact with the data.
+
+Three things this document asserted and the implementation disproved, all recorded in place
+rather than edited out: the block-switch term `β` was the distance scale under another name and
+is deleted; the frequency prior `f` was capped at 1 by a guard that read as an optimisation, and
+uncapped it is worth more than the transition model; and the forward–backward itself accounts for
+about 12% of the gain, the rest being reachable per-site with no chain at all.
 
 **Read §7 first if you are deciding whether to proceed.** Stage 0 tests the entire model offline
 with no changes to vg, because `vg call` already emits per-genotype likelihoods (`GL`) and
@@ -407,6 +419,25 @@ and should be costed before starting, not discovered halfway — and it means th
 analysis (`share_gq.py`, `depth_gq.py`) has to be re-run, since both are defined against the
 current per-site ratio.
 
+### Measured, after the fact — and not where this section expected
+
+`resolve()` is now instrumented, so the estimates above can be replaced. chr20-34hap, 5 threads:
+
+```
+105251 sites, 7.87 MB retained, 5736 genotypes changed, 1.80 s
+136.7 s with linkage against 125.1 s without   ->  +9.3%
+```
+
+Two corrections to what was assumed. The memory figure was arithmetic — sites times an assumed
+per-site size — and `bytes()` was written so it could be an observation but was never called by
+anything; at 7.87 MB against an estimated ~8 MB the arithmetic was good, and it is now checked.
+
+The runtime split is the surprise. This document worried about the serial phase-two pass in an
+otherwise-parallel caller, and that pass is **1.8 s of the 11.6 s** the feature costs. The other
+~10 s is **phase one** — recording each site under a global mutex while calling is parallel over
+snarls — which was dismissed in the class comment as obviously cheap. Cost lives where it was not
+looked for, which is the usual place. That is the target for profiling, not the HMM.
+
 ---
 
 ## 7. Implementation plan
@@ -505,10 +536,16 @@ Only if Stage 0 pays. Flags, all defaulting to off or to the measured value:
 
 ```
 --linkage-weight W        w_t; 0 disables and must be bit-for-bit inert   [0]
+--linkage-freq-prior F    exponent on the panel allele-frequency prior    [5]
 --linkage-scale L         distance scale in bp                           [10000]
 --linkage-window N        sites either side; 0 = exact chain-wide        [64]
 --linkage-escape E        off-panel wildcard mass ε                      [small]
 ```
+
+`--linkage-freq-prior` shipped defaulting to 0 and was raised to 5 once the axis was uncapped and
+measured (Stage 2b). `--linkage-window` and `--linkage-escape` were never exposed as flags and
+remain compile-time constants; of the two, `escape` is the one worth measuring, since it is the
+recall floor for alleles no panel haplotype carries.
 
 A `--linkage-block-switch B` flag was shipped alongside these and has since been **removed**. It
 defaulted to 0 rather than 0.57 on the argument that a full pangenome has no blocks and that
@@ -606,17 +643,129 @@ sites are corrections more often than not, and a proxy should not overrule the o
 for. Demoted to a diagnostic — and as one it earned its place, crossing 0.1% at `w = 3`, exactly
 where the SNV regression begins.
 
+### Stage 2b result: the frequency prior was capped, and it is the dominant parameter
+
+`f` was not swept in Stage 2 because this document argued it should stay at 0 — panel allele
+frequency over a read-sampled panel being "the same evidence twice." That argument is wrong.
+Nothing connects the panel to the *truth set*: sampling reads k-mer counts, and the benchmark
+informed neither the graph nor the selection. Reusing one's own reads is what mapping and calling
+already do. What survives is a calibration concern — double counting can leave `GQ` overconfident
+while the genotype improves — which is a separate question from whether to switch it on.
+
+Worse, the axis had a **ceiling nobody had noticed**. Both application sites guarded on
+`freq_prior < 1.0` before dividing by `multiplicity^(1-f)`. At exactly 1 the exponent is 0 and the
+division is a no-op, so the guard looked free; it also made every larger value behave as 1,
+silently, with no parse error and byte-identical output. Above 1 the exponent goes negative and
+the prior is *amplified* past the state space's own multiplicity — a real setting, unreachable.
+Removing the guard leaves `f ≤ 1` bit-identical, verified by md5 across the change.
+
+Uncapped, `f` dominates `w_t`. Crossed on chr20-34hap, validated on chr6-34hap; best at
+`(w_t = 2, f = 5)`, against no linkage:
+
+| | chr20-34hap | chr6-34hap |
+|---|---|---|
+| small DEL F1 | **+0.0434** | **+0.0328** |
+| small INS F1 | +0.0290 | +0.0255 |
+| small ALL GT | +0.0099 | +0.0074 |
+| SNV F1 | +0.0017 | +0.0010 |
+| SV F1 | +0.0289 | +0.0209 |
+| SV recall | −0.0065 | −0.0104 |
+
+The transition model alone gave +0.0047 and +0.0036 of small-variant GT, so **most of the gain was
+behind the cap**. The effect is almost entirely small indels — deletions most, insertions next,
+SNVs flat to within 0.0002 across the whole axis. That is where the emission is flat and the panel
+has something to add; SNVs are already settled by the reads. Past `f = 8` it inverts: by 12 the
+prior overwhelms the reads, SNV F1 falls below the no-linkage baseline and SV recall collapses
+0.4915 → 0.4706.
+
+**A benchmark-resolution error, corrected.** The first reading of the `w_t` sweep led with SV F1
+still climbing at `w = 13`. The SV truth set is 765 events on chr20, so one event is 0.0013 of F1
+and the `w = 9` vs `w = 13` difference was *half an event*. The small-variant benchmark has 94,691
+events and says the surface is flat from `w = 4` and then declines. Decide on the powered
+benchmark; the SV column is directionally supportive and cannot locate a peak.
+
+**Ablation: what the HMM itself is worth.** At `w → 0` the transitions go uniform, `γ ∝ E`, and the
+posterior collapses to `μ(G)^f · L(G)` — a per-site prior with no chain at all. At `f = 5` that
+reaches 0.9633 on chr20 and 0.9680 on chr6, against the full HMM's 0.9645 and 0.9689, from
+baselines of 0.9546 and 0.9615. So **forward–backward contributes about 12% of the genotype-F1
+gain, on both chromosomes independently**; a per-site prior would get the other 88% with no
+windowing, no chain assembly and no retained state.
+
+That is recorded as a fact about the present model, not an argument to delete it — the
+forward–backward is kept because later work builds on it (§5's Viterbi phasing, for one). But it
+means the honest description of this feature has changed: it began as a linkage model and measures
+as an allele-frequency prior with a linkage correction.
+
+*(One claim retracted: the ablation appeared on chr20 to show the HMM protecting recall against a
+blunter prior, 0.4824 → 0.4902. On chr6 the same comparison is 0.5346 → 0.5352 — nothing. That was
+one chromosome over-read. The 12% figure is what replicates.)*
+
 ### Stage 2 — search, on chr20, validate on chr6
 
-`w_t` × `β`, crossed rather than swept, because they interact by construction: a larger `β`
-weakens the effective transition, which a larger `w_t` compensates for. `L` on a 1-D scan
-afterwards, since the panel curve already localises it to ~10 kb. Reuse `depth_grid.py`'s
-structure and the config-hash cache.
+`w_t` × `f`, crossed rather than swept — they are substitutes, and the substitution is measured:
+`f = 1` versus `f = 0` is worth +0.0072 on small deletions at `w = 2` and only +0.0022 at `w = 13`,
+because a tightly-linked chain carries some of the frequency information the prior would supply.
+Sweeping either alone finds whichever corner it started nearest.
+
+*(As first written this crossed `w_t` against `β`, on the same interaction argument. That was the
+same axis twice — see the Stage 2 result — and `f`, the axis that mattered, was excluded by an
+argument this document has since had to withdraw.)*
 
 ### Stage 3 — full matrix, then decide the default
 
-`CANARY=1 JOBS=2 refresh_all.sh` with `READLIK_EXTRA`, ~30 minutes. Default flips only if it
-holds on all four datasets, as `--depth-term` had to.
+`CANARY=1 JOBS=2 refresh_all.sh` with `READLIK_Z_EXTRA`, ~30 minutes. Default flips only if it
+holds on all four datasets, as `--depth-term` had to. Two parameters to carry now, not one:
+`--linkage-weight 2` on the command line, `--linkage-freq-prior 5` from the default.
+
+### Stage 3 result: `readlik-z` is the best arm on every small-variant class, on all four datasets
+
+Small-variant genotype F1, `readlik-z` against the best of the other four arms:
+
+| dataset | best other | readlik-z | Δ |
+|---|---|---|---|
+| chr20-4hap | 0.9488 (nomismap) | **0.9507** | +0.0019 |
+| chr20-34hap | 0.9513 (readlik) | **0.9645** | +0.0132 |
+| chr6-4hap | 0.9583 (readlik) | **0.9602** | +0.0019 |
+| chr6-34hap | 0.9588 (readlik) | **0.9689** | +0.0101 |
+
+Clean on SNVs, insertions and deletions separately as well, on all four. Structural variants,
+three of four:
+
+| dataset | best other | readlik-z | Δ |
+|---|---|---|---|
+| chr20-34hap | 0.4592 | **0.4944** | +0.0352 |
+| chr6-34hap | 0.4999 | **0.5268** | +0.0269 |
+| chr6-4hap | 0.5547 | **0.5691** | +0.0144 |
+| chr20-4hap | **0.5034** | 0.5016 | **−0.0018** |
+
+**The chr20-4hap structural-variant loss is recorded rather than rounded away.** It is 0.0018 on a
+765-event truth set — about 1.4 events, below what that benchmark resolves — and it is on the
+3-haplotype panel, where the frequency prior is measurably inert and the transition model has
+almost nothing to link against. That is the expected place for this to be neutral-to-slightly-
+negative, which is not the same as it being fine. Anyone tempted to quote "best on all four"
+should quote this row too.
+
+The gap is much larger on the 34-haplotype graphs than the 4-haplotype ones, in both benchmarks
+and by roughly sevenfold on small variants. That is the model working as designed rather than a
+red flag: linkage and multiplicity are both panel-size effects, and a panel of three has neither
+to offer.
+
+### Three defects in the harness, found by running it
+
+Worth recording because two of them made a broken run look like a successful one.
+
+- **`refresh_all.sh`'s `JOBS>1` path had never worked on macOS.** It used `wait -n`, which needs
+  bash 4.3; macOS ships 3.2, where it fails as an invalid option, and `set -e` turned that into
+  an exit *after* the pool had filled — leaving orphaned `vg call` children under a dead parent.
+  Replaced with PID collection and a `jobs -rp` poll, which also checks every dataset's status
+  rather than whichever one `wait -n` happened to reap.
+- **`--linkage-weight` through `READLIK_EXTRA` killed two arms.** It requires `-z`, and
+  `READLIK_EXTRA` goes to all three read-likelihood arms. The two support-enumeration arms exited
+  immediately. Added `READLIK_Z_EXTRA` for flags that need haplotype enumeration.
+- **A dead arm scored as success.** `run_arms.py` logged `FAILED rc=…`, then continued, wrote the
+  arm out as zero variants with empty metrics, and the run completed; the first visible symptom
+  was a `KeyError` in the page build, forty minutes downstream. Zero variants is now fatal at the
+  point of failure.
 
 ### Stage 4 — phasing, separately justified
 
@@ -693,6 +842,14 @@ The measurement sets a modest ceiling, so the decision rule should be set in adv
 - **Stop** if the gain requires a `w_t` large enough to move confident calls, or if it is
   confined to the 4-haplotype graph — the sampled panel is where the linkage is supposed to be
   real, so a 34-haplotype-only failure would mean the model is fitting construction artefacts.
+
+  *This clause fired, in the direction it was written to catch, and the result is worth stating
+  plainly: `f = 5` is worth +0.0099 of small-variant genotype F1 on the 34-haplotype graphs and
+  under 0.0004 on the 4-haplotype ones — safe there, useless there. It is not a construction
+  artefact, though: the mechanism predicts exactly this, since three haplotypes spell a genotype
+  with at most a couple of pairs and leave almost no multiplicity for an exponent to act on. A
+  rule written to catch overfitting cannot distinguish that from a parameter that simply needs a
+  panel to work with, so this was decided on the mechanism rather than on the rule.*
 - **Do not count phasing as part of the case.** It needs a separate Viterbi pass (§5), so it is
   additional work rather than a by-product, and it should be justified on its own.
 - **Stop** if the off-panel escape has to be tuned to avoid suppressing novel alleles. That

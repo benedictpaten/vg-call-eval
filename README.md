@@ -130,6 +130,13 @@ python3 scripts/tier2/hap32_precision.py            # why 34-hap emits more fals
 vg deconstruct -p CHM13#0#chr20 graph.gbz > panel.vcf   # the haplotype panel matrix
 python3 scripts/tier2/apparent_recombination.py \
     --calls … --panel panel.vcf --label chr20-34hap  # linkage the per-site model discards
+python3 scripts/tier2/linkage_grid.py \
+    --datasets chr20-34hap --weights 0 2 6 \
+    --freq-priors 0 1 5                         # transition weight x frequency prior
+python3 scripts/tier2/linkage_grid_report.py \
+    --dataset chr20-34hap                       # that grid re-rendered per variant class
+python3 scripts/tier2/subchain_linkage.py \
+    --panel panel.vcf --subchains subchains.tsv # does panel linkage break at .hapl boundaries?
 python3 scripts/tier2/fn_decomposition.py           # misses that were called, spelled smaller
 python3 scripts/tier2/sv_metric_sensitivity.py \
     --arms readlik-z --refine --refdists 500        # harmonised representation
@@ -140,6 +147,19 @@ A caller-side change can be put through the whole five-arm matrix without editin
 ```bash
 READLIK_EXTRA="--depth-term 0.1" CANARY=1 JOBS=2 scripts/tier2/refresh_all.sh
 ```
+
+`READLIK_EXTRA` goes to all three read-likelihood arms. Use `READLIK_Z_EXTRA` for flags that
+require haplotype enumeration — `vg call` refuses `--linkage-weight` without `-z`, so passing it
+the other way makes the two support-enumeration arms exit immediately:
+
+```bash
+READLIK_Z_EXTRA="--linkage-weight 2" CANARY=1 JOBS=2 scripts/tier2/refresh_all.sh
+```
+
+`CANARY=1` reuses the cached Poisson arms after verifying one of them byte-for-byte. That cache
+lives in each dataset's `results/arms.json`, which is also where the run merges its output — so
+deleting that file to clear a bad run throws the Poisson rows away too, and the next run has to
+be `CANARY=0`.
 
 ### What a refresh costs, and where to spend less
 

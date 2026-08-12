@@ -16,11 +16,18 @@ weaker by only 0.008 NMI at the gaps where adjacent calls actually sit (z = 1.1,
 a permutation control), because the sampler switches to another assembly in the same panel and
 human haplotypes mostly agree.
 
-`--linkage-freq-prior` stays at its default of 0 and is *not* an axis here. Over a panel that
-haplotype sampling selected against these same reads, panel allele frequency is already
-conditioned on the data being genotyped, so using it as a prior counts the same evidence twice.
-Measured offline it is worth about half the total gain, which is precisely why it should not be
-switched on without a graph whose panel was chosen independently.
+`--linkage-freq-prior` is the third axis and, measured, the most important one. It was excluded
+from the first version of this search on the argument that panel allele frequency over a
+read-sampled panel counts the same evidence twice. That is true and irrelevant: nothing connects
+the panel to the *truth set*, and reusing one's own reads is what mapping and calling already do.
+Double counting can leave `GQ` overconfident while the genotype improves, which is a calibration
+question, not a reason to hold a parameter at zero.
+
+It also had a ceiling. Both application sites guarded on `freq_prior < 1.0`, which is a no-op at
+exactly 1 and therefore looked free, while silently making every larger value behave as 1. Above 1
+the exponent goes negative and the prior is amplified past the state space's own multiplicity.
+Uncapped it peaks near 5, is worth more than the transition weight, and inverts past 8 -- so pass
+it explicitly rather than relying on any default when searching.
 
 Reported per point: both benchmarks, the heterozygous class breakdown, and the two numbers this
 model is judged on -- the share of undecided genotypes it moves, and the share of confident ones
@@ -92,6 +99,7 @@ def main() -> None:
     ap.add_argument("--datasets", nargs="+", default=["chr20-34hap"])
     ap.add_argument("--weights", nargs="+", default=["0", "0.5", "1", "2"])
     ap.add_argument("--scales", nargs="+", default=["10000"])
+    ap.add_argument("--freq-priors", nargs="+", default=["0"])
     ap.add_argument("--vg", default=str(Path.home() / "CLionProjects/vg/bin/vg"))
     ap.add_argument("--threads", type=int, default=5)
     args = ap.parse_args()
@@ -102,47 +110,50 @@ def main() -> None:
         # flags, or the comparison is against a different experiment.
         baseline_vcf = None
         for scale in args.scales:
-            for w in args.weights:
-                # Scale is inert at zero weight -- the transition is uniform -- so one control
-                # per dataset, not one per scale.
-                if float(w) == 0.0 and scale != args.scales[0]:
-                    continue
-                params = {"linkage-scale": scale}
-                if float(w) > 0:
-                    params["linkage-weight"] = w
-                # Scale belongs in the tag. It was fixed when this was written, so leaving it out
-                # was harmless; with it swept, two scales would collide on one cached VCF and the
-                # second point would silently report the first one's numbers.
-                tag = (f"{ds}-lgrid-w{w}" if float(w) == 0.0
-                       else f"{ds}-lgrid-w{w}-s{scale}")
-                print(f"=== {ds} w={w} scale={scale}", flush=True)
-                vcf = ps.call(args.vg, ds, tag, params, args.threads)
-                sc = ps.score(vcf, ds, tag, args.threads)
-                if float(w) == 0.0:
-                    baseline_vcf = vcf
-                shift = genotype_shift(baseline_vcf, vcf) if baseline_vcf else {}
-                rows.append((ds, w, scale, sc, shift))
+            for fp in args.freq_priors:
+                for w in args.weights:
+                    # Both axes are inert at zero weight -- the layer is switched off entirely --
+                    # so one control per dataset, not one per cell.
+                    if float(w) == 0.0 and (scale != args.scales[0]
+                                            or fp != args.freq_priors[0]):
+                        continue
+                    params = {"linkage-scale": scale}
+                    if float(w) > 0:
+                        params["linkage-weight"] = w
+                        params["linkage-freq-prior"] = fp
+                    # Every swept axis belongs in the tag. Each was fixed when it was written, so
+                    # leaving it out was harmless then; swept, two cells would collide on one
+                    # cached VCF and the second would silently report the first one's numbers.
+                    tag = (f"{ds}-lgrid-w{w}" if float(w) == 0.0
+                           else f"{ds}-lgrid-w{w}-s{scale}-f{fp}")
+                    print(f"=== {ds} w={w} scale={scale} f={fp}", flush=True)
+                    vcf = ps.call(args.vg, ds, tag, params, args.threads)
+                    sc = ps.score(vcf, ds, tag, args.threads)
+                    if float(w) == 0.0:
+                        baseline_vcf = vcf
+                    shift = genotype_shift(baseline_vcf, vcf) if baseline_vcf else {}
+                    rows.append((ds, w, scale, fp, sc, shift))
 
-    hdr = (f"{'dataset':12s} {'w':>4s} {'scale':>6s} {'SV F1':>7s} {'SVrec':>7s} {'SVprec':>7s} "
+    hdr = (f"{'dataset':12s} {'w':>4s} {'scale':>6s} {'f':>5s} {'SV F1':>7s} {'SVrec':>7s} {'SVprec':>7s} "
            f"{'smallGT':>8s} {'SNV':>7s} {'hDEL1k':>7s} {'moved@GQI<10':>13s} "
            f"{'moved@GQI>=40':>14s}")
     print("\n" + hdr)
     print("-" * len(hdr))
-    for ds, w, scale, s, shift in rows:
+    for ds, w, scale, fp, s, shift in rows:
         sv = s.get("sv") or {}
         hi = shift.get("hi_pct")
         flag = "" if hi is None or hi <= 0.1 else "  OVER BUDGET"
-        print(f"{ds:12s} {w:>4s} {scale:>6s} {sv.get('f1', 0):7.4f} {sv.get('recall', 0):7.4f} "
+        print(f"{ds:12s} {w:>4s} {scale:>6s} {fp:>5s} {sv.get('f1', 0):7.4f} {sv.get('recall', 0):7.4f} "
               f"{sv.get('precision', 0):7.4f} {(ps.smallvar_f1(s) or 0):8.4f} "
               f"{(ps.smallvar_f1(s, 'Snv') or 0):7.4f} {ps.cls(s, 'DEL 1k+ het'):>7s} "
               f"{shift.get('lo_pct', 0):12.2f}% {shift.get('hi_pct', 0):13.3f}%{flag}")
 
     dest = WORK / "sv-atlas" / "sweep-linkage-grid.json"
     dest.write_text(json.dumps(
-        [{"dataset": ds, "weight": w, "scale": scale, "sv": s.get("sv"),
+        [{"dataset": ds, "weight": w, "scale": scale, "freq_prior": fp, "sv": s.get("sv"),
           "smallvar_all_f1": ps.smallvar_f1(s), "smallvar_snv_f1": ps.smallvar_f1(s, "Snv"),
           "sv_by_class": s.get("sv_by_class"), "shift": shift}
-         for ds, w, scale, s, shift in rows], indent=2))
+         for ds, w, scale, fp, s, shift in rows], indent=2))
     print(f"\nwrote {dest}")
 
 
