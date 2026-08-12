@@ -424,19 +424,74 @@ current per-site ratio.
 `resolve()` is now instrumented, so the estimates above can be replaced. chr20-34hap, 5 threads:
 
 ```
-105251 sites, 7.87 MB retained, 5736 genotypes changed, 1.80 s
-136.7 s with linkage against 125.1 s without   ->  +9.3%
+105251 sites, 7.87 MB retained, 5736 genotypes changed, 1.8 s in resolve()
+
+                    rep 1    rep 2     mean    overhead
+  no linkage       126.49   125.72    126.1       --
+  linkage, before  146.65   146.04    146.3    +20.2 s  (+16.0%)
+  linkage, cached  140.65   140.57    140.6    +14.5 s  (+11.5%)
 ```
 
-Two corrections to what was assumed. The memory figure was arithmetic — sites times an assumed
-per-site size — and `bytes()` was written so it could be an observation but was never called by
-anything; at 7.87 MB against an estimated ~8 MB the arithmetic was good, and it is now checked.
+The memory figure was arithmetic — sites times an assumed per-site size — and `bytes()` was
+written so it could be an observation but had never been called by anything. At 7.87 MB against an
+estimated ~8 MB the arithmetic was good, and it is now checked rather than trusted.
 
-The runtime split is the surprise. This document worried about the serial phase-two pass in an
-otherwise-parallel caller, and that pass is **1.8 s of the 11.6 s** the feature costs. The other
-~10 s is **phase one** — recording each site under a global mutex while calling is parallel over
-snarls — which was dismissed in the class comment as obviously cheap. Cost lives where it was not
-looked for, which is the usual place. That is the target for profiling, not the HMM.
+**Replicate, or do not quote.** The first version of this section reported +9.3% from a single run
+of each condition, which understated the cost by nearly half: run-to-run spread on this machine is
+about 7 s, larger than the effect being claimed. Alternating two binaries with the machine settled
+gives within-condition spreads of 0.6 s and 0.08 s, and an overhead of 16%.
+
+The split is the surprise, and both readings agreed on it. This document worried about the serial
+phase-two pass in an otherwise-parallel caller; that pass is **1.8 s of 20.2 s — 9%**. The other
+91% is **phase one**, which the class comment dismissed as obviously cheap.
+
+`sample` located it precisely: `panel_alleles` accounts for ~5100 self samples against 1447 for
+`score_read_against_allele`, the per-read likelihood inner loop it exists to annotate. **The panel
+bookkeeping costs about three and a half times the computation it feeds.** Its heaviest frames were
+sdsl select (2004), `RecordArray::getRange` (1598), `locate` itself (630), `CompressedRecord`'s
+constructor (403), and the record iterator with `LFLoop` (485).
+
+Three of those five are record lookup and decompression rather than the DA sampling intrinsic to
+`locate`, so one `CachedGBWT` per thread removes them: **−5.7 s, 28% of the overhead**, output
+byte-identical to the uncached binary on identical flags.
+
+### Re-profiled after the cache, which retired both proposed next steps
+
+Two candidates were queued from the first profile — reusing the traversal finder's path identifiers
+to skip a duplicated `find`/`extend` walk, and per-thread arenas to remove the `record()` mutex.
+Re-profiling first was the right call, because the fresh profile killed both. Absolute counts are
+not comparable across runs (different 45 s windows of the same job), so these are normalised
+against `score_read_against_allele`, a fixed workload:
+
+| frame | before | after |
+|---|---|---|
+| `panel_alleles` (inclusive) | 3.50× | **2.01×** |
+| `select_support_mcl` (DA sampling) | 1.37× | 0.98× |
+| `RecordArray::getRange` (raw) | 3695 | 1429 |
+| `LinkageCollector::record` (raw) | **1** | **3** |
+
+- **The mutex is not a cost.** One and three samples. The reasoning that pointed at it — three
+  `push_back` loops inside the critical section, so arena reallocation under the lock, 105k times —
+  was sound and simply wrong about the magnitude. Per-thread arenas would buy nothing.
+- **The duplicated walk is mostly gone already**, which is why `getRange` fell by ~60%: the cache
+  removed the re-decompression that made the walk expensive, so reusing the identifiers would now
+  save little.
+- **What is left is `locate` itself** — 1932 samples against `panel_alleles`' 1912 inclusive, so
+  essentially all of it. Its DA sampling alone still costs about as much as the entire per-read
+  likelihood inner loop. This is the cost §2 named in advance as "the expensive operation, and a
+  good encoding never needs it", before it was put in the innermost loop.
+
+So the remaining options are not micro-optimisations:
+
+1. **An r-index (`gbwt::FastLocate`)**, which exists precisely to replace DA-sample `locate`.
+   Contained: an optional `--linkage-r-index FILE`, used when supplied. Build cost is known —
+   `vg gbwt -Z x.gbz -r x.ri` took 5.7 s for chr20 — and it is a standard GBZ companion file.
+2. **Stop asking per site**: walk the panel's paths once into an allele matrix before calling.
+   Asymptotically better, but it converts per-snarl work into a genome-wide pre-pass.
+
+Neither is started, and the arithmetic argues for restraint. `panel_alleles` is 2× the likelihood
+inner loop, but total overhead is now 11.5%, so the ceiling on option 1 is roughly 8-9 s of a 140 s
+run and option 2 is not worth restructuring the caller for unless whole-genome runs change that.
 
 ---
 
