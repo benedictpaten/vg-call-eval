@@ -28,7 +28,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap", "readlik-z"]
+ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap",
+             "readlik-z-nolink", "readlik-z"]
 
 # The mismapping floor (--mismap-min) went 1e-8 -> 0.01 -> 0.05 -> 0.02, and the cap
 # (--mismap-max) 0.1 -> 0.5; the current defaults are 0.02 and 0.5. Arms run at the older
@@ -52,6 +53,7 @@ META = {
     "poisson-z": ("haplotype (`-z`)", "yes"),
     "readlik": ("support (Flow)", "yes"),
     "readlik-nomismap": ("support (Flow)", "yes"),
+    "readlik-z-nolink": ("haplotype (`-z`)", "**no**"),
     "readlik-z": ("haplotype (`-z`)", "**no**"),
 }
 

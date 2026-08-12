@@ -90,6 +90,14 @@ def arms(readlik_extra: list[str] | None = None,
             "as readlik, MAPQ mismapping term disabled, to measure its contribution"),
         Arm("readlik-z", ["--read-likelihood", "-z"] + extra + z_extra, False, True,
             "read-level likelihoods, haplotype enumeration, no pack file"),
+        # The linkage ablation, and the reason it is a standing arm rather than a one-off
+        # measurement: --linkage-weight now defaults to 2, so readlik-z above carries the HMM and
+        # nothing in the matrix would show what it contributes. Measured once, the transition model
+        # is about 12% of the genotype-F1 gain over no linkage at all -- worth keeping visible in
+        # the same table as the rest rather than buried in a planning note.
+        Arm("readlik-z-nolink", ["--read-likelihood", "-z", "--linkage-weight", "0"] + extra,
+            False, True,
+            "as readlik-z, linkage HMM disabled, to measure the transition model's contribution"),
     ]
 
 

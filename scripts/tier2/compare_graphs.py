@@ -32,7 +32,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap", "readlik-z"]
+ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap",
+             "readlik-z-nolink", "readlik-z"]
 SMALL_TYPES = [("ALL", "ALL"), ("Snv", "SNV"), ("Insertion", "Insertion (<50 bp)"),
                ("Deletion", "Deletion (<50 bp)")]
 SV_TYPES = [("SvInsertion", "SV insertion"), ("SvDeletion", "SV deletion"),

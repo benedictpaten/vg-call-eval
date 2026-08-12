@@ -44,7 +44,7 @@ echo "gbz-base:  $(command -v gbz-base)"
 ARM_FILTER=()
 if [ "${CANARY:-0}" = "1" ]; then
     if python3 "$REPO/scripts/tier2/canary.py" --vg "$VG" --threads "$THREADS"; then
-        ARM_FILTER=(--only readlik readlik-nomismap readlik-z)
+        ARM_FILTER=(--only readlik readlik-nomismap readlik-z readlik-z-nolink)
         echo "canary passed: reusing cached Poisson arms"
     else
         echo "canary failed or unavailable: running every arm"
@@ -75,7 +75,8 @@ run_dataset() {
 
     echo "### $label truvari"
     python3 "$REPO/scripts/tier2/truvari_sv.py" --contig "$contig" --work "$W" \
-        --label "$label" --arms poisson poisson-z readlik readlik-nomismap readlik-z
+        --label "$label" --arms poisson poisson-z readlik readlik-nomismap readlik-z \
+        readlik-z-nolink
 
     echo "### $label size-matched"
     python3 "$REPO/scripts/tier2/size_matched.py" --results "$W/results" \

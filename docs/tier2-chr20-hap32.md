@@ -42,9 +42,10 @@ Size-matched to <50 bp â€” the only like-for-like read of the BASEPAIR numbers â
 |---|---|---|---|---|---|---|
 | `poisson` | 172 s | 338 s | 3.0 GB | 3.2 GB | 106,587 | 124,445 |
 | `poisson-z` | 76 s | 108 s | 3.0 GB | 3.2 GB | 106,686 | 124,769 |
-| `readlik` | 131 s | 164 s | 3.3 GB | 3.8 GB | 104,159 | 105,198 |
-| `readlik-nomismap` | 130 s | 151 s | 3.1 GB | 3.9 GB | 106,356 | 121,476 |
-| `readlik-z` | 120 s | 158 s | 3.0 GB | 3.2 GB | 104,165 | 105,251 |
+| `readlik` | 173 s | 199 s | 2.8 GB | 2.4 GB | 104,159 | 105,198 |
+| `readlik-nomismap` | 149 s | 173 s | 2.7 GB | 2.8 GB | 106,356 | 121,476 |
+| `readlik-z-nolink` | 124 s | 138 s | 2.5 GB | 3.6 GB | 104,165 | 105,251 |
+| `readlik-z` | 112 s | 159 s | 2.7 GB | 2.8 GB | 104,165 | 105,251 |
 
 ## Small variants â€” GT F1
 
@@ -66,6 +67,10 @@ Size-matched to <50 bp â€” the only like-for-like read of the BASEPAIR numbers â
 | `readlik-nomismap` | SNV | 0.9759 | 0.9615 | -0.0144 |
 | `readlik-nomismap` | Insertion (<50 bp) | 0.8281 | 0.8680 | +0.0398 |
 | `readlik-nomismap` | Deletion (<50 bp) | 0.8748 | 0.8780 | +0.0031 |
+| `readlik-z-nolink` | ALL | 0.9488 | 0.9546 | +0.0058 |
+| `readlik-z-nolink` | SNV | 0.9756 | 0.9764 | +0.0008 |
+| `readlik-z-nolink` | Insertion (<50 bp) | 0.8299 | 0.8787 | +0.0488 |
+| `readlik-z-nolink` | Deletion (<50 bp) | 0.8750 | 0.8853 | +0.0104 |
 | `readlik-z` | ALL | 0.9507 | 0.9645 | +0.0138 |
 | `readlik-z` | SNV | 0.9759 | 0.9781 | +0.0022 |
 | `readlik-z` | Insertion (<50 bp) | 0.8371 | 0.9077 | +0.0706 |
@@ -91,6 +96,10 @@ Size-matched to <50 bp â€” the only like-for-like read of the BASEPAIR numbers â
 | `readlik-nomismap` | SNV | 0.9801 | 0.9681 | -0.0120 |
 | `readlik-nomismap` | Insertion (<50 bp) | 0.7405 | 0.6545 | -0.0860 |
 | `readlik-nomismap` | Deletion (<50 bp) | 0.8367 | 0.8191 | -0.0176 |
+| `readlik-z-nolink` | ALL | 0.9211 | 0.8859 | -0.0351 |
+| `readlik-z-nolink` | SNV | 0.9799 | 0.9786 | -0.0014 |
+| `readlik-z-nolink` | Insertion (<50 bp) | 0.8038 | 0.7084 | -0.0954 |
+| `readlik-z-nolink` | Deletion (<50 bp) | 0.8549 | 0.8397 | -0.0153 |
 | `readlik-z` | ALL | 0.9294 | 0.9172 | -0.0122 |
 | `readlik-z` | SNV | 0.9801 | 0.9796 | -0.0005 |
 | `readlik-z` | Insertion (<50 bp) | 0.8215 | 0.7661 | -0.0554 |
@@ -108,6 +117,7 @@ The SV metric. Reciprocal-overlap matching against the structural benchmark, `--
 | `poisson-z` | 0.4902 | 0.4824 | 0.4959 | 0.4029 | 0.4930 | 0.4391 | **-0.0540** |
 | `readlik` | 0.4889 | 0.4745 | 0.5188 | 0.4449 | 0.5034 | 0.4592 | **-0.0442** |
 | `readlik-nomismap` | 0.4850 | 0.4902 | 0.4758 | 0.4055 | 0.4803 | 0.4438 | **-0.0365** |
+| `readlik-z-nolink` | 0.4915 | 0.4967 | 0.5084 | 0.4380 | 0.4998 | 0.4655 | **-0.0343** |
 | `readlik-z` | 0.4863 | 0.4902 | 0.5180 | 0.4986 | 0.5016 | 0.4944 | **-0.0073** |
 
 ## Structural variants â€” aardvark (secondary)

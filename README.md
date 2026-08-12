@@ -148,13 +148,20 @@ A caller-side change can be put through the whole five-arm matrix without editin
 READLIK_EXTRA="--depth-term 0.1" CANARY=1 JOBS=2 scripts/tier2/refresh_all.sh
 ```
 
-`READLIK_EXTRA` goes to all three read-likelihood arms. Use `READLIK_Z_EXTRA` for flags that
-require haplotype enumeration — `vg call` refuses `--linkage-weight` without `-z`, so passing it
-the other way makes the two support-enumeration arms exit immediately:
+`READLIK_EXTRA` goes to every read-likelihood arm. Use `READLIK_Z_EXTRA` for flags that require
+haplotype enumeration — `vg call` refuses an explicit `--linkage-weight` without `-z` and
+`--read-likelihood`, so passing one of those the other way makes the support-enumeration arms exit
+immediately:
 
 ```bash
-READLIK_Z_EXTRA="--linkage-weight 2" CANARY=1 JOBS=2 scripts/tier2/refresh_all.sh
+READLIK_Z_EXTRA="--linkage-scale 20000" CANARY=1 JOBS=2 scripts/tier2/refresh_all.sh
 ```
+
+`--linkage-weight` itself no longer needs passing: it defaults to 2 and applies wherever haplotype
+enumeration and `--read-likelihood` are both present, declining silently otherwise. The
+`readlik-z-nolink` arm runs it at 0, so the matrix shows what the HMM contributes rather than only
+what the whole stack achieves — the transition model measured at about 12% of the genotype-F1 gain,
+which is worth keeping in the same table as everything else.
 
 `CANARY=1` reuses the cached Poisson arms after verifying one of them byte-for-byte. That cache
 lives in each dataset's `results/arms.json`, which is also where the run merges its output — so
