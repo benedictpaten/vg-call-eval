@@ -6,8 +6,8 @@ are optimistic; these are caller-vs-caller comparisons. See [simulation.md](simu
 > **Superseded for anything but method.** Tier 2 runs real HG002 reads against the GIAB draft
 > benchmark on two chromosomes and two graphs, and reverses this page's headline conclusion. Go to
 > [tier2-chr20-results.md](tier2-chr20-results.md) and [tier2-chr6-results.md](tier2-chr6-results.md)
-> for the accuracy numbers, [tier2-chr20-hap32.md](tier2-chr20-hap32.md) and
-> [tier2-chr6-hap32.md](tier2-chr6-hap32.md) for the graph comparison, and
+> for the accuracy numbers, [tier2-chr20-graph-comparison.md](tier2-chr20-graph-comparison.md) and
+> [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md) for the graph comparison, and
 > [tier2-quality-signals.md](tier2-quality-signals.md) for how calls are ranked. This page is kept
 > because the *method* lessons below still hold — the saturation table, the five-seed rule, and the
 > two retracted claims.

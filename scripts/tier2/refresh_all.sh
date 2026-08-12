@@ -115,7 +115,13 @@ fi
 
 echo "### pages"
 for contig in chr20 chr6; do
+    # Headline page: the 34-haplotype graph, which report.py now defaults to.
     python3 "$REPO/scripts/tier2/report.py"         --contig "$contig"
+    # The thin-panel reference, from the same script so the two pages cannot drift apart in
+    # structure, and so the calibration history preserved only for these runs stays reachable.
+    python3 "$REPO/scripts/tier2/report.py"         --contig "$contig" \
+        --results "$REPO/work/tier2-$contig/results" \
+        --out "$REPO/docs/tier2-$contig-4hap-results.md"
     python3 "$REPO/scripts/tier2/compare_graphs.py" --contig "$contig"
 done
 echo MARKER_REFRESH_ALL_DONE

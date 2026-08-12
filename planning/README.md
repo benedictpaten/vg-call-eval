@@ -35,7 +35,7 @@ right.
 | Generated | |
 |---|---|
 | [../docs/tier2-chr20-results.md](../docs/tier2-chr20-results.md), [../docs/tier2-chr6-results.md](../docs/tier2-chr6-results.md) | full five-arm accuracy tables per chromosome |
-| [../docs/tier2-chr20-hap32.md](../docs/tier2-chr20-hap32.md), [../docs/tier2-chr6-hap32.md](../docs/tier2-chr6-hap32.md) | 4- vs 34-haplotype graph |
+| [../docs/tier2-chr20-graph-comparison.md](../docs/tier2-chr20-graph-comparison.md), [../docs/tier2-chr6-graph-comparison.md](../docs/tier2-chr6-graph-comparison.md) | 4- vs 34-haplotype graph |
 | [../docs/tier2-quality-signals.md](../docs/tier2-quality-signals.md) | how calls are ranked, and the filters that did not help |
 
 **Source links of the form `vg/src/...` resolve against a `vg` checkout, not this repo.** They are

@@ -1552,7 +1552,7 @@ A second evaluation graph, `hprc-v2.1-mc-chm13-eval.HG002.hap32.gbz`, with **34 
 reads. HG002 is absent from both, so neither is circular. chr20, so every number is directly
 comparable to §9.7–9.17.
 
-Full tables in `docs/tier2-chr20-hap32.md`.
+Full tables in `docs/tier2-chr20-graph-comparison.md`.
 
 #### The comparison is tight everywhere it can be, and honest where it cannot
 

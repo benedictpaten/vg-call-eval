@@ -136,7 +136,7 @@ def main() -> None:
     c = args.contig
     old_res = Path(args.old or REPO / f"work/tier2-{c}/results")
     new_res = Path(args.new or REPO / f"work/tier2-{c}-hap32/results")
-    out_path = Path(args.out or REPO / f"docs/tier2-{c}-hap32.md")
+    out_path = Path(args.out or REPO / f"docs/tier2-{c}-graph-comparison.md")
 
     old = load_arms(old_res / "arms.json")
     new = load_arms(new_res / "arms.json")

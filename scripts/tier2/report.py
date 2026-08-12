@@ -32,7 +32,7 @@ ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap",
              "readlik-z-nolink", "readlik-z"]
 
 # The mismapping floor (--mismap-min) went 1e-8 -> 0.01 -> 0.05 -> 0.02, and the cap
-# (--mismap-max) 0.1 -> 0.5; the current defaults are 0.02 and 0.5. Arms run at the older
+# (--mismap-max) 0.1 -> 0.5 -> 0.7; the current defaults are 0.02 and 0.7. Arms run at the older
 # values are kept and labelled rather than discarded, because the comparison between them
 # *is* the result. poisson and poisson-z do not use the read-likelihood model at all, so
 # neither clamp can reach them and they are not re-run.
@@ -115,8 +115,16 @@ def main() -> None:
     p.add_argument("--out")
     args = p.parse_args()
     c = args.contig
-    res = Path(args.results or REPO / f"work/tier2-{c}/results")
+    # The 34-haplotype graph is the default subject: it is the configuration the caller is tuned
+    # for and the one that performs better, so it is what the headline page should describe. The
+    # 4-haplotype graph gets its own page from this same script via --results/--out, and the
+    # side-by-side comparison lives in compare_graphs.py.
+    res = Path(args.results or REPO / f"work/tier2-{c}-hap32/results")
     out_path = Path(args.out or REPO / f"docs/tier2-{c}-results.md")
+    # Derived from the results path rather than passed as a label, so a page cannot be titled with
+    # the wrong panel size -- the one error that would make these two pages indistinguishable.
+    is_hap32 = "hap32" in res.parent.name
+    panel_label = "34-haplotype" if is_hap32 else "4-haplotype"
     # Several narrative blocks below quote per-site measurements made on chr20 -- the
     # pericentromeric pile-ups, the 246 large-insertion calls, the floor-change genotype
     # counts. Those are chr20 facts, not general ones, so they are gated rather than
@@ -144,9 +152,25 @@ def main() -> None:
             sv[a_] = {"arm": a_, "metrics": {"summary": list(_csv.DictReader(open(sp), delimiter="\t"))}}
 
     L: list[str] = []
-    L.append(f"# Tier 2 results: HG002 {c} on HPRC v2.1 MC CHM13")
+    L.append(f"# Tier 2 results: HG002 {c} on HPRC v2.1 MC CHM13, {panel_label} graph")
     L.append("")
     L.append("Real reads, real benchmark, run on a 32 GB laptop.")
+    L.append("")
+    if is_hap32:
+        L.append("This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from "
+                 "haplotype sampling. It is the primary subject because it is what the caller is "
+                 "tuned for -- both the linkage transition and the panel frequency prior are "
+                 "panel-size effects and have little to work with on a thin panel -- and because "
+                 "it is the better-performing configuration. The 4-haplotype graph has its own "
+                 f"page at [tier2-{c}-4hap-results.md](tier2-{c}-4hap-results.md), and the two "
+                 f"are put side by side in "
+                 f"[tier2-{c}-graph-comparison.md](tier2-{c}-graph-comparison.md).")
+    else:
+        L.append("This is the **4-haplotype** graph: CHM13, GRCh38 and 2 recombinants. It is kept "
+                 "as a thin-panel reference rather than the headline configuration -- the caller "
+                 f"is tuned on the 34-haplotype graph, whose page is "
+                 f"[tier2-{c}-results.md](tier2-{c}-results.md). The two are compared directly in "
+                 f"[tier2-{c}-graph-comparison.md](tier2-{c}-graph-comparison.md).")
     L.append("")
     # Per-contig facts are measured from the prepared work directory rather than typed in.
     # The chr20 page previously carried them as literals, which is how the node count and
@@ -168,8 +192,18 @@ def main() -> None:
 
     L.append("| | |")
     L.append("|---|---|")
-    L.append("| graph | `hprc-v2.1-mc-chm13-eval.HG002.gbz`, 100,179,277 nodes, **4 haplotypes** "
-             "(CHM13, GRCh38, 2 recombinants). HG002 itself is **absent** — no circularity |")
+    # Was hardcoded to the 4-haplotype graph, which put "4 haplotypes, 2 recombinants" at the top
+    # of the 34-haplotype page the moment this script grew a second subject. Keyed off the results
+    # path instead, like the title.
+    if is_hap32:
+        L.append("| graph | `hprc-v2.1-mc-chm13-eval.HG002.hap32.gbz`, 101,366,693 nodes, "
+                 "**34 haplotypes** (CHM13, GRCh38, 32 recombinants from haplotype sampling; the "
+                 "file is named for the recombinant count, not the total). HG002 itself is "
+                 "**absent** — no circularity |")
+    else:
+        L.append("| graph | `hprc-v2.1-mc-chm13-eval.HG002.gbz`, 100,179,277 nodes, "
+                 "**4 haplotypes** (CHM13, GRCh38, 2 recombinants). HG002 itself is **absent** — "
+                 "no circularity |")
     L.append(f"| chromosome | {c} component"
              + (f", {nodes:,} nodes" if nodes else "") + " |")
     L.append("| reads | 596,017,764 alignments genome-wide (~28.6×); 151 bp paired Illumina |")
@@ -402,13 +436,27 @@ def main() -> None:
              "from one read** at the old floor of 1e-8. The floor caps that veto; the current default "
              "is **0.02**.")
     L.append("")
-    L.append("The *upper* clamp (`--mismap-max`) looked inert on this graph, because it binds only "
-             "where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. "
-             "**That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was "
-             "overriding the mapper at exactly the sites that matter: 23.3% of reads sit at MAPQ 1, "
-             "meaning p(wrong) = 0.79, and were being told 0.1. Raising the default to **0.5** removed "
-             "94% of the excess false-positive SNVs. A clamp that is inert on a sparse graph is not "
-             "thereby harmless — see [tier2-chr20-hap32.md](tier2-chr20-hap32.md) and plan §9.20.")
+    if is_hap32:
+        L.append("The *upper* clamp (`--mismap-max`) **binds hard here**, and looked inert on the "
+                 "4-haplotype graph. There it reaches only reads whose `e_r` is already large — "
+                 "6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60 — so it appeared to be a "
+                 "knob with nothing to act on. On this graph 23.3% of reads sit at MAPQ 1, meaning "
+                 "p(wrong) = 0.79, and the old cap of 0.1 was telling the model 0.1: overriding the "
+                 "mapper at exactly the sites that matter. Raising it removed 94% of the excess "
+                 "false-positive SNVs, and the default is now **0.7**. A clamp that is inert on a "
+                 "sparse graph is not thereby harmless — see ")
+    else:
+        L.append("The *upper* clamp (`--mismap-max`) looks inert on this graph, because it binds "
+                 "only where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% "
+                 "at MAPQ 60. **That reading did not survive the 34-haplotype graph.** There the "
+                 "old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% "
+                 "of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising "
+                 "it removed 94% of the excess false-positive SNVs, and the default is now **0.7**. "
+                 "A clamp that is inert on a sparse graph is not thereby harmless.")
+    L.append("")
+    L.append(f"The two graphs are put side by side in "
+             f"[tier2-{c}-graph-comparison.md](tier2-{c}-graph-comparison.md); the grids are in "
+             "plan §9.20.")
     L.append("")
     L.append("| `readlik-z` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |")
     L.append("|---|---|---|---|---|---|")
@@ -443,7 +491,7 @@ def main() -> None:
     # default rather than pinned to a value. It was labelled "floor 0.01" for two default
     # changes after that stopped being true.
     for tag, label, src in [("readlik-z", "floor 1e-8, cap 0.1 (original defaults)", old),
-                            ("readlik-z", "**floor 0.02, cap 0.5 (current defaults)**", small),
+                            ("readlik-z", "**floor 0.02, cap 0.7 (current defaults)**", small),
                             ("fl0.05", "floor 0.05, cap 0.1", None),
                             ("mm0.2", "cap 0.2, floor 1e-8", None),
                             ("mm0.4", "cap 0.4, floor 1e-8", None)]:
@@ -451,9 +499,21 @@ def main() -> None:
         if row:
             L.append(row)
     L.append("")
-    L.append("Sweep rows other than the current one are historical: they were produced at the "
-             "defaults in force at the time and are kept because the comparison between them is the "
-             "result. The full grids are in plan §9.20-§9.21.")
+    if old:
+        L.append("Sweep rows other than the current one are historical: they were produced at the "
+                 "defaults in force at the time and are kept because the comparison between them is "
+                 "the result. The full grids are in plan §9.20-§9.21.")
+    else:
+        # The old-default arms were only ever preserved for the 4-haplotype runs, so on any other
+        # dataset this table has one row. Saying where the history is beats printing a single row
+        # under a caption that calls it a comparison -- and rows from two graphs must not share a
+        # table, which is the failure the one-build-per-matrix rule exists to prevent.
+        L.append("Only the current row is available here: the preserved old-default arms "
+                 "(`arms.floor-1e-8.json`, `arms.readlik-z.json`) exist for the 4-haplotype runs "
+                 f"alone, so the before-and-after is on "
+                 f"[tier2-{c}-4hap-results.md](tier2-{c}-4hap-results.md). Mixing rows from two "
+                 "graphs into one table is exactly what the one-build-per-matrix rule forbids. The "
+                 "full grids are in plan §9.20-§9.21.")
     if is_chr20:
         L.append("")
         L.append("Raising the floor off 1e-8 changed **1,493 genotypes (1.41%)** on chr20, of which "

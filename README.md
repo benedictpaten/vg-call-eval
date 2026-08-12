@@ -15,8 +15,9 @@ quantity it was to be fitted against cannot move. See [docs/tier2-parameters.md]
 
 | page | what it covers |
 |---|---|
-| [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full five-arm accuracy tables per chromosome, small variants and SVs |
-| [docs/tier2-chr20-hap32.md](docs/tier2-chr20-hap32.md), [docs/tier2-chr6-hap32.md](docs/tier2-chr6-hap32.md) | 4-haplotype against 34-haplotype graph, the same reads remapped |
+| [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | **start here** — the full six-arm accuracy tables per chromosome on the **34-haplotype** graph, small variants and SVs |
+| [docs/tier2-chr20-4hap-results.md](docs/tier2-chr20-4hap-results.md), [docs/tier2-chr6-4hap-results.md](docs/tier2-chr6-4hap-results.md) | the same tables on the 4-haplotype graph, kept as a thin-panel reference and as the home of the mismapping-clamp calibration history |
+| [docs/tier2-chr20-graph-comparison.md](docs/tier2-chr20-graph-comparison.md), [docs/tier2-chr6-graph-comparison.md](docs/tier2-chr6-graph-comparison.md) | the two graphs side by side, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, the size-gated depth discount behind it, and the filters that turned out not to help |
 | [docs/tier2-parameters.md](docs/tier2-parameters.md) | the caller's tuned parameters, re-swept twice: why `--mismap-max` moved to 0.7, why `--read-weight` was removed, and why `--mismap-min` stays at 0.02 even though the depth term dissolved the trade it was balancing |
 | [docs/tier2-depth-term.md](docs/tier2-depth-term.md) | the depth term, predicted offline and then built: `--depth-term` puts the read model ahead of both Poisson arms on all four datasets, and a read counts toward depth as `1 − e_r` rather than as one read |
@@ -93,8 +94,27 @@ Add `--vg-depthfix /path/to/patched/vg` to include the `poisson-depthfix` arm. T
 ## Tier 2
 
 Real HG002 reads against the GIAB draft benchmark on CHM13v2.0, run on a 32 GB laptop. Two
-chromosomes (chr20, chr6) × two graphs (4-haplotype, 34-haplotype) × five arms, scored against both
+chromosomes (chr20, chr6) × two graphs (4-haplotype, 34-haplotype) × six arms, scored against both
 the small-variant benchmark (aardvark) and the structural one (truvari).
+
+The **34-haplotype graph is the primary subject**: it is what the caller is tuned for, since both
+the linkage transition and the panel frequency prior are panel-size effects with little to work
+with on a thin panel, and it is the better-performing configuration. The 4-haplotype graph keeps
+its own pages as a thin-panel reference.
+
+| tier-2 arm | what it is |
+|---|---|
+| `poisson` | the current `vg call` default: Poisson genotyping, support enumeration |
+| `poisson-z` | Poisson genotyping, haplotype enumeration — isolates enumeration from the model |
+| `readlik` | read-level likelihoods, support enumeration — the like-for-like caller comparison |
+| `readlik-nomismap` | as `readlik` with `--no-mismap-term`, to price the mismapping term |
+| `readlik-z-nolink` | read-level likelihoods, haplotype enumeration, `--linkage-weight 0` |
+| `readlik-z` | the recommended configuration: as above with the linkage HMM at its defaults |
+
+The last two differ only in the HMM, so the gap between them is what the linkage layer contributes
+— about +0.010 of small-variant genotype F1 on the 34-haplotype graphs and +0.002 on the
+4-haplotype ones. It is a standing arm rather than a one-off measurement because `--linkage-weight`
+now defaults to 2, so without it nothing in the matrix would show the HMM's own contribution.
 
 ```bash
 # one contig, one graph: subgraph, node list, reference FASTA, truth slices, reads, pack
@@ -103,10 +123,15 @@ scripts/tier2/prep_contig.sh chr6 data/…HG002.gbz work/graph.gbz.db work/reads
 python3 scripts/tier2/run_arms.py    --contig chr6 --graph … --out work/tier2-chr6/results
 python3 scripts/tier2/truvari_sv.py  --contig chr6 --work  work/tier2-chr6 --label chr6-4hap
 python3 scripts/tier2/size_matched.py             --results work/tier2-chr6/results …
-# regenerate the pages
+# regenerate the pages: 34-hap (the default), 4-hap, then the side-by-side
 python3 scripts/tier2/report.py         --contig chr6
+python3 scripts/tier2/report.py         --contig chr6 \
+    --results work/tier2-chr6/results --out docs/tier2-chr6-4hap-results.md
 python3 scripts/tier2/compare_graphs.py --contig chr6
 ```
+
+`report.py` defaults to `work/tier2-<contig>-hap32/results` and titles the page from that path, so
+a page cannot be labelled with the wrong panel size. `refresh_all.sh` runs all three per contig.
 
 ### SV error forensics
 
