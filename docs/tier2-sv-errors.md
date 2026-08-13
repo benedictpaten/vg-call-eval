@@ -369,7 +369,8 @@ w_h = (U_h + R − 1) / Σ_{h'∈G} (U_{h'} + R − 1)
 
 with `U_h` the sequence `h` visits that the genotype's other allele does not. A SNV still
 gives exactly ½ — each side carries one base the other lacks — so the no-op property
-holds. This is what the default does; `--length-weight-whole-traversal` keeps the coarser
+holds. This is what the caller does, and now the only thing it does — there was briefly a
+`--length-weight-whole-traversal` flag for the coarser
 version for comparison.
 
 **Not monotonically better, which is worth stating.** Sharpening cuts what each interior

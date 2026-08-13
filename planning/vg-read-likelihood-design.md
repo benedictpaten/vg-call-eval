@@ -336,7 +336,7 @@ established in.
 |---|---|---|---|
 | `e_min` | `--mismap-min` | 0.02 | swept; interior optimum, and its old job is now the depth term's |
 | `e_max` | `--mismap-max` | 0.7 | swept 0.5→0.7; 0.5 clamps every read at MAPQ ≤ 3 to a coin flip |
-| `ω_i` | `--flat-mixture`, `--length-weight-whole-traversal` | unique content | §4.3a |
+| `ω_i` | `--flat-mixture` | unique content | §4.3a |
 | `w_d` | `--depth-term` | 0.1 | 4-hap graphs prefer 0.25, 34-hap prefer 0.1; unimodal, turns over above 0.25 |
 | `N_eff` | `--depth-count-raw` | effective | genotype-neutral; chosen for `DR`'s ranking power |
 | `c(s)` window | none — source's own fetch window | 4096 in practice | saturated by 4096; a fixed fallback covers sources without one |
@@ -438,7 +438,8 @@ explanation here.* That bounds how much any single read can penalise a genotype.
 
 > Sharpened again since: the weight counts sequence *unique* to each allele rather than whole
 > traversal length, and §4.0 states the shipped form. Whole traversal length is still available as
-> `--length-weight-whole-traversal`, and one thing found later explains part of why it underperforms:
+> `--length-weight-whole-traversal` (a flag since removed, the comparison being settled), and
+> one thing found later explains part of why it underperforms:
 > a traversal includes the snarl's two boundary anchors, which every allele shares, so counting them
 > inflates both alleles alike and pulls the weights back toward flat.
 

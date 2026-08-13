@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SUPERSEDED, AND NO LONGER RUNNABLE. This compared whole-traversal against unique-content
+# length weights. Unique content won, became the default, and the flags this script passes have
+# since been removed from vg: --length-weighted-mixture went when the weight became the default,
+# and --length-weight-whole-traversal went once the comparison was settled. Kept as the record of
+# how the measurement was run, not as something to run. The result is in
+# docs/tier2-sv-errors.md and in the set_unique_lengths comment in vg.
 # Call the read-likelihood arm under each mixture weight, timed, on one graph.
 #
 # Three arms per dataset:
