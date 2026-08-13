@@ -921,7 +921,15 @@ flanks can score differently against each allele purely from coordinate shifts. 
 comparison to the positions where alleles actually diverge removes that artifact at source. Cheap — it
 needs the alleles' divergence set, not any read realignment.
 
-**4. Bounded realignment, triggered rather than universal.** §5.3's escape hatch, made affordable by the
+**4. Bounded realignment, triggered rather than universal.** **Tried, twice, and abandoned — see
+§9.28 of [vg-call-eval-plan.md](vg-call-eval-plan.md).** A bounded shift and full BiWFA realignment
+were both built and reverted. The read-off is wrong constantly, but `AlleleReadLikelihoods`
+normalises each row by its own maximum, so any improvement common across a site's alleles is divided
+out; optimal alignment changes which allele a read prefers 40 times in 91,914. The paragraph below is
+left as written because its reasoning about *where* to spend effort was sound — it was the premise,
+that better alignment yields better genotypes, that failed.
+
+§5.3's escape hatch, made affordable by the
 concentration measured at tier 2: **the deficit lives in 0.7% of sites**. Realigning only where it
 matters — sites whose top-two genotypes are close, or whose alleles differ in length, or where reads
 show the poor-absolute-fit signature of (2) — costs ~1% of realigning everywhere. The objection that

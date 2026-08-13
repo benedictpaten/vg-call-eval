@@ -2618,6 +2618,69 @@ and §9.26 measured that exact population: on the rich graph, false SV calls hav
   recalibration of the whole quality against observed error rates, not a multiplicative
   discount. That is a larger piece of work and needs more than one sample to fit.
 
+### 9.28 Realigning reads to alleles: measured twice, abandoned, nothing kept
+
+The last untried idea from §5.3 of the design: the scorer does not align anything, it reads the
+mapper's alignment off against each allele, anchoring on shared nodes. Where read and allele do not
+share a node it compares base by base **from offset zero** and charges the length difference as one
+gap — exact for a substitution, wrong for a shift. A read whose indel sits three bases from where an
+allele spells it scores as a run of mismatches, and the overcharge falls on the allele the mapper did
+*not* pick. Two experiments, both reverted; **no code from either survives in vg**.
+
+**Bounded shift, charged as a gap** (`--shift-tolerance K`, since removed). Try offsets in `[−K, K]`
+and keep the best, paying `score_gap(|shift|)` so a shift has to earn itself. On chr20-34hap, `k` from
+0 to 16 moved small-variant genotype F1 by 0.0003 and structural F1 by one event, with SNV F1 flat.
+
+The instructive part was a counter: **25,429,073 branch hits, 6,272,007 where a non-zero shift won,
+48 genotypes changed.** The correction fires constantly and the answer does not move, and the reason
+is structural rather than incidental. `AlleleReadLikelihoods` normalises each row by its own maximum,
+because the scoring yields `ln P(read | allele)` only up to a per-read constant — so any improvement
+*common across a site's alleles* is divided out by construction, and a read misplaced by three bases
+is misplaced by three bases against every allele. **Only allele-differential improvement can change a
+genotype.**
+
+**Full BiWFA realignment** (environment-gated, never committed). At sites whose alleles differ in
+length, realign every read that spans the site against every allele, take the CIGAR, and rescore it
+with `EditAlignmentScorer` so the scale and the base qualities survive. One site in eleven: 3,578
+sites, 110,340 pairwise alignments. Every metric unchanged to four decimals — small-variant GT
+0.9645 → 0.9646, SV F1 0.4944 → 0.4944, recall 0.4902 → 0.4902 — and four genotypes changed in
+105,251.
+
+The mechanism: **of 91,914 realigned reads, 40 changed which allele they prefer.** Optimal alignment
+and the mapper's inherited alignment rank the alleles identically 99.96% of the time. Ranking is the
+only thing that survives normalisation, so 40 flips is the entire available effect.
+
+#### Two ways to make it look like it works
+
+Both were hit on the way to that number, and both produce a large apparent effect.
+
+- **Free ends on the allele.** Aligning the read's overlapping portion against the whole allele with
+  both allele ends free is a *local* alignment: the aligner slides the read to wherever it matches
+  best, so a read from inside a deletion finds a home in the long allele. It changed 29 genotypes in
+  418 sites — thirty-five times the shift-tolerance rate — and scored **worse**: SV F1 −0.0109,
+  recall −0.0065. A strong signal, pointing the wrong way, from the setup rather than the idea.
+- **Realigning partial reads**, which means aligning a fragment that can be a handful of bases with
+  no defined correspondence to the allele's sequence. Requiring the read to be anchored at **both**
+  boundary nodes makes its interior bases and the allele's interior sequence the same span, which is
+  what licenses end-to-end alignment with no free-end parameter at all.
+
+The general lesson: an experiment that lets the aligner choose *where* to align will always improve
+the score, and improving the score was never the objective.
+
+#### Incidental, for whoever tries this next
+
+The vendored `libwfa2.a` contains the **C library only** — `wfa::WFAlignerGapAffine` does not link,
+so the C API is required — and the WFA headers are not on vg's include path. More to the point,
+`wavefront_memory_ultralow`, BiWFA proper, **aborts on ends-free**: `[WFA] BiWFA ends-free has not
+been tested properly yet`. That did not bite, because end-to-end is the correct configuration anyway.
+
+#### The caveat on the null
+
+This tests reads that span a site, which is the population where the read-off is most constrained and
+has least room to be wrong. Partial reads at large sites are untested, and are exactly where the
+first, flawed attempt showed active harm. The honest statement is that realignment does not help
+where it is well-posed, and is unsafe where it is not.
+
 ---
 
 ## Appendix B. Claims made here and later withdrawn
@@ -2638,6 +2701,8 @@ quoting anything from the log.
 | Allele balance does not separate true from false calls | §9.25 draft | **Wrong, and premature.** It came from comparing medians on n = 339. Fitted properly it has AUC 0.733 alone. The user's instinct was right |
 | Coverage signals give "under 0.005 of precision" | §9.25 | **Same data, misleading units.** Quoted as precision it looks like nothing; as surviving false calls at matched recall it is a 44–58% reduction (§9.26) |
 | A length-aware prior on expected reads per allele | §9.25 plan | **Refuted by measurement.** True het ALT share is 0.50 in every length class from 0 bp to 1 kb+; scored against the geometric prior, true SV calls rank worse than chance (§9.26) |
+| The inherited alignment is a live defect worth fixing with realignment | §5.3, §5.3.1 of the design | **Measured and abandoned.** The read-off is wrong constantly — a bounded shift improves 6.3M scores — but improvements common across a site's alleles are divided out by the row normalisation. Optimal alignment changes which allele a read prefers 40 times in 91,914 (§9.28) |
+| Realignment costs SV F1 (−0.0109) and recall (−0.0065) | §9.28, first attempt | **An artefact of the setup.** Free ends on the allele made it a local alignment, dissolving the evidence that calls deletions. Restricted to spanning reads with end-to-end alignment the effect vanishes rather than reversing (§9.28) |
 
 Two methodological errors worth the same treatment, since both produced confident wrong answers:
 
