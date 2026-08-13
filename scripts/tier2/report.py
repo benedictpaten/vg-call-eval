@@ -62,6 +62,37 @@ META = {
 }
 
 
+def caller_clamp_defaults(vg: str | None = None) -> tuple[str, str]:
+    """(--mismap-min, --mismap-max) as `vg call` currently defaults them.
+
+    Parsed from the help text's trailing `[value]` rather than kept as a literal here. The
+    literal version of this went stale silently: the cap moved 0.5 -> 0.7 and every generated
+    page went on claiming the arms ran at 0.5, which is precisely the kind of drift between
+    what a run did and what the page says it did that this harness exists to catch. Falls back
+    to the last known values if the binary is absent, so a page can still be built without it.
+    """
+    import re
+    import subprocess
+
+    fallback = ("0.02", "0.7")
+    exe = vg or str(Path.home() / "CLionProjects/vg/bin/vg")
+    try:
+        help_text = subprocess.run([exe, "call", "--help"], capture_output=True,
+                                   text=True, timeout=60).stderr
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    found = {}
+    for flag in ("mismap-min", "mismap-max"):
+        # The default sits in [brackets] at the end of a multi-line option description, so
+        # scan from the flag to the next option rather than to the end of its first line.
+        m = re.search(rf"--{flag}\b.*?\[([0-9.]+)\]", help_text, re.S)
+        if m:
+            found[flag] = m.group(1)
+    if len(found) != 2:
+        return fallback
+    return found["mismap-min"], found["mismap-max"]
+
+
 def load_merged(res: Path, pattern: str) -> dict[str, dict]:
     by_name: dict[str, dict] = {}
     for f in sorted(res.glob(pattern), key=lambda f: f.stat().st_mtime):
@@ -218,9 +249,14 @@ def main() -> None:
     L.append("| engine | `aardvark compare` for small variants; `truvari bench --sizemin 50` "
              "for SVs |")
     L.append("")
-    L.append("**All read-likelihood arms below run at the current clamp defaults, "
-             "`--mismap-min 0.02` and `--mismap-max 0.5`.** The floor caps how much one read can veto "
-             "an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by "
+    # Read the clamps off the binary rather than restating them. The arms pass no clamp flags,
+    # so "the current defaults" is true by construction -- but the *values* drift, and this
+    # sentence sat at 0.5 for as long as the real default was 0.7, silently mis-describing how
+    # every arm on all four pages had been run.
+    lo, hi = caller_clamp_defaults()
+    L.append(f"**All read-likelihood arms below run at the current clamp defaults, "
+             f"`--mismap-min {lo}` and `--mismap-max {hi}`.** The floor caps how much one read can "
+             "veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by "
              "measurement — the floor from 1e-8, the cap down from an original 0.1 that was actively "
              "wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. "
              "`poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.")
