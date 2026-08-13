@@ -120,7 +120,7 @@ def main() -> None:
             sup[f[0]] = (int(f[2]), float(f[3]), [float(x) for x in f[4].split(",")])
 
     bd = {}
-    with gzip.open(W / "results/aardvark-readlik-z/query.vcf.gz", "rt") as fh:
+    with gzip.open(W / "results/aardvark-readlik/query.vcf.gz", "rt") as fh:
         for line in fh:
             if line.startswith("#"):
                 continue
@@ -132,7 +132,7 @@ def main() -> None:
                 bd[int(f[1])] = v
 
     q = subprocess.run(["bcftools", "query", "-f", "%POS\t%ID\t%REF\t%ALT[\t%GT\t%GQ\t%DP]\n",
-                        str(W / "results/readlik-z.vcf.gz")], capture_output=True, text=True)
+                        str(W / "results/readlik.vcf.gz")], capture_output=True, text=True)
     feats, ys = [], []
     for line in q.stdout.splitlines():
         f = line.split("\t")

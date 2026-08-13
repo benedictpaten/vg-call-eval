@@ -2,13 +2,13 @@
 """Why the 34-haplotype graph emits more false structural variants at the same true yield.
 
 The framing matters, because the summary number is misleading. Going 4-hap -> 34-hap,
-`readlik-z` loses 0.034 to 0.056 structural-variant F1 -- but recall is flat on chr6
+`readlik` loses 0.034 to 0.056 structural-variant F1 -- but recall is flat on chr6
 (-0.005) and *better* on chr20 (+0.005). True positives barely move (852 -> 844,
 376 -> 380) while false positives rise 35-52% (625 -> 949, 351 -> 476). So the question is
 not "is it worse at finding structural variants" but "why does it emit more false ones".
 
 And it is not the genotyper: every arm loses roughly the same amount, and on chr20
-`readlik-z` loses the least of the five. Whatever this is lives in the graph-and-alignment
+`readlik` loses the least of the five. Whatever this is lives in the graph-and-alignment
 substrate. This script therefore measures the *population* of false calls rather than
 comparing callers.
 
@@ -154,7 +154,7 @@ def med(xs):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arm", default="readlik-z")
+    ap.add_argument("--arm", default="readlik")
     args = ap.parse_args()
 
     data = {}

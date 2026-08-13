@@ -57,7 +57,7 @@ run() {
     echo "  $(bcftools index -n "${out}.gz") records"
 }
 
-# readlik-z: haplotype enumeration, no pack. poisson-z: haplotype enumeration, needs pack.
+# readlik: haplotype enumeration, no pack. poisson-z: haplotype enumeration, needs pack.
 for spec in \
     "tier2-chr20        chr20 graph.gbz.db        reads.gaf.db" \
     "tier2-chr20-hap32  chr20 graph.hap32.gbz.db  reads.hap32.gaf.db" \
@@ -66,7 +66,7 @@ for spec in \
 ; do
     set -- $spec
     ds=$1 contig=$2 gbzdb=$3 gafdb=$4
-    run "$ds" "$contig" "$gbzdb" "$gafdb" readlik-z \
+    run "$ds" "$contig" "$gbzdb" "$gafdb" readlik \
         --read-likelihood -z --gaf-base "$REPO/work/$gafdb" --gbz-base "$REPO/work/$gbzdb" \
         --gaf-base-binary "$GBZ_BASE_BIN"
     run "$ds" "$contig" "$gbzdb" "$gafdb" poisson-z \

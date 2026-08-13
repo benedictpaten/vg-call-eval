@@ -65,7 +65,7 @@ def split_multiallelic(src: Path, dst: Path, reference: Path) -> None:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--work", required=True)
-    p.add_argument("--arms", nargs="*", default=["poisson-z", "readlik-z"])
+    p.add_argument("--arms", nargs="*", default=["poisson-z", "readlik"])
     p.add_argument("--label", required=True)
     p.add_argument("--truvari", default=str(VENV_TRUVARI))
     p.add_argument("--sizemin", type=int, default=50)

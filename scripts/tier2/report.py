@@ -28,8 +28,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap",
-             "readlik-z-nolink", "readlik-z"]
+ARM_ORDER = ["poisson", "poisson-z", "readlik-support", "readlik-nomismap",
+             "readlik-nolink", "readlik"]
 
 # The mismapping floor (--mismap-min) went 1e-8 -> 0.01 -> 0.05 -> 0.02, and the cap
 # (--mismap-max) 0.1 -> 0.5 -> 0.7; the current defaults are 0.02 and 0.7. Arms run at the older
@@ -37,9 +37,9 @@ ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap",
 # *is* the result. poisson and poisson-z do not use the read-likelihood model at all, so
 # neither clamp can reach them and they are not re-run.
 FLOOR_UNAFFECTED = {"poisson", "poisson-z"}
-CALIB_ARMS = [("fl0.05", "readlik-z, floor 0.05"),
-              ("mm0.2", "readlik-z, cap 0.2"),
-              ("mm0.4", "readlik-z, cap 0.4")]
+CALIB_ARMS = [("fl0.05", "readlik, floor 0.05"),
+              ("mm0.2", "readlik, cap 0.2"),
+              ("mm0.4", "readlik, cap 0.4")]
 
 SMALL_TYPES = [("Snv", "SNV"), ("Insertion", "Insertion (<50 bp)"),
                ("Deletion", "Deletion (<50 bp)"), ("Indel", "Indel"),
@@ -48,13 +48,17 @@ SV_TYPES = [("SvInsertion", "SV insertion (>=50 bp)"),
             ("SvDeletion", "SV deletion (>=50 bp)"),
             ("JointStructuralVariant", "SV (joint)")]
 
+# Enumeration source, and whether the arm needs a pack file. The two callers reach panel
+# enumeration by different routes and the labels say which: `-z` where the flag is what
+# selects it, "default" where the caller now does it unasked. Only readlik-support carries a
+# flag to get support enumeration, because for that caller support is no longer the default.
 META = {
     "poisson": ("support (Flow)", "yes"),
-    "poisson-z": ("haplotype (`-z`)", "yes"),
-    "readlik": ("support (Flow)", "yes"),
-    "readlik-nomismap": ("support (Flow)", "yes"),
-    "readlik-z-nolink": ("haplotype (`-z`)", "**no**"),
-    "readlik-z": ("haplotype (`-z`)", "**no**"),
+    "poisson-z": ("panel (`-z`)", "yes"),
+    "readlik-support": ("support (`--enumerate-support`)", "yes"),
+    "readlik-nomismap": ("panel (default)", "**no**"),
+    "readlik-nolink": ("panel (default)", "**no**"),
+    "readlik": ("panel (default)", "**no**"),
 }
 
 
@@ -135,7 +139,7 @@ def main() -> None:
     # small-variant ones (same arm names, newer mtime). Load the small-variant batches
     # explicitly instead.
     old = load_merged(res, "arms.floor-1e-8.json")
-    old.update(load_merged(res, "arms.readlik-z.json"))
+    old.update(load_merged(res, "arms.readlik.json"))
     # Current results: all five arms re-run together at the present defaults, so the
     # wall-clock column compares runs made on the same machine in the same session.
     # arms.floor-0.01.json is the earlier re-run at the new floor and has the same
@@ -235,9 +239,9 @@ def main() -> None:
     L.append("")
     L.append("Two changes since the accuracy results were first produced left the calls untouched. "
              "The read path was optimised (vg `44fd008`)" +
-             (" — on chr20 `readlik-z` went **506 s to under 100 s**, so the read-likelihood caller "
+             (" — on chr20 `readlik` went **506 s to under 100 s**, so the read-likelihood caller "
               "is now near parity with the Poisson caller at matched enumeration rather than 5.9x, "
-              "and `readlik` is *faster* than `poisson`" if is_chr20 else "") +
+              "and `readlik-support` is *faster* than `poisson`" if is_chr20 else "") +
              ". Then `AD`, `BL`, `GQI` and the explained-share scaling of `GQ` were added — which "
              "rescales a quality and does not change a genotype. Both are confirmed by the variant "
              "counts below, which are unchanged to the record.")
@@ -298,13 +302,13 @@ def main() -> None:
                  "scored correct.")
         L.append("")
         if is_chr20:
-            L.append("That is exactly where the gap lives. 246 `readlik-z` calls carry a >=200 bp "
+            L.append("That is exactly where the gap lives. 246 `readlik` calls carry a >=200 bp "
                      "insertion allele; they contribute **27,951 FP bases and zero TP bases**, which "
                      "is the whole of the precision difference. The Poisson caller scores better "
                      "there because it does not emit them — at the two largest sites it emits "
                      "nothing at all.")
         else:
-            L.append("The same mechanism was traced site by site on chr20, where 246 `readlik-z` "
+            L.append("The same mechanism was traced site by site on chr20, where 246 `readlik` "
                      "calls carrying a >=200 bp insertion allele contribute 27,951 FP bases and zero "
                      "TP bases — the whole of the precision difference there. The size-matched "
                      "control below is the general test.")
@@ -315,7 +319,7 @@ def main() -> None:
         L.append("")
         L.append("| arm | class | BP recall | BP precision | **BP F1** |")
         L.append("|---|---|---|---|---|")
-        for label in ("sm50-poisson-z", "sm50-readlik-z"):
+        for label in ("sm50-poisson-z", "sm50-readlik"):
             if label not in sized:
                 continue
             rows = sized[label]["metrics"]["summary"]
@@ -334,18 +338,18 @@ def main() -> None:
         gap_un = None
         up = pick(small.get("poisson-z", {}).get("metrics", {}).get("summary", []),
                   "BASEPAIR", "Insertion")
-        ur = pick(small.get("readlik-z", {}).get("metrics", {}).get("summary", []),
+        ur = pick(small.get("readlik", {}).get("metrics", {}).get("summary", []),
                   "BASEPAIR", "Insertion")
         if up and ur:
             gap_un = (num(up, "metric_precision") or 0) - (num(ur, "metric_precision") or 0)
-        gp, gr = _sm("sm50-poisson-z", "metric_precision"), _sm("sm50-readlik-z", "metric_precision")
+        gp, gr = _sm("sm50-poisson-z", "metric_precision"), _sm("sm50-readlik", "metric_precision")
         gap_sm = (gp - gr) if (gp is not None and gr is not None) else None
-        fp_, fr_ = _sm("sm50-poisson-z", "metric_f1"), _sm("sm50-readlik-z", "metric_f1")
+        fp_, fr_ = _sm("sm50-poisson-z", "metric_f1"), _sm("sm50-readlik", "metric_f1")
         if gap_un is not None and gap_sm is not None:
             L.append(f"The insertion BASEPAIR precision gap collapses from **{gap_un:.3f} to "
                      f"{gap_sm:.3f}**"
                      + (f", and insertion BASEPAIR F1 goes from {fp_:.4f} for `poisson-z` against "
-                        f"{fr_:.4f} for `readlik-z`" if (fp_ and fr_) else "") + ".")
+                        f"{fr_:.4f} for `readlik`" if (fp_ and fr_) else "") + ".")
         L.append("There is no insertion-sequence defect in the likelihood model; what the "
                  "unrestricted number measures is that one caller emits large insertions and the "
                  "other does not.")
@@ -458,7 +462,7 @@ def main() -> None:
              f"[tier2-{c}-graph-comparison.md](tier2-{c}-graph-comparison.md); the grids are in "
              "plan §9.20.")
     L.append("")
-    L.append("| `readlik-z` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |")
+    L.append("| `readlik` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |")
     L.append("|---|---|---|---|---|---|")
     def calib_row(tag: str, label: str, from_json: dict | None = None) -> str | None:
         """Build one calibration row.
@@ -466,7 +470,7 @@ def main() -> None:
         Sweep arms were produced by ad-hoc scripts and have no arms*.json entry, so their
         aardvark output directory is the only record. The old-default rows are the
         exception and must come from the preserved JSON instead: re-running at the new
-        default **overwrote** `aardvark-readlik-z/`, so reading that directory would
+        default **overwrote** `aardvark-readlik/`, so reading that directory would
         silently report the new numbers under the old label -- which is exactly the
         before/after comparison this table exists to make.
         """
@@ -490,8 +494,8 @@ def main() -> None:
     # `small` is whatever the arms were last run at, so it must be labelled as the current
     # default rather than pinned to a value. It was labelled "floor 0.01" for two default
     # changes after that stopped being true.
-    for tag, label, src in [("readlik-z", "floor 1e-8, cap 0.1 (original defaults)", old),
-                            ("readlik-z", "**floor 0.02, cap 0.7 (current defaults)**", small),
+    for tag, label, src in [("readlik", "floor 1e-8, cap 0.1 (original defaults)", old),
+                            ("readlik", "**floor 0.02, cap 0.7 (current defaults)**", small),
                             ("fl0.05", "floor 0.05, cap 0.1", None),
                             ("mm0.2", "cap 0.2, floor 1e-8", None),
                             ("mm0.4", "cap 0.4, floor 1e-8", None)]:
@@ -509,7 +513,7 @@ def main() -> None:
         # under a caption that calls it a comparison -- and rows from two graphs must not share a
         # table, which is the failure the one-build-per-matrix rule exists to prevent.
         L.append("Only the current row is available here: the preserved old-default arms "
-                 "(`arms.floor-1e-8.json`, `arms.readlik-z.json`) exist for the 4-haplotype runs "
+                 "(`arms.floor-1e-8.json`, `arms.readlik.json`) exist for the 4-haplotype runs "
                  f"alone, so the before-and-after is on "
                  f"[tier2-{c}-4hap-results.md](tier2-{c}-4hap-results.md). Mixing rows from two "
                  "graphs into one table is exactly what the one-build-per-matrix rule forbids. The "
@@ -534,7 +538,7 @@ def main() -> None:
     L.append("Neither benchmark scores these, so they appear in no metric on this page. They are "
              "recorded because they are plainly wrong and would mislead anyone reading the VCF.")
     L.append("")
-    L.append("`readlik-z` emits a small number of enormous homozygous insertions in and around the "
+    L.append("`readlik` emits a small number of enormous homozygous insertions in and around the "
              "chr20 pericentromere, at depths that are physically impossible:")
     L.append("")
     L.append("| position | called insertion | GT | DP | GQ |")

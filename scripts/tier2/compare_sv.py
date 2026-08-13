@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from vgcalleval.engines import aardvark  # noqa: E402
 
-ARMS = ["poisson", "poisson-z", "readlik", "readlik-nomismap", "readlik-z"]
+ARMS = ["poisson", "poisson-z", "readlik-support", "readlik-nomismap", "readlik"]
 
 
 def sv_counts(vcf: Path) -> dict:

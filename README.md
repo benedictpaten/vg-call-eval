@@ -87,9 +87,9 @@ Add `--vg-depthfix /path/to/patched/vg` to include the `poisson-depthfix` arm. T
 |---|---|
 | `poisson` | the current default, as shipped |
 | `poisson-depthfix` | with the `depth_err` one-liner patched. **Verified byte-identical output** - that bug is inert, since its only consumer in the likelihood is commented out. Retained as a control: if this arm ever diverges from `poisson`, someone has re-enabled the depth term. |
-| `readlik` | the read-level likelihood caller |
+| `readlik` | the read-level likelihood caller, as shipped: panel enumeration from the GBZ, no pack file |
 | `readlik-nomismap` | `--no-mismap-term`, to measure what the mismapping term contributes |
-| `readlik-gbwt-nopack` | `-z` haplotype enumeration with no pack file |
+| `readlik-support` | `--enumerate-support`, holding enumeration constant against `poisson` so the comparison isolates the genotyping model |
 
 ## Tier 2
 

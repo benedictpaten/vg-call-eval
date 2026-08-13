@@ -8,7 +8,7 @@ what each gap is made of.
 
 **Both are now largely answered, and the answers are different in kind.** The first was a
 model defect and is fixed: the flat mixture weight, then the missing depth term, and
-`readlik-z` is now ahead of both Poisson arms on all four datasets. The second is mostly
+`readlik` is now ahead of both Poisson arms on all four datasets. The second is mostly
 *not* the caller — at matched sensitivity, with records that are not structural variants
 excluded, the 34-haplotype precision penalty is 0.021 on chr6 and zero on chr20. Along the
 way the SV numbers themselves turned out to understate the caller by about a tenth of an F1
@@ -30,14 +30,14 @@ the metric rather than the caller.
 
 Where that leaves the arms, structural-variant F1 on the current build:
 
-| dataset | `poisson` | `poisson-z` | `readlik` | `readlik-z` |
+| dataset | `poisson` | `poisson-z` | `readlik-support` | `readlik` |
 |---|---|---|---|---|
 | chr20-4hap | **0.4954** | 0.4930 | 0.4938 | 0.4907 |
 | chr20-34hap | 0.4535 | 0.4391 | 0.4569 | **0.4574** |
 | chr6-4hap | 0.5490 | 0.5478 | 0.5464 | **0.5532** |
 | chr6-34hap | **0.4944** | 0.4881 | 0.4856 | 0.4896 |
 
-`readlik-z` now leads on two of four and beats `poisson-z` on three of four, where before the
+`readlik` now leads on two of four and beats `poisson-z` on three of four, where before the
 change it lost on all four. Small-variant genotype F1 moved by at most 0.0001 on any arm or
 dataset. The residual — the Poisson caller still led on heterozygous deletions above 1 kb,
 0.79–0.84 against 0.44 — is the part that needed a depth term rather than a better mixture.
@@ -66,7 +66,7 @@ That term was built and is now the default; see [tier2-depth-term.md](tier2-dept
 
 ### The deficit is heterozygous deletions
 
-Net truth SVs recovered by `poisson-z` and not `readlik-z`, minus the reverse,
+Net truth SVs recovered by `poisson-z` and not `readlik`, minus the reverse,
 decomposed by class:
 
 | dataset | net deficit | het DEL ≥300 | het DEL <300 | hom DEL | INS |
@@ -83,7 +83,7 @@ more than all of that back on heterozygous deletions.
 
 Deletion recall, chr6-4hap and chr20-4hap pooled:
 
-| bin | `poisson-z` het | `readlik-z` het | `poisson-z` hom | `readlik-z` hom |
+| bin | `poisson-z` het | `readlik` het | `poisson-z` hom | `readlik` hom |
 |---|---|---|---|---|
 | 50–99 | 0.486 | 0.439 | 0.722 | 0.709 |
 | 100–299 | 0.438 | 0.383 | 0.680 | 0.653 |
@@ -97,21 +97,29 @@ So the failure needs *all three* of: a deletion, heterozygous, and long. Homozyg
 deletions of the same size are called normally. Across the two 4-haplotype datasets the
 read model recovers 6 of 94 large heterozygous deletions against the Poisson caller's 63.
 
+> **Arm definitions changed after these numbers were measured.** `--read-likelihood` now
+> enumerates from the GBZ haplotype panel by default (harness plan §9.29), and
+> `readlik-nomismap` moved to panel enumeration with it so that it stays a one-variable
+> ablation against `readlik`. Every `readlik-nomismap` figure below was measured under
+> *support* enumeration and is not comparable to one carrying that name today. The other
+> arms' commands are unchanged; only their names moved (`readlik-z` → `readlik`, old
+> `readlik` → `readlik-support`), and those were checked byte-identical before renaming.
+
 ### What it is not
 
-- **Not the mismapping term.** `readlik` 0.194, `readlik-nomismap` 0.181, `readlik-z`
+- **Not the mismapping term.** `readlik-support` 0.194, `readlik-nomismap` 0.181, `readlik`
   0.194 on chr6-4hap DEL 1k+ — all three read arms collapse identically, including the
   one with the term disabled.
 - **Not enumeration.** `poisson-z` uses the same `-z` haplotype enumeration and scores
   0.861. Both Poisson arms are fine; all three read arms are not. The split is exactly
   along the genotyper.
 - **Not representation.** After `truvari refine` re-aligns the candidate regions with
-  MAFFT, chr6-4hap het DEL 1k+ is `poisson-z` 0.836 against `readlik-z` **0.066** —
-  unchanged. Meanwhile refine moves het insertions the other way (`readlik-z` 0.708
+  MAFFT, chr6-4hap het DEL 1k+ is `poisson-z` 0.836 against `readlik` **0.066** —
+  unchanged. Meanwhile refine moves het insertions the other way (`readlik` 0.708
   against 0.667 at 1k+).
 
 At the record level the caller simply emits nothing. At chr6:19547689, a 1041 bp
-heterozygous deletion, `poisson-z` emits `dlen −1041, GT 1/0, DP 23`; `readlik-z`
+heterozygous deletion, `poisson-z` emits `dlen −1041, GT 1/0, DP 23`; `readlik`
 emits no record within 2 kb. Same graph, same enumeration.
 
 ### The mechanism: interior reads outvote junction reads
@@ -169,7 +177,7 @@ called with the wrong zygosity is still a true positive. Reading only recall the
 hides the mirror image of the deletion failure. Genotype concordance among *matched*
 heterozygous SVs, chr6-4hap:
 
-| class | `poisson-z` | `readlik-z` |
+| class | `poisson-z` | `readlik` |
 |---|---|---|
 | INS 50–99 het | 0.887 | 0.826 |
 | INS 100–299 het | 0.831 | 0.787 |
@@ -186,7 +194,7 @@ same `ln 2` against the homozygous-ALT genotype that interior reads pay against 
 homozygous long allele at a deletion. Same mechanism, mirrored, and it scales with
 insertion length in the same way.
 
-(The deletion rows read well for `readlik-z` only through survivorship: at 1k+ just 4
+(The deletion rows read well for `readlik` only through survivorship: at 1k+ just 4
 heterozygous deletions are matched at all, so their concordance is not a measurement.)
 
 **This changes what a fix has to do.** The defect is not about deletions. It is about
@@ -203,7 +211,7 @@ lowering `--mismap-min` should raise the break-even length — 701 bp at the shi
 1354 bp at 1e-3, 1853 bp at 1e-4 — and should move **heterozygous deletions only**,
 leaving insertions untouched.
 
-Re-calling chr6-4hap `readlik-z` at each setting:
+Re-calling chr6-4hap `readlik` at each setting:
 
 | `--mismap-min` | predicted break-even | het DEL 1k+ recall | overall SV F1 | TP-base | FP |
 |---|---|---|---|---|---|
@@ -221,7 +229,7 @@ names and nothing else.
 unreliable any read may be, and lowering it by two orders of magnitude lets a single
 misaligned read veto a genotype; false positives rise from 613 to 672 here, and the
 effect on small variants has not been measured. It closes about a third of the
-heterozygous-deletion gap and buys +0.011 SV F1, which brings `readlik-z` to within
+heterozygous-deletion gap and buys +0.011 SV F1, which brings `readlik` to within
 0.0015 of `poisson-z` — enough to confirm the mechanism, not enough to be the fix.
 
 ### Testing the maximum in place of the mixture
@@ -444,7 +452,7 @@ the second independent reason to want it after the `BL` sign reversal.
 
 Sizing the prize: on chr6-4hap, het deletions cost the read model 87 truth records
 while insertions gain it 34. Bringing heterozygous deletions merely to parity would move
-`readlik-z` from 57 behind to about 30 ahead, and it already has the better precision.
+`readlik` from 57 behind to about 30 ahead, and it already has the better precision.
 
 **One tooling gap this ran into.** `--dump-likelihoods` records `rel(read, allele)`
 columns with no allele length, sequence or traversal, and the column order does *not*
@@ -463,29 +471,29 @@ The summary reads as "the same errors plus more". It is not.
 | contig | arm | 4-hap FP | 34-hap FP | carried over | new | 4-hap FP that **vanish** | new with no truth candidate |
 |---|---|---|---|---|---|---|---|
 | chr6 | `poisson-z` | 689 | 1027 | 464 | 563 | 240 | 264 |
-| chr6 | `readlik-z` | 608 | 968 | 398 | 570 | 222 | 234 |
+| chr6 | `readlik` | 608 | 968 | 398 | 570 | 222 | 234 |
 | chr20 | `poisson-z` | 369 | 531 | 236 | 295 | 138 | 149 |
-| chr20 | `readlik-z` | 342 | 488 | 204 | 284 | 143 | 122 |
+| chr20 | `readlik` | 342 | 488 | 204 | 284 | 143 | 122 |
 
-For `readlik-z` on chr6 the net is +360, but that is 570 arriving and 222 leaving. Only
+For `readlik` on chr6 the net is +360, but that is 570 arriving and 222 leaving. Only
 two-thirds of the 4-haplotype false calls survive the graph change. The 34-haplotype run
 is not a degraded 4-haplotype run; it is a different experiment, which is what the
 "graph and alignments move together" caveat on the hap32 pages means in practice.
 
 The new false calls are disproportionately ones with **no truth candidate anywhere in
-the chunk** — 41% of new chr6 `readlik-z` FPs, against 19% of the 4-haplotype set.
+the chunk** — 41% of new chr6 `readlik` FPs, against 19% of the 4-haplotype set.
 That is the signature of calls at loci the benchmark says nothing about, which is
 consistent with 32 extra recombinant haplotypes offering alleles the draft benchmark
 never characterised, and equally consistent with them being wrong. This data cannot
 separate those.
 
 Enumeration is a minority of it. Going 4-hap → 34-hap on chr6, false positives rise by
-276 for `readlik` (pack traversal) and 371 for `readlik-z` (GBWT enumeration), so
+276 for `readlik-support` (pack traversal) and 371 for `readlik` (GBWT enumeration), so
 haplotype enumeration accounts for about 95 and the graph-plus-alignment change for the
 other 276.
 
 **The shipped `GQ` discount is aimed at exactly this population.** Median explained
-share for `readlik-z` SV calls on chr6:
+share for `readlik` SV calls on chr6:
 
 | | true | false |
 |---|---|---|
@@ -498,11 +506,11 @@ Separation is much stronger on the rich graph, which is why the share discount b
 ### What the extra false calls are — measured, and the earlier answer refuted
 
 Re-asked against the refreshed arms with `hap32_precision.py`. The framing has to change
-first: **the loss is entirely precision.** `readlik-z` recall is 0.5507 → 0.5456 on chr6
+first: **the loss is entirely precision.** `readlik` recall is 0.5507 → 0.5456 on chr6
 and 0.4915 → **0.4967** on chr20, with true positives essentially flat (852 → 844,
 376 → 380) while false positives rise 35–52%. The richer graph finds the same events and
 adds false ones. It is also **not the genotyper**: all five arms lose 0.034–0.063 F1, and
-on chr20 `readlik-z` loses the *least* of the five.
+on chr20 `readlik` loses the *least* of the five.
 
 **A third of the inflation is records that are not structural variants.** Splitting false
 positives by whether `|ALT| = |REF|`:
@@ -554,7 +562,7 @@ linkage the single traversal asserted. The cheaper and more honest fix is on the
 side — these are not structural variants by any definition, and truvari sizing them by span
 is the actual error. The branch was measured and deleted; this table is the record.
 
-**Most of the rest is the cost of scoring unfiltered.** Layered, `readlik-z` precision:
+**Most of the rest is the cost of scoring unfiltered.** Layered, `readlik` precision:
 
 | | chr6 4-hap → 34-hap | gap | chr20 4-hap → 34-hap | gap |
 |---|---|---|---|---|
@@ -612,7 +620,7 @@ it cannot separate those two. Unresolved, and the honest bound rather than a cla
 ### Near-miss accounting
 
 Truvari annotates every false positive with the best candidate it considered and
-rejected, so this needs no new alignment. For `readlik-z`:
+rejected, so this needs no new alignment. For `readlik`:
 
 | dataset | FP | placement | consumed | dissimilar | no candidate |
 |---|---|---|---|---|---|
@@ -670,13 +678,13 @@ it in whichever direction it runs.
 | dataset | arm | `--refdist` 500 | 1000 | 2000 | `truvari refine` |
 |---|---|---|---|---|---|
 | chr6-4hap | `poisson-z` | 0.5478 | 0.5631 | 0.5748 | 0.6078 |
-| chr6-4hap | `readlik-z` | 0.5349 | 0.5465 | 0.5567 | **0.6300** |
+| chr6-4hap | `readlik` | 0.5349 | 0.5465 | 0.5567 | **0.6300** |
 | chr6-34hap | `poisson-z` | 0.4881 | 0.5013 | 0.5098 | 0.5497 |
-| chr6-34hap | `readlik-z` | 0.4724 | 0.4847 | 0.4929 | **0.5621** |
+| chr6-34hap | `readlik` | 0.4724 | 0.4847 | 0.4929 | **0.5621** |
 | chr20-4hap | `poisson-z` | 0.4930 | 0.5117 | 0.5210 | **0.5722** |
-| chr20-4hap | `readlik-z` | 0.4824 | 0.4969 | 0.5065 | 0.5609 |
+| chr20-4hap | `readlik` | 0.4824 | 0.4969 | 0.5065 | 0.5609 |
 | chr20-34hap | `poisson-z` | 0.4391 | 0.4463 | 0.4511 | 0.5046 |
-| chr20-34hap | `readlik-z` | 0.4437 | 0.4574 | 0.4636 | **0.5402** |
+| chr20-34hap | `readlik` | 0.4437 | 0.4574 | 0.4636 | **0.5402** |
 
 F1, structural benchmark. Bold is the better caller in that row-pair.
 
@@ -691,7 +699,7 @@ four datasets; after refinement the read model leads in three of four. The SV de
 reported on the accuracy pages is substantially a statement about representation.
 
 **Re-run on the current caller** (the table above predates the mixture and depth changes),
-`readlik-z` only:
+`readlik` only:
 
 | dataset | F1 | recall | precision | TP-base | FP |
 |---|---|---|---|---|---|
@@ -719,7 +727,7 @@ asserted against `refine.variant_summary.json`. Getting it properly means benchi
 harmonised VCFs directly, whose totals will not equal refine's headline and so need labelling
 as a different quantity.
 
-**These runs cover `readlik-z` only**, so the post-refinement caller *ordering* above still
+**These runs cover `readlik` only**, so the post-refinement caller *ordering* above still
 rests on the older numbers.
 
 That does not overturn Q1. The het-deletion collapse is untouched by refinement; it is

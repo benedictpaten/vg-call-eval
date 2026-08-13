@@ -121,7 +121,7 @@ def report(label: str, stats: dict[str, dict]) -> None:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--work", required=True, help="tier2 work dir")
-    p.add_argument("--arm", default="readlik-z")
+    p.add_argument("--arm", default="readlik")
     p.add_argument("--gaf", required=True)
     p.add_argument("--label", required=True)
     p.add_argument("--tp-sample", type=int, default=2000)

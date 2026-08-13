@@ -32,8 +32,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-ARM_ORDER = ["poisson", "poisson-z", "readlik", "readlik-nomismap",
-             "readlik-z-nolink", "readlik-z"]
+ARM_ORDER = ["poisson", "poisson-z", "readlik-support", "readlik-nomismap",
+             "readlik-nolink", "readlik"]
 SMALL_TYPES = [("ALL", "ALL"), ("Snv", "SNV"), ("Insertion", "Insertion (<50 bp)"),
                ("Deletion", "Deletion (<50 bp)")]
 SV_TYPES = [("SvInsertion", "SV insertion"), ("SvDeletion", "SV deletion"),
@@ -197,12 +197,12 @@ def main() -> None:
     L.append("")
     L.append("| arm | 4-hap GT F1 | 34-hap GT F1 | Δ |")
     L.append("|---|---|---|---|")
-    for a in ("poisson-z", "readlik-z"):
+    for a in ("poisson-z", "readlik"):
         o, n = gtf1(old, a), gtf1(new, a)
         L.append(f"| `{a}` | {fmt(o)} | {fmt(n)} | **{delta(o, n)}** |")
     L.append("")
-    gap_old = (gtf1(old, "readlik-z") or 0) - (gtf1(old, "poisson-z") or 0)
-    gap_new = (gtf1(new, "readlik-z") or 0) - (gtf1(new, "poisson-z") or 0)
+    gap_old = (gtf1(old, "readlik") or 0) - (gtf1(old, "poisson-z") or 0)
+    gap_new = (gtf1(new, "readlik") or 0) - (gtf1(new, "poisson-z") or 0)
     L.append(f"The read-likelihood caller's margin over the Poisson caller goes from "
              f"**{gap_old:+.4f}** on the 4-haplotype graph to **{gap_new:+.4f}** on the "
              f"34-haplotype one"
@@ -223,7 +223,7 @@ def main() -> None:
              "mechanism.")
     L.append("")
     L.append("**This depended on a default that was wrong for graphs like this.** With "
-             "`--mismap-max` at its old 0.1, `readlik-z` on the 34-haplotype graph looked like a "
+             "`--mismap-max` at its old 0.1, `readlik` on the 34-haplotype graph looked like a "
              "precision-for-recall trade" +
              (" — 1,597 false-positive SNVs against the 4-haplotype graph's 375" if c == "chr20"
               else " (measured on chr20: 1,597 false-positive SNVs against 375)") +
@@ -240,10 +240,10 @@ def main() -> None:
                  "so the cap cannot reach it — and on the richer graph it still carries "
                  f"{int(nm_fp['query_fp']):,} spurious SNVs. The term is what does the work.")
         L.append("")
-    o_sm, n_sm = smf1("sm50-readlik-z")
+    o_sm, n_sm = smf1("sm50-readlik")
     if o_sm and n_sm:
         L.append(f"Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers — "
-                 f"`readlik-z` goes {fmt(o_sm)} to {fmt(n_sm)}.")
+                 f"`readlik` goes {fmt(o_sm)} to {fmt(n_sm)}.")
         L.append("")
     L.append("**One caveat this data cannot settle.** Some of the remaining false positives may not "
              "be error: a graph carrying 32 haplotypes will call real variation a draft benchmark "
@@ -352,7 +352,7 @@ def main() -> None:
         L.append("| arm | class | 4-hap recall | 34-hap recall | 4-hap prec | 34-hap prec | "
                  "4-hap F1 | 34-hap F1 | **Δ F1** |")
         L.append("|---|---|---|---|---|---|---|---|---|")
-        for a in ("sm50-poisson-z", "sm50-readlik-z"):
+        for a in ("sm50-poisson-z", "sm50-readlik"):
             if a not in new_sm:
                 continue
             for vtype, label in (("Insertion", "Insertion"), ("Deletion", "Deletion"),

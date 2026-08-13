@@ -69,7 +69,7 @@ def bench(truth: Path, query: Path, ref: Path, bed: Path, odir: Path,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arms", nargs="*", default=["poisson-z", "readlik-z"])
+    ap.add_argument("--arms", nargs="*", default=["poisson-z", "readlik"])
     ap.add_argument("--datasets", nargs="*", default=list(DATASETS))
     ap.add_argument("--refdists", nargs="*", type=int, default=[500, 1000, 2000])
     ap.add_argument("--refine", action="store_true", help="also run truvari refine")

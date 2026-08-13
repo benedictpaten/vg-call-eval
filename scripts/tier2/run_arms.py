@@ -6,17 +6,29 @@ path through `vgcalleval.pipeline`, because that pipeline builds its dataset by
 simulation; here the dataset is 28.8 GB of real reads prepared once by hand.
 The aardvark engine module is reused as-is.
 
-Five arms, chosen to separate two effects that would otherwise be confounded
-(plan §9.2a). The graph carries only 4 haplotypes, so `-z` enumeration can only
-propose alleles present in those walks:
+Six arms, chosen to separate two effects that would otherwise be confounded
+(plan §9.2a). Panel enumeration can only propose alleles some haplotype walks,
+so on a thin graph its ceiling is the panel's content, not the caller's:
 
-    caller \\ enumeration   support (pack, FlowTraversalFinder)   haplotype (-z)
-    Poisson                 poisson                              poisson-z
-    read-likelihood         readlik, readlik-nomismap            readlik-z
+    caller \\ enumeration   support (pack, FlowTraversalFinder)   panel (GBWT walks)
+    Poisson                 poisson (its default)                poisson-z
+    read-likelihood         readlik-support                      readlik (its default),
+                                                                 readlik-nomismap,
+                                                                 readlik-nolink
 
 Comparing down a column isolates the caller; comparing across a row isolates
 what the sampled graph costs. Without both, a graph limitation reads as a caller
 limitation.
+
+The two callers default to different columns, and the arm names track each
+caller's own default rather than a single flag. `vg call` now enumerates from the
+panel by default under `--read-likelihood` on a GBZ that carries one, because that
+measured better on every small-variant class and on three of four SV sets; it does
+not do so for the Poisson caller, where the same switch lost SV F1 on all four
+datasets. So `readlik` is the plain invocation and `readlik-support` is the one
+carrying a flag (`--enumerate-support`), while for Poisson it is the other way
+round. The ablation arms sit in the panel column because they ablate against
+`readlik`, and an ablation that also changed enumeration would measure two things.
 """
 
 from __future__ import annotations
@@ -58,46 +70,55 @@ class Arm:
 
 
 def arms(readlik_extra: list[str] | None = None,
-         readlik_z_extra: list[str] | None = None) -> list[Arm]:
-    """The five fixed arms.
+         readlik_panel_extra: list[str] | None = None) -> list[Arm]:
+    """The six fixed arms.
 
-    `readlik_extra` is appended to the three read-likelihood arms only, so a caller-side
-    change under evaluation can be measured across the whole matrix without editing this
-    list -- and without touching the Poisson arms, which it must not affect. Passing
-    something that *does* affect them would break the comparison silently, so keep it to
-    read-likelihood flags.
+    `readlik_extra` is appended to the read-likelihood arms only, so a caller-side change
+    under evaluation can be measured across the whole matrix without editing this list --
+    and without touching the Poisson arms, which it must not affect. Passing something that
+    *does* affect them would break the comparison silently, so keep it to read-likelihood
+    flags.
 
-    `readlik_z_extra` goes to `readlik-z` alone, for flags that require haplotype enumeration.
-    `--linkage-weight` is the case that forced this: it needs a panel, so `vg call` refuses it
-    without `-z`, and putting it in `readlik_extra` makes the two support-enumeration arms exit
-    immediately. They then score as zero variants with empty metrics, the matrix completes
-    "successfully", and the page build is what finally fails -- several arms and forty minutes
-    downstream of the actual error.
+    `readlik_panel_extra` goes to the panel-enumeration arms alone, for flags that need a
+    panel to act on. `--linkage-weight` is the case that forced this: `vg call` refuses it
+    where enumeration is not from haplotypes, so putting it in `readlik_extra` makes
+    `readlik-support` exit immediately. It then scores as zero variants with empty metrics,
+    the matrix completes "successfully", and the page build is what finally fails -- several
+    arms and forty minutes downstream of the actual error. `readlik-nolink` is excluded too,
+    since it sets `--linkage-weight` itself and a second one would silently override it.
     """
     extra = list(readlik_extra or [])
-    z_extra = list(readlik_z_extra or [])
+    panel_extra = list(readlik_panel_extra or [])
     return [
         Arm("poisson", [], True, False,
             "current default: Poisson genotyping, support enumeration"),
-        # Needs the pack despite -z: the pack becomes optional only for
-        # --read-likelihood, because Poisson *genotyping* consumes support even when
-        # enumeration comes from haplotypes.
+        # Needs the pack despite -z: the pack becomes optional only for --read-likelihood,
+        # because Poisson *genotyping* consumes support even when enumeration comes from
+        # haplotypes. -z is explicit here and has to stay that way: it is not the Poisson
+        # caller's default, and on this benchmark it costs that caller SV F1.
         Arm("poisson-z", ["-z"], True, False,
-            "Poisson genotyping, haplotype enumeration from the 4 graph haplotypes"),
-        Arm("readlik", ["--read-likelihood"] + extra, True, True,
-            "read-level likelihoods, support enumeration -- the like-for-like caller comparison"),
-        Arm("readlik-nomismap", ["--read-likelihood", "--no-mismap-term"] + extra, True, True,
+            "Poisson genotyping, panel enumeration from the graph's haplotypes"),
+        # No -z: panel enumeration is what --read-likelihood does by default on a GBZ that
+        # carries a panel. Spelling it out would still work, but the arm is meant to be the
+        # shipped default, so it is run the way a user would run it.
+        Arm("readlik", ["--read-likelihood"] + extra + panel_extra, False, True,
+            "read-level likelihoods as shipped: panel enumeration, no pack file"),
+        Arm("readlik-nomismap",
+            ["--read-likelihood", "--no-mismap-term"] + extra + panel_extra, False, True,
             "as readlik, MAPQ mismapping term disabled, to measure its contribution"),
-        Arm("readlik-z", ["--read-likelihood", "-z"] + extra + z_extra, False, True,
-            "read-level likelihoods, haplotype enumeration, no pack file"),
         # The linkage ablation, and the reason it is a standing arm rather than a one-off
-        # measurement: --linkage-weight now defaults to 2, so readlik-z above carries the HMM and
-        # nothing in the matrix would show what it contributes. Measured once, the transition model
-        # is about 12% of the genotype-F1 gain over no linkage at all -- worth keeping visible in
-        # the same table as the rest rather than buried in a planning note.
-        Arm("readlik-z-nolink", ["--read-likelihood", "-z", "--linkage-weight", "0"] + extra,
+        # measurement: --linkage-weight defaults to 2, so readlik above carries the HMM and
+        # nothing in the matrix would show what it contributes. Measured once, the transition
+        # model is about 12% of the genotype-F1 gain over no linkage at all -- worth keeping
+        # visible in the same table as the rest rather than buried in a planning note.
+        Arm("readlik-nolink", ["--read-likelihood", "--linkage-weight", "0"] + extra,
             False, True,
-            "as readlik-z, linkage HMM disabled, to measure the transition model's contribution"),
+            "as readlik, linkage HMM disabled, to measure the transition model's contribution"),
+        # The like-for-like caller comparison, and the only read-likelihood arm that needs a
+        # flag to get its enumeration: it holds enumeration fixed against `poisson` so the
+        # difference between them is the genotyper alone.
+        Arm("readlik-support", ["--read-likelihood", "--enumerate-support"] + extra, True, True,
+            "read-level likelihoods, support enumeration -- the like-for-like caller comparison"),
     ]
 
 
@@ -172,13 +193,13 @@ def main() -> None:
     # consuming a variadic list at the first token that looks like an option, so
     # `--readlik-extra --depth-term 0.1` silently became two stray positionals.
     p.add_argument("--readlik-extra", default="",
-                   help="extra flags appended to the three read-likelihood arms only, as "
+                   help="extra flags appended to the read-likelihood arms only, as "
                         "one quoted string, for evaluating a caller-side change across the "
                         "whole matrix")
-    p.add_argument("--readlik-z-extra", default="",
-                   help="extra flags for the readlik-z arm alone, as one quoted string, for "
-                        "flags that require haplotype enumeration (-z) and would make the "
-                        "support-enumeration arms exit immediately")
+    p.add_argument("--readlik-panel-extra", default="",
+                   help="extra flags for the panel-enumeration read-likelihood arms alone, as "
+                        "one quoted string, for flags that need a haplotype panel to act on "
+                        "and would make readlik-support exit immediately")
     p.add_argument("--contig", default="chr20",
                    help="contig to call; sets both the reference path and the "
                         "name written into the output VCF")
@@ -192,7 +213,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     selected = [a for a in arms(shlex.split(args.readlik_extra),
-                                shlex.split(args.readlik_z_extra))
+                                shlex.split(args.readlik_panel_extra))
                 if not args.only or a.name in args.only]
 
     for arm in selected:

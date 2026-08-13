@@ -125,7 +125,7 @@ def main() -> None:
         W = Path(w)
         for kind, targets in (("aardvark", [0.90, 0.93]), ("truvari", [0.35, 0.42])):
             if not (W / f"results/{kind if kind == 'truvari' else 'aardvark'}"
-                    f"-readlik-z").exists():
+                    f"-readlik").exists():
                 continue
             rows = collect(W, kind)
             base_tp, total = truth_counts(W, kind)

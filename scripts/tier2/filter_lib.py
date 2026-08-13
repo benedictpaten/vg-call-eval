@@ -24,12 +24,12 @@ def labels(work: Path, kind: str) -> dict:
     bd = {}
     if kind == "truvari":
         for fn, lab in (("tp-comp.vcf.gz", "TP"), ("fp.vcf.gz", "FP")):
-            with gzip.open(work / "results/truvari-readlik-z" / fn, "rt") as fh:
+            with gzip.open(work / "results/truvari-readlik" / fn, "rt") as fh:
                 for line in fh:
                     if not line.startswith("#"):
                         bd[int(line.split("\t", 2)[1])] = lab
     else:
-        with gzip.open(work / "results/aardvark-readlik-z/query.vcf.gz", "rt") as fh:
+        with gzip.open(work / "results/aardvark-readlik/query.vcf.gz", "rt") as fh:
             for line in fh:
                 if line.startswith("#"):
                     continue
@@ -56,10 +56,10 @@ def truth_counts(work: Path, kind: str) -> tuple[int, int]:
     true positives is credited with f of the base-side matches.
     """
     if kind == "truvari":
-        d = json.loads((work / "results/truvari-readlik-z/summary.json").read_text())
+        d = json.loads((work / "results/truvari-readlik/summary.json").read_text())
         return int(d["TP-base"]), int(d["TP-base"]) + int(d["FN"])
     for arm in json.loads((work / "results/arms.json").read_text()):
-        if arm["arm"] != "readlik-z":
+        if arm["arm"] != "readlik":
             continue
         for m in (arm["metrics"].get("summary") or []):
             if (m["region_label"], m["variant_type"], m["filter"]) == ("ALL", "ALL", "ALL") \
@@ -80,7 +80,7 @@ def rolling_median(vals: list[float], window: int = 201) -> list[float]:
 def collect(work: Path, kind: str) -> list[dict]:
     """One record per labelled call: label, DP, DP/local median, explained share, GQ."""
     bd = labels(work, kind)
-    vcf = str(work / "results/readlik-z.vcf.gz")
+    vcf = str(work / "results/readlik.vcf.gz")
     # GQI only exists in files from a build that emits it. Ask for it, and fall back
     # rather than failing, so this works against older result sets too.
     has_gqi = subprocess.run(["bcftools", "view", "-h", vcf],

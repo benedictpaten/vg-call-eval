@@ -70,7 +70,7 @@ DATASETS = {
     "chr20-4hap": ("tier2-chr20", "chr20", "4hap"),
     "chr20-34hap": ("tier2-chr20-hap32", "chr20", "34hap"),
 }
-ARMS = ["poisson", "poisson-z", "readlik", "readlik-nomismap", "readlik-z"]
+ARMS = ["poisson", "poisson-z", "readlik-support", "readlik-nomismap", "readlik"]
 
 SIZEMIN = 50
 REFDIST = 500          # truvari's --refdist for these runs; see params.json

@@ -189,7 +189,7 @@ def len_bucket(d: int) -> int:
 
 def aardvark_labels(work: Path) -> dict:
     bd = {}
-    with gzip.open(work / "results/aardvark-readlik-z/query.vcf.gz", "rt") as fh:
+    with gzip.open(work / "results/aardvark-readlik/query.vcf.gz", "rt") as fh:
         for line in fh:
             if line.startswith("#"):
                 continue
@@ -211,7 +211,7 @@ def truvari_labels(work: Path) -> dict:
     labels are the only meaningful ones for SVs.
     """
     bd = {}
-    d = work / "results/truvari-readlik-z"
+    d = work / "results/truvari-readlik"
     for fname, lab in (("tp-comp.vcf.gz", "TP"), ("fp.vcf.gz", "FP")):
         path = d / fname
         if not path.exists():
@@ -230,7 +230,7 @@ def load(work: Path, min_svlen: int, labels: str = "aardvark"):
     q = subprocess.run(
         ["bcftools", "query",
          "-f", "%POS\t%REF\t%ALT[\t%GT\t%GQ\t%DP\t%AD\t%BL]\n",
-         str(work / "results/readlik-z.vcf.gz")],
+         str(work / "results/readlik.vcf.gz")],
         capture_output=True, text=True)
     if q.returncode != 0:
         raise SystemExit(q.stderr.strip()[:400])

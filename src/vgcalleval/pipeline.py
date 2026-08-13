@@ -205,12 +205,20 @@ class Arm:
 def default_arms(vg: str, vg_depthfix: str | None = None) -> list[Arm]:
     arms = [
         Arm("poisson", vg, [], description="current default, as shipped"),
-        Arm("readlik", vg, ["--read-likelihood"], needs_reads=True,
-            description="read-level likelihood model"),
-        Arm("readlik-nomismap", vg, ["--read-likelihood", "--no-mismap-term"], needs_reads=True,
+        # The dataset graph is a GBZ carrying the simulated sample's haplotypes, so
+        # --read-likelihood now enumerates from that panel by default and consults no pack.
+        # There used to be a separate `readlik-gbwt-nopack` arm passing -z for this; with the
+        # default changed the two arms would run the same command, and the matrix would carry
+        # a duplicate row that looked like a control. The control that survives is the one
+        # that has to ask for the other mode.
+        Arm("readlik", vg, ["--read-likelihood"], needs_reads=True, needs_pack=False,
+            description="read-level likelihood model, panel enumeration, no pack file"),
+        Arm("readlik-nomismap", vg, ["--read-likelihood", "--no-mismap-term"],
+            needs_reads=True, needs_pack=False,
             description="mismapping term disabled, to measure its contribution"),
-        Arm("readlik-gbwt-nopack", vg, ["--read-likelihood", "-z"], needs_reads=True,
-            needs_pack=False, description="haplotype enumeration, no pack file"),
+        Arm("readlik-support", vg, ["--read-likelihood", "--enumerate-support"],
+            needs_reads=True,
+            description="support enumeration, for the like-for-like comparison with poisson"),
     ]
     if vg_depthfix:
         arms.insert(

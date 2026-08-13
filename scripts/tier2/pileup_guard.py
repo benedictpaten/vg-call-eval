@@ -30,12 +30,12 @@ def labels(work: Path, kind: str) -> dict:
     bd = {}
     if kind == "truvari":
         for fn, lab in (("tp-comp.vcf.gz", "TP"), ("fp.vcf.gz", "FP")):
-            with gzip.open(work / "results/truvari-readlik-z" / fn, "rt") as fh:
+            with gzip.open(work / "results/truvari-readlik" / fn, "rt") as fh:
                 for line in fh:
                     if not line.startswith("#"):
                         bd[int(line.split("\t", 2)[1])] = lab
     else:
-        with gzip.open(work / "results/aardvark-readlik-z/query.vcf.gz", "rt") as fh:
+        with gzip.open(work / "results/aardvark-readlik/query.vcf.gz", "rt") as fh:
             for line in fh:
                 if line.startswith("#"):
                     continue
@@ -61,7 +61,7 @@ def collect(work: Path, kind: str):
     bd = labels(work, kind)
     q = subprocess.run(
         ["bcftools", "query", "-f", "%POS[\t%DP\t%AD]\n",
-         str(work / "results/readlik-z.vcf.gz")], capture_output=True, text=True)
+         str(work / "results/readlik.vcf.gz")], capture_output=True, text=True)
     # The local-depth baseline must come from *all* calls, not only labelled ones: with
     # truvari labels only a few hundred calls are labelled and a median over those would
     # be a median over megabases.

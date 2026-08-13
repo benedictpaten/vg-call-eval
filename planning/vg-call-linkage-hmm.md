@@ -772,21 +772,21 @@ argument this document has since had to withdraw.)*
 holds on all four datasets, as `--depth-term` had to. Two parameters to carry now, not one:
 `--linkage-weight 2` on the command line, `--linkage-freq-prior 5` from the default.
 
-### Stage 3 result: `readlik-z` is the best arm on every small-variant class, on all four datasets
+### Stage 3 result: `readlik` is the best arm on every small-variant class, on all four datasets
 
-Small-variant genotype F1, `readlik-z` against the best of the other four arms:
+Small-variant genotype F1, `readlik` against the best of the other four arms:
 
-| dataset | best other | readlik-z | Δ |
+| dataset | best other | readlik | Δ |
 |---|---|---|---|
 | chr20-4hap | 0.9488 (nomismap) | **0.9507** | +0.0019 |
-| chr20-34hap | 0.9513 (readlik) | **0.9645** | +0.0132 |
-| chr6-4hap | 0.9583 (readlik) | **0.9602** | +0.0019 |
-| chr6-34hap | 0.9588 (readlik) | **0.9689** | +0.0101 |
+| chr20-34hap | 0.9513 (readlik-support) | **0.9645** | +0.0132 |
+| chr6-4hap | 0.9583 (readlik-support) | **0.9602** | +0.0019 |
+| chr6-34hap | 0.9588 (readlik-support) | **0.9689** | +0.0101 |
 
 Clean on SNVs, insertions and deletions separately as well, on all four. Structural variants,
 three of four:
 
-| dataset | best other | readlik-z | Δ |
+| dataset | best other | readlik | Δ |
 |---|---|---|---|
 | chr20-34hap | 0.4592 | **0.4944** | +0.0352 |
 | chr6-34hap | 0.4999 | **0.5268** | +0.0269 |
@@ -865,7 +865,7 @@ not part of the case for stages 0–3 (§5).
 
 ### Tier-2 evaluation
 
-Fast tier first (`readlik-z`, four datasets, ~14 min), reporting on both benchmarks plus:
+Fast tier first (`readlik`, four datasets, ~14 min), reporting on both benchmarks plus:
 
 | metric | why |
 |---|---|

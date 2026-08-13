@@ -14,7 +14,7 @@ import statistics as st
 from collections import defaultdict
 from pathlib import Path
 
-ARM_ORDER = ["poisson", "poisson-depthfix", "readlik", "readlik-nomismap", "readlik-gbwt-nopack"]
+ARM_ORDER = ["poisson", "poisson-depthfix", "readlik-support", "readlik-nomismap", "readlik"]
 
 
 def _summary_row(path: Path, comparison: str, vtype: str) -> dict | None:

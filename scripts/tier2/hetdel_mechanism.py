@@ -64,7 +64,7 @@ def load_dump(path: Path, wanted: set[str]) -> dict[str, list[list[str]]]:
 
 
 def discordant_snarls(contig: str, dataset: str) -> tuple[set[str], dict]:
-    """Snarl IDs of large heterozygous deletions poisson-z recovers and readlik-z misses."""
+    """Snarl IDs of large heterozygous deletions poisson-z recovers and readlik misses."""
     truth = list(csv.DictReader(open(WORK / "sv-atlas/truth.tsv"), delimiter="\t"))
 
     def key(r):
@@ -72,7 +72,7 @@ def discordant_snarls(contig: str, dataset: str) -> tuple[set[str], dict]:
 
     P = {key(r): r for r in truth if r["dataset"] == dataset and r["arm"] == "poisson-z"
          and r["svtype"] == "DEL" and r["sizebin"] == "1k+"}
-    R = {key(r): r for r in truth if r["dataset"] == dataset and r["arm"] == "readlik-z"
+    R = {key(r): r for r in truth if r["dataset"] == dataset and r["arm"] == "readlik"
          and r["svtype"] == "DEL" and r["sizebin"] == "1k+"}
     disc = {int(k[1]) for k in P if P[k]["outcome"] == "TP" and R[k]["outcome"] == "FN"}
 

@@ -36,7 +36,7 @@ richness:
 | | chr20 4-hap | chr20 34-hap | chr6 4-hap | chr6 34-hap |
 |---|---|---|---|---|
 | `poisson-z` | 0.9359 | 0.9124 | 0.9466 | 0.9318 |
-| `readlik-z` | **0.9490** | **0.9547** | **0.9586** | **0.9616** |
+| `readlik` | **0.9490** | **0.9547** | **0.9586** | **0.9616** |
 
 **Structural variants (truvari)** — the weak class, and the deficit is real rather than metric
 artefact:
@@ -44,10 +44,10 @@ artefact:
 | | chr20 4-hap | chr20 34-hap | chr6 4-hap | chr6 34-hap |
 |---|---|---|---|---|
 | `poisson-z` | **0.4930** | 0.4391 | **0.5478** | **0.4881** |
-| `readlik-z` | 0.4824 | **0.4437** | 0.5349 | 0.4724 |
+| `readlik` | 0.4824 | **0.4437** | 0.5349 | 0.4724 |
 
-**Cost** — no longer an argument against the model. On chr20 `readlik-z` runs 99 s against
-`poisson-z`'s 75 s, and `readlik` is *faster* than `poisson` (120 s vs 168 s).
+**Cost** — no longer an argument against the model. On chr20 `readlik` runs 99 s against
+`poisson-z`'s 75 s, and `readlik-support` is *faster* than `poisson` (120 s vs 168 s).
 
 ### Settled, and acted on
 
@@ -581,7 +581,7 @@ what is written here and the divergence is explained in §9.8.
 | 3 | **One-off, whole genome:** read database | `gaf-base sort <gaf.gz> -o <fifo>` piped into `gaf-base construct <fifo> -r <gbz>` | **51 min wall** (sort 47 min / construct 51 min, concurrent), 15.0 GB peak, **20.74 GB** for 596,017,764 alignments. The FIFO avoids ever writing the ~199 GB sorted GAF |
 | 4 | **One-off:** query-target graph database | `gbz-base construct <gbz> -o graph.gbz.db` | **190 s**, 10.7 GB peak, 6.27 GB. Must be the *whole-genome* graph (§9.8) |
 | 5 | chr20 reads, for the pack | `extract_reads_from_db.py` — 582 node-set queries against the GAF-Base | **155 s**, 13,279,246 reads. §9.10: ~35× faster than streaming the GAF |
-| 6 | Pack, needed by **4 of the 5 arms** | `vg pack -x <chr20 gbz> -a <chr20 reads> -o chr20.pack` | **37 s**, 4.7 GB peak, 80 MB. Only `readlik-z` is pack-free — `poisson -z` still needs it (§9.8) |
+| 6 | Pack, needed by **4 of the 5 arms** | `vg pack -x <chr20 gbz> -a <chr20 reads> -o chr20.pack` | **37 s**, 4.7 GB peak, 80 MB. Only `readlik` is pack-free — `poisson -z` still needs it (§9.8) |
 | 7 | Run the arm matrix | `vg call <chr20 gbz> -p CHM13#0#chr20 [--gaf-base … --gbz-base …]` | 74–679 s per arm, 2.9–4.3 GB peak (§9.9) |
 | 8 | Contig rename | — | **Not needed.** `vg call` already emits bare `chr20` with the right length. Kept as a guard because its failure mode (zero true positives) is silent |
 | 9 | Compare within the benchmark BED | `aardvark compare`; SV runs add `--min-variant-gap 1000` | ~16 min/arm small variants, ~45 s/arm SVs. **The BED is not optional** |
@@ -742,7 +742,7 @@ were made against rather than merely the same assembly name.
 **Arm matrix correction: 4 of the 5 arms need the pack, not 3.** `poisson -z` fails with
 `error[vg call] pack file (-k) is required`. The `-k`-optional change from stage 2 applies only to
 `--read-likelihood`, because Poisson *genotyping* consumes support even when *enumeration* comes from
-haplotypes. Only `readlik-z` is genuinely pack-free. That puts the pack — and hence the chr20 read
+haplotypes. Only `readlik` is genuinely pack-free. That puts the pack — and hence the chr20 read
 extraction it needs — on the critical path for everything except one arm.
 
 **Snarl computation on one chromosome is cheap:** 42 s at 2.9 GB peak for chr20, which is the measurement
@@ -790,11 +790,11 @@ Full tables in the harness at `work/tier2-chr20/RESULTS.md`.
 |---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.9355 | 0.9733 | 0.9917 | 588 | 0.7827 | 0.8148 | 152 s | 2.9 GB |
 | `poisson-z` | 0.9359 | 0.9735 | 0.9914 | 605 | 0.7850 | 0.8148 | **74 s** | 2.9 GB |
-| `readlik` | 0.9369 | **0.9759** | **0.9943** | **404** | 0.7783 | 0.8228 | 679 s | 4.2 GB |
+| `readlik-support` | 0.9369 | **0.9759** | **0.9943** | **404** | 0.7783 | 0.8228 | 679 s | 4.2 GB |
 | `readlik-nomismap` | 0.9331 | 0.9747 | 0.9928 | 510 | 0.7669 | 0.8104 | 517 s | 4.3 GB |
-| `readlik-z` | **0.9370** | **0.9759** | 0.9942 | 413 | 0.7783 | **0.8231** | 434 s | 3.3 GB |
+| `readlik` | **0.9370** | **0.9759** | 0.9942 | 413 | 0.7783 | **0.8231** | 434 s | 3.3 GB |
 
-> **Superseded by §9.15.** Every `readlik*` row in this section was produced with the mismapping floor
+> **Superseded by §9.15.** Every `readlik-support*` row in this section was produced with the mismapping floor
 > at its old default of 1e-8. Raising it to 0.01 improves all of them substantially — overall GT F1
 > 0.9370 → 0.9482, insertions 0.7783 → 0.8231, SVs 0.4991 → 0.5120. The tables here are kept because the
 > before/after comparison is the evidence for that change, but **they are no longer what `vg call`
@@ -810,13 +810,13 @@ simultaneously better recall** (0.9582 vs 0.9556). That is the shape of result t
 produce — using per-read evidence to reject sites the aggregate-depth model accepts — and it is the first
 direct evidence of it on real reads.
 
-**The MAPQ mismapping term earns its place.** `readlik` beats `readlik-nomismap` on every class and on
+**The MAPQ mismapping term earns its place.** `readlik-support` beats `readlik-nomismap` on every class and on
 both comparison types. That resolves the outstanding tier-0 anomaly, where `readlik-nomismap` beat
-`readlik` on BASEPAIR F1 (0.930 vs 0.861) and suggested the term or its `e_max` clamp was mis-set. On real
+`readlik-support` on BASEPAIR F1 (0.930 vs 0.861) and suggested the term or its `e_max` clamp was mis-set. On real
 data, with real MAPQ, the term helps. The tier-0 anomaly is now most likely an artefact of simulated
 reads mapped back to the graph they were simulated from, where MAPQ carries little information.
 
-**Insertions are the weak class, and the failure is specific.** On GT, `readlik` trades precision for
+**Insertions are the weak class, and the failure is specific.** On GT, `readlik-support` trades precision for
 recall against `poisson` (recall 0.7519 vs 0.7281, precision 0.8066 vs 0.8462) and ends slightly behind on
 F1. On BASEPAIR it is much worse — precision 0.5757 against 0.7613, with 57,677 false-positive bases
 against 23,018. GT credits a call whose genotype is right; BASEPAIR weights by bases. So the model is
@@ -824,7 +824,7 @@ finding insertion *loci* the Poisson caller misses, and getting the inserted *se
 more often. **This is the most actionable follow-up** in the whole evaluation, and it is invisible if you
 only look at GT.
 
-Deletions go the other way: `readlik` wins on GT F1 (0.8228 vs 0.8148) *and* BASEPAIR F1 (0.8052 vs
+Deletions go the other way: `readlik-support` wins on GT F1 (0.8228 vs 0.8148) *and* BASEPAIR F1 (0.8052 vs
 0.7630), on better precision at slightly lower recall.
 
 #### The 4-haplotype graph costs almost nothing — and the pack may be unnecessary
@@ -834,10 +834,10 @@ present in those walks, so recall might be graph-bound rather than caller-bound.
 across enumeration at fixed caller:
 
 - `poisson` 0.9355 → `poisson-z` 0.9359
-- `readlik` 0.9369 → `readlik-z` 0.9370
+- `readlik-support` 0.9369 → `readlik` 0.9370
 
 Haplotype enumeration is *marginally better*, not worse, and it is dramatically cheaper: `poisson-z` runs
-in 74 s against `poisson`'s 152 s, and `readlik-z` in 434 s against `readlik`'s 679 s — while `readlik-z`
+in 74 s against `poisson`'s 152 s, and `readlik` in 434 s against `readlik-support`'s 679 s — while `readlik`
 needs no pack file at all, removing a 37 s `vg pack` step and an 80 MB artefact.
 
 The control was still worth running: without it, every number here would have carried an unresolved
@@ -852,7 +852,7 @@ The read-likelihood model is **4.5–9× slower** than Poisson at matched enumer
 the windowed read source working as intended — holding chr20's 13.3 M reads would have needed ~40 GB.
 
 > **Superseded by §9.17.** The read fetching has since been made 5.8× faster, with byte-identical
-> output: `readlik-z` now calls chr20 in **99 s against `poisson-z`'s 74 s** — 1.3×, not 5.9× — at
+> output: `readlik` now calls chr20 in **99 s against `poisson-z`'s 74 s** — 1.3×, not 5.9× — at
 > 3.74 GB. The gap in this paragraph is a property of the old fetch path, not of the model.
 
 ### 9.10 Extracting a chromosome's reads: query the database, do not stream the GAF
@@ -900,7 +900,7 @@ cleanly** — nothing errored, and the only signal was a percentage that did not
 ### 9.11 Structural variants — assessed, and the picture reverses
 
 > **Superseded by §9.15** in the same way: these SV numbers predate the floor change. With it,
-> `readlik-z` reaches F1 0.5120 and edges past `poisson-z`'s 0.5104 rather than trailing it.
+> `readlik` reaches F1 0.5120 and edges past `poisson-z`'s 0.5104 rather than trailing it.
 
 The first pass was **small-variant only**; the `stvar` benchmark was downloaded and subset but never
 run. It has now been run for all five arms, reusing the same called VCFs (no re-calling: the callers emit
@@ -916,19 +916,19 @@ scored in §9.9.
 |---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.4667 | 784 | 896 | 713 | 336 | 377 | 0.4712 | 0.4689 |
 | `poisson-z` | **0.5024** | 844 | 836 | 723 | 375 | 348 | **0.5187** | **0.5104** |
-| `readlik` | 0.4536 | 762 | 918 | 750 | 348 | 402 | 0.4640 | 0.4587 |
+| `readlik-support` | 0.4536 | 762 | 918 | 750 | 348 | 402 | 0.4640 | 0.4587 |
 | `readlik-nomismap` | 0.4446 | 747 | 933 | 799 | 352 | 447 | 0.4406 | 0.4426 |
-| `readlik-z` | 0.4899 | 823 | 857 | 755 | 384 | 371 | 0.5086 | 0.4991 |
+| `readlik` | 0.4899 | 823 | 857 | 755 | 384 | 371 | 0.5086 | 0.4991 |
 
-**On SVs the Poisson caller wins.** `poisson-z` leads at F1 0.5104 against `readlik-z`'s 0.4991, and
-`poisson` beats `readlik` at matched enumeration (0.4689 vs 0.4587). That is the opposite ordering to
+**On SVs the Poisson caller wins.** `poisson-z` leads at F1 0.5104 against `readlik`'s 0.4991, and
+`poisson` beats `readlik-support` at matched enumeration (0.4689 vs 0.4587). That is the opposite ordering to
 SNVs, where the read-likelihood model wins on both precision and recall. Both callers are also far
 weaker here in absolute terms — **roughly half of true SVs are recovered at roughly half precision** —
 which is worth stating plainly as a property of this pipeline on this graph, not of either genotyper.
 
 This is consistent with the insertion finding in §9.9 rather than separate from it: the read-likelihood
 model's weakness is in getting *sequence* right for long alleles, and SVs are the extreme of that. The
-model finds SV loci at a comparable rate but produces more false positives (402 vs 377 for `readlik` vs
+model finds SV loci at a comparable rate but produces more false positives (402 vs 377 for `readlik-support` vs
 `poisson`), and the deficit widens with allele length.
 
 **Enumeration matters far more for SVs than for small variants.** Haplotype enumeration beats support
@@ -937,7 +937,7 @@ larger than the ~0.001 difference it made on small variants (§9.9). SVs are exa
 `FlowTraversalFinder` struggles to assemble a long allele from support, and where having the allele
 already present as a haplotype walk pays. The four-haplotype graph is *helping* here, not limiting.
 
-**The mismap term helps on SVs too** — `readlik` beats `readlik-nomismap` at 0.4587 vs 0.4426,
+**The mismap term helps on SVs too** — `readlik-support` beats `readlik-nomismap` at 0.4587 vs 0.4426,
 consistent with every other class.
 
 #### A reporting defect in aardvark that had to be worked around
@@ -962,7 +962,7 @@ levels of explanation.
 
 #### Deficit A — insertion BASEPAIR precision. Insertion-specific, and *not* a scoring bias
 
-At matched support enumeration, `readlik` against `poisson`:
+At matched support enumeration, `readlik-support` against `poisson`:
 
 | class | GT precision | GT recall | **BP precision** | BP recall |
 |---|---|---|---|---|
@@ -972,11 +972,11 @@ At matched support enumeration, `readlik` against `poisson`:
 
 The first thing to note is that **it is not an "indel" deficit**: on deletions the read-likelihood model
 is *better* on BASEPAIR precision by +0.095. Only insertions are bad. Both directions are the same
-underlying preference, though — readlik favours **the allele with more sample sequence**: longer
+underlying preference, though — readlik-support favours **the allele with more sample sequence**: longer
 insertions, and *smaller* deletions.
 
 That preference is real and measurable in the calls. At the 105,175 positions where both callers make a
-non-reference call, the called allele length differs at **703 (0.67%)**, and readlik picks the longer
+non-reference call, the called allele length differs at **703 (0.67%)**, and readlik-support picks the longer
 allele **604 times against 99** — 6:1 — for **+60,024 bp** of extra called sequence, against an
 insertion BASEPAIR false-positive excess of ~34,659 bp. So the whole of deficit A lives in well under
 1% of sites; BASEPAIR weights by bases, so a few hundred large complex sites move an 18-point metric.
@@ -1027,8 +1027,8 @@ from a prefix-sharing 400 bp allele:
 | contamination | 5% | 10% | 15% | 20% | 30% | 40% |
 |---|---|---|---|---|---|---|
 | `poisson` | 1/1 ✓ | 1/1 ✓ | — | 1/1 ✓ | — | **1/2 ✗** |
-| `readlik` | 1/1 ✓ | 1/1 ✓ | 1/1 ✓ | **1/2 ✗** | 1/2 ✗ | 1/2 ✗ |
-| `readlik --no-mismap-term` | **1/2 ✗** | 1/2 ✗ | 1/2 ✗ | 1/2 ✗ | 1/2 ✗ | 1/2 ✗ |
+| `readlik-support` | 1/1 ✓ | 1/1 ✓ | 1/1 ✓ | **1/2 ✗** | 1/2 ✗ | 1/2 ✗ |
+| `readlik-support --no-mismap-term` | **1/2 ✗** | 1/2 ✗ | 1/2 ✗ | 1/2 ✗ | 1/2 ✗ | 1/2 ✗ |
 
 **The read-likelihood model tolerates half the contamination the Poisson caller does — and the
 mismapping term is the entire reason it tolerates any.**
@@ -1065,14 +1065,14 @@ last resort, but it is the only one of the three that fixes insertions without a
 
 #### The deletion "advantage" is the same defect with a favourable sign
 
-The one thing left dangling was why deletions ran the other way — BP precision **+0.095** for readlik
+The one thing left dangling was why deletions ran the other way — BP precision **+0.095** for readlik-support
 where insertions were −0.186. It looked like a second, opposing effect. It is not. It is the *same* bias,
 and the metric flips sign underneath it.
 
-Splitting the differing sites by direction, and asking only whether readlik's call carries **more sample
+Splitting the differing sites by direction, and asking only whether readlik-support's call carries **more sample
 sequence** than the Poisson caller's:
 
-| | sites | readlik has MORE sample sequence | LESS | net |
+| | sites | readlik-support has MORE sample sequence | LESS | net |
 |---|---|---|---|---|
 | insertion-like | 501 | **451** | 50 | +16,776 bp |
 | deletion-like | 411 | **341** | 70 | +55,788 bp |
@@ -1087,7 +1087,7 @@ asserts are **absent**:
 So **the deletion result is not a win being threatened by a fix — it is the same over-calling of sample
 sequence, wearing a favourable sign because claiming less is conservative in the deletion direction.**
 
-That said, the effect is not *purely* a metric artefact: on `GT`, which does not weight by bases, readlik
+That said, the effect is not *purely* a metric artefact: on `GT`, which does not weight by bases, readlik-support
 is genuinely better on deletions (F1 0.8228 vs 0.8148) and marginally worse on insertions (0.7783 vs
 0.7827). *(Both figures are at the old mismapping floor; §9.15 raises insertions to 0.8231, ahead of the
 Poisson caller. The asymmetry analysed in this section is real but was largely a symptom of the veto
@@ -1102,7 +1102,7 @@ regression when it is the same correction working.
 
 #### Deficit B — `-z` versus support enumeration. Fully explained, and not a genotyper effect
 
-| class | poisson: support → `-z` | readlik: support → `-z` |
+| class | poisson: support → `-z` | readlik-support: support → `-z` |
 |---|---|---|
 | SNV GT F1 | +0.0002 | +0.0000 |
 | Insertion GT F1 | +0.0023 | −0.0000 |
@@ -1120,8 +1120,8 @@ contains the long allele or does not. So for SVs, having the allele already writ
 beats trying to reconstruct it — and the four-haplotype sampled graph is *helping* here rather than
 limiting, the opposite of the §9.2a worry.
 
-This also makes `readlik-z` the arm to prefer operationally: equal or better accuracy at every size
-class, 36% faster than `readlik` (434 s against 679 s), and no pack file.
+This also makes `readlik` the arm to prefer operationally: equal or better accuracy at every size
+class, 36% faster than `readlik-support` (434 s against 679 s), and no pack file.
 
 ### 9.13 State of the investigation
 
@@ -1228,7 +1228,7 @@ some point the mixture term, not the mismapping floor, dominates.
 
 #### Validated on chr20: neither knob fixes the deficit, and the reason is structural
 
-The simulated gain does **not** transfer. Real chr20, `readlik-z`, small-variant benchmark:
+The simulated gain does **not** transfer. Real chr20, `readlik`, small-variant benchmark:
 
 All rows here are at the **old** mismapping *floor* of 1e-8; only the cap varies. §9.15 shows the floor
 is the clamp that matters.
@@ -1316,7 +1316,7 @@ veto at −4.6 nats.
 
 #### Result on real chr20, against the GIAB benchmark
 
-| class | `poisson-z` | `readlik-z` floor 1e-8 | **floor 0.01** | floor 0.05 |
+| class | `poisson-z` | `readlik` floor 1e-8 | **floor 0.01** | floor 0.05 |
 |---|---|---|---|---|
 | SNV GT F1 | 0.9735 | 0.9759 | **0.9766** | 0.9745 |
 | Insertion GT F1 | 0.7850 | 0.7783 | **0.8231** | 0.8346 |
@@ -1383,9 +1383,9 @@ Called insertion bases against the `smvar` truth set, bucketed by allele length:
 |---|---|---|---|---|---|---|---|
 | truth | 4,400 | 10,128 | 12,332 | 12,094 | 0 | 0 | 38,954 |
 | `poisson-z` | 4,352 | 9,899 | 10,960 | 8,377 | 2,910 | 3,370 | 39,868 |
-| `readlik-z` | 4,455 | 10,788 | 13,087 | 10,947 | 4,321 | **69,851** | 113,449 |
+| `readlik` | 4,455 | 10,788 | 13,087 | 10,947 | 4,321 | **69,851** | 113,449 |
 
-Below 50 bp the two callers agree closely and `readlik-z` is nearer truth in every bucket. The whole
+Below 50 bp the two callers agree closely and `readlik` is nearer truth in every bucket. The whole
 excess is the 200+ bucket, from **246 calls**, contributing **27,951 FP bases and zero TP bases**.
 
 Note the truth row: **0 bases at 50 bp and above.** The `smvar` benchmark holds no record >=50 bp — that
@@ -1401,11 +1401,11 @@ called allele >=50 bp from REF, applied identically to each (`scripts/tier2/size
 | arm | class | BP recall | BP precision | BP F1 |
 |---|---|---|---|---|
 | `sm50-poisson-z` | Insertion | 0.7637 | **0.8700** | 0.8134 |
-| `sm50-readlik-z` | Insertion | **0.8578** | 0.8624 | **0.8601** |
+| `sm50-readlik` | Insertion | **0.8578** | 0.8624 | **0.8601** |
 | `sm50-poisson-z` | Deletion | 0.8628 | 0.8094 | 0.8353 |
-| `sm50-readlik-z` | Deletion | 0.8603 | **0.8865** | **0.8732** |
+| `sm50-readlik` | Deletion | 0.8603 | **0.8865** | **0.8732** |
 | `sm50-poisson-z` | ALL | 0.8993 | 0.9385 | 0.9184 |
-| `sm50-readlik-z` | ALL | **0.9238** | **0.9596** | **0.9413** |
+| `sm50-readlik` | ALL | **0.9238** | **0.9596** | **0.9413** |
 
 The insertion precision gap collapses from **0.139 to 0.008**, and insertion BASEPAIR F1 flips from a
 0.047 loss into a 0.047 win. **There is no insertion-sequence defect.** The unrestricted number was
@@ -1415,7 +1415,7 @@ nothing at all at the two largest sites.
 #### Are the large calls right?
 
 `stvar` is what can answer that, and the answer is mixed but net positive: SV insertion recall 0.4976
-(`readlik-z`) vs 0.4263 (`poisson-z`). Of the 246 calls with a >=200 bp insertion allele, **35 are
+(`readlik`) vs 0.4263 (`poisson-z`). Of the 246 calls with a >=200 bp insertion allele, **35 are
 confirmed true**, **73 confirmed false**, and **138 fall outside the SV confident region** and cannot be
 judged either way. Capping insertion length at 200 bp would buy +0.168 insertion BASEPAIR precision and
 cost SV insertion recall 0.4976 → 0.4348 — it optimises one benchmark by discarding what the other
@@ -1449,7 +1449,7 @@ from `ReadLikelihoodSnarlCaller`, which subclasses `SupportBasedSnarlCaller` and
 
 | filter | records dropped | INS BP precision | ALL BP F1 | ALL GT F1 | SV ins recall |
 |---|---|---|---|---|---|
-| `readlik-z` (none) | 0 | 0.6226 | 0.8973 | 0.9482 | 0.4976 |
+| `readlik` (none) | 0 | 0.6226 | 0.8973 | 0.9482 | 0.4976 |
 | DP > 400 | 102 | 0.6227 | 0.8972 | 0.9481 | 0.4867 |
 | DP > 200 | 195 | 0.6227 | 0.8973 | 0.9480 | 0.4783 |
 | DP > 58 | 1,202 | 0.7092 | 0.9160 | 0.9477 | 0.4167 |
@@ -1492,13 +1492,13 @@ step, and again end-to-end: re-running all five arms through the harness moved o
 |---|---|---|
 | `poisson` | 152 s | 156 s |
 | `poisson-z` | 74 s | 72 s |
-| `readlik` | 574 s | **115 s** |
+| `readlik-support` | 574 s | **115 s** |
 | `readlik-nomismap` | 556 s | **115 s** |
-| `readlik-z` | 506 s | **97 s** |
+| `readlik` | 506 s | **97 s** |
 
 The Poisson arms reproduce within noise, which is what makes the read-likelihood rows comparable rather
-than a story about a quieter machine. **`readlik` is now faster than `poisson`** at matched enumeration;
-`readlik-z` is 1.35x `poisson-z` where it was 5.9x.
+than a story about a quieter machine. **`readlik-support` is now faster than `poisson`** at matched enumeration;
+`readlik` is 1.35x `poisson-z` where it was 5.9x.
 
 #### The measurement that framed everything
 
@@ -1573,13 +1573,13 @@ so the `-z` arms really do enumerate from 34 walks.
 
 #### Every arm gets worse on F1; they do not get worse equally
 
-| measure | `poisson-z` | `readlik-z` | ratio |
+| measure | `poisson-z` | `readlik` | ratio |
 |---|---|---|---|
 | small-variant ALL GT F1 | −0.0235 | **−0.0022** | 11x |
 | size-matched ALL BASEPAIR F1 | −0.0260 | **−0.0060** | 4x |
 | SV F1 | −0.0695 | **−0.0212** | 3x |
 
-Recall rises for every arm and precision falls for every arm — `readlik-z` GT recall 0.9322 → 0.9466,
+Recall rises for every arm and precision falls for every arm — `readlik` GT recall 0.9322 → 0.9466,
 precision 0.9648 → 0.9453. More haplotypes offer more true alleles and more wrong ones. **The
 read-likelihood model absorbs the extra ambiguity 3–11× better than the Poisson model on every axis**,
 which is what scoring reads against individual alleles buys over aggregating depth.
@@ -1589,17 +1589,17 @@ which is what scoring reads against individual alleles buys over aggregating dep
 | arm | SV recall | SV precision | SV F1 |
 |---|---|---|---|
 | `poisson-z` | 0.5024 → 0.4887 (**−0.014**) | 0.5187 → 0.4017 | 0.5104 → 0.4409 |
-| `readlik` | 0.4810 → 0.5101 (+0.029) | 0.4671 → 0.4101 | 0.4739 → 0.4547 |
-| `readlik-z` | 0.5214 → **0.5726** (+0.051) | 0.5028 → 0.4294 | 0.5120 → 0.4908 |
+| `readlik-support` | 0.4810 → 0.5101 (+0.029) | 0.4671 → 0.4101 | 0.4739 → 0.4547 |
+| `readlik` | 0.5214 → **0.5726** (+0.051) | 0.5028 → 0.4294 | 0.5120 → 0.4908 |
 
-SV insertion recall for `readlik-z` goes 0.4976 → **0.5580**. This is §9.11's finding sharpened: the
+SV insertion recall for `readlik` goes 0.4976 → **0.5580**. This is §9.11's finding sharpened: the
 extra haplotypes supply better SV alleles, but only a caller that scores alleles individually can use
 them — `poisson-z`'s recall *falls*. It still costs precision, so F1 declines: the operating point
 moved, it did not simply improve.
 
 #### The mismapping term does ~10x more work
 
-`readlik` against `readlik-nomismap` is worth **+0.0066** ALL GT F1 here against **+0.0007** on the
+`readlik-support` against `readlik-nomismap` is worth **+0.0066** ALL GT F1 here against **+0.0007** on the
 4-haplotype graph, and suppresses **7,287** calls against **752**. More near-identical haplotypes means
 more chances for a read to fit an allele it did not come from, which is exactly the failure §9.15
 diagnosed. The floor holds under a graph that stresses it ten times harder — the best evidence yet that
@@ -1609,7 +1609,7 @@ diagnosed. The floor holds under a graph that stresses it ten times harder — t
 
 Unrestricted insertion BASEPAIR F1 falls ~0.13 for every arm, which looks alarming and mostly is not:
 a richer graph calls more >=50 bp insertions, and the `smvar` truth set scores every base of those FP.
-Size-matched to <50 bp, `readlik-z` insertion BASEPAIR F1 is **flat** (0.8601 → 0.8605) with recall up
+Size-matched to <50 bp, `readlik` insertion BASEPAIR F1 is **flat** (0.8601 → 0.8605) with recall up
 0.036. Checking this was cheap only because `size_matched.py` already existed.
 
 #### What this cannot settle
@@ -1626,16 +1626,16 @@ nothing here should be read as showing the 34-haplotype graph is worse in absolu
 |---|---|---|
 | `poisson` | 156 s | 293 s |
 | `poisson-z` | 72 s | 106 s |
-| `readlik` | 115 s | 134 s |
-| `readlik-z` | 97 s | 116 s |
+| `readlik-support` | 115 s | 134 s |
+| `readlik` | 97 s | 116 s |
 
 The Poisson arms roughly double; the read-likelihood arms rise ~20%. After §9.17 the read-likelihood
 caller is now **faster than `poisson` on this graph** (116 s against 293 s) as well as more robust.
 Peak RSS stays at 3.2–4.0 GB. Building the databases took 52 min (graph 3 min, reads 49 min, 21.0 GB).
 
-### 9.19 Plan: the `readlik-z` precision loss on the 34-haplotype graph
+### 9.19 Plan: the `readlik` precision loss on the 34-haplotype graph
 
-§9.18 reported `readlik-z` GT precision falling 0.9648 → 0.9453 while recall rose 0.9322 → 0.9466, and
+§9.18 reported `readlik` GT precision falling 0.9648 → 0.9453 while recall rose 0.9322 → 0.9466, and
 read that as an operating-point shift. Scoping below shows that reading is **incomplete**: part of it is
 a threshold effect, but a real loss of discrimination sits underneath. This section is the plan to find
 it. Nothing here is implemented yet.
@@ -1856,10 +1856,10 @@ Re-running every read-likelihood arm on both graphs under `--mismap-max 0.5`:
 |---|---|---|---|---|---|
 | `poisson-z` | 4-hap | 0.9359 | 0.9914 | 605 | 0.5104 |
 | `poisson-z` | 34-hap | **0.9124** | 0.9583 | 3,036 | 0.4409 |
-| `readlik-z` | 4-hap | 0.9479 | 0.9947 | 376 | 0.5164 |
-| `readlik-z` | 34-hap | **0.9520** | 0.9937 | 443 | 0.4906 |
+| `readlik` | 4-hap | 0.9479 | 0.9947 | 376 | 0.5164 |
+| `readlik` | 34-hap | **0.9520** | 0.9937 | 443 | 0.4906 |
 
-**The small-variant regression is fully reversed.** `readlik-z` on the 34-haplotype graph now beats
+**The small-variant regression is fully reversed.** `readlik` on the 34-haplotype graph now beats
 itself on the 4-haplotype graph (0.9520 vs 0.9479) while keeping the recall gain (0.9450 vs 0.9315).
 More usefully, **the read-likelihood caller's margin over the Poisson caller widens from +0.0120 to
 +0.0396 — 3.3x** — because the Poisson caller has no equivalent mechanism and loses 0.0235 on the same
@@ -1867,9 +1867,9 @@ graph. That is the strongest argument for the model so far, and the old default 
 
 `readlik-nomismap` is the control: it pins `e_r` to the floor so the cap cannot reach it, and its
 variant count is **unchanged to the record** on both graphs. On the 34-haplotype graph it still carries
-2,593 spurious SNVs against `readlik-z`'s 443. The mismapping term is what does the work.
+2,593 spurious SNVs against `readlik`'s 443. The mismapping term is what does the work.
 
-**The cap did nothing for SVs.** `readlik-z` SV F1 on the 34-haplotype graph is 0.4906, against 0.4908
+**The cap did nothing for SVs.** `readlik` SV F1 on the 34-haplotype graph is 0.4906, against 0.4908
 before the change and 0.5164 on the 4-haplotype graph — SV precision is still 0.4309 vs 0.5081. The
 richer graph's SV *recall* advantage is real and large (0.5696 vs 0.5250) but it is bought with
 precision, and none of that is the cap. **This is a separate open deficit**, not covered by §9.19's
@@ -1942,7 +1942,7 @@ at all. Nothing here is implemented.
 
 #### They are one phenomenon, and it lives entirely at >=50 bp
 
-`readlik-z`, 4-hap → 34-hap, at the shipped defaults:
+`readlik`, 4-hap → 34-hap, at the shipped defaults:
 
 | measure | 4-hap | 34-hap | Δ |
 |---|---|---|---|
@@ -1959,7 +1959,7 @@ when they are scored against the SV benchmark.
 
 #### The SV metric does not mean what it has been used to mean
 
-Reconciling aardvark's two sides for `readlik-z`:
+Reconciling aardvark's two sides for `readlik`:
 
 | | 4-hap | 34-hap |
 |---|---|---|
@@ -2046,12 +2046,12 @@ several — which is precisely the representation choice §9.22 suspected.
 
 | arm | graph | recall | precision | F1 | TP | FP |
 |---|---|---|---|---|---|---|
-| `readlik-z` | 4-hap | 0.4654 | **0.5007** | 0.4824 | 356 | 344 |
-| `readlik-z` | 34-hap | 0.4719 | **0.4187** | 0.4437 | 361 | 490 |
+| `readlik` | 4-hap | 0.4654 | **0.5007** | 0.4824 | 356 | 344 |
+| `readlik` | 34-hap | 0.4719 | **0.4187** | 0.4437 | 361 | 490 |
 | `poisson-z` | 4-hap | 0.4902 | 0.4959 | 0.4930 | 375 | 372 |
 | `poisson-z` | 34-hap | 0.4824 | 0.4029 | 0.4391 | 369 | 535 |
 
-**Precision: the two metrics agree, so the deficit is real.** Aardvark put `readlik-z` at
+**Precision: the two metrics agree, so the deficit is real.** Aardvark put `readlik` at
 0.5081 → 0.4309 (−0.077); truvari gives 0.5007 → 0.4187 (−0.082). The false-positive counts nearly
 coincide as well — 331 vs 344 on the 4-haplotype graph, 443 vs 490 on the 34-haplotype. Two methods with
 entirely different matching criteria reaching the same number is about as strong as this evidence gets.
@@ -2083,7 +2083,7 @@ wrong rather than as a test of whether they are.
 
 #### The FPs, characterised
 
-Truvari's false >=50 bp calls for `readlik-z`, 4-hap → 34-hap: **+146, of which +98 are insertions and
+Truvari's false >=50 bp calls for `readlik`, 4-hap → 34-hap: **+146, of which +98 are insertions and
 +8 deletions**; true positives move +8. By size the extra insertions are spread across every class and
 concentrated at 50–300 bp (50–99: 79→109, 100–299: 65→107, 300–999: 24→37, 1k–10k: 8→21), so this is not
 a handful of pathological giants.
@@ -2211,7 +2211,7 @@ become similar while accuracy still holds. That reproduces the confidence collap
 
 #### What the real failing sites actually look like
 
-Mapping quality and snarl size at truvari's >=50 bp verdicts, `readlik-z`:
+Mapping quality and snarl size at truvari's >=50 bp verdicts, `readlik`:
 
 | | mean MAPQ | MAPQ < 10 | nodes per site |
 |---|---|---|---|
@@ -2352,17 +2352,17 @@ needed, and it reports precision and surviving FP count at matched recall rather
 | set | arm | GT F1 | BASEPAIR F1 | SV F1 (truvari) |
 |---|---|---|---|---|
 | chr20 4-hap | poisson-z | 0.9359 | 0.8867 | 0.4930 |
-| chr20 4-hap | readlik-z | **0.9490** | **0.9041** | 0.4824 |
+| chr20 4-hap | readlik | **0.9490** | **0.9041** | 0.4824 |
 | chr20 34-hap | poisson-z | 0.9124 | 0.7861 | 0.4391 |
-| chr20 34-hap | readlik-z | **0.9547** | 0.8460 | 0.4437 |
+| chr20 34-hap | readlik | **0.9547** | 0.8460 | 0.4437 |
 | chr6 4-hap | poisson-z | 0.9466 | 0.9169 | 0.5478 |
-| chr6 4-hap | readlik-z | **0.9586** | **0.9227** | 0.5349 |
+| chr6 4-hap | readlik | **0.9586** | **0.9227** | 0.5349 |
 | chr6 34-hap | poisson-z | 0.9318 | 0.8076 | 0.4881 |
-| chr6 34-hap | readlik-z | **0.9616** | 0.8312 | 0.4724 |
+| chr6 34-hap | readlik | **0.9616** | 0.8312 | 0.4724 |
 
-chr6 reproduces chr20 in every direction: `readlik-z` beats `poisson-z` on GT and BASEPAIR on both
+chr6 reproduces chr20 in every direction: `readlik` beats `poisson-z` on GT and BASEPAIR on both
 graphs; GT F1 *rises* on the richer graph while BASEPAIR and SV F1 *fall*; and the BASEPAIR fall is
-entirely precision (chr6 `readlik-z` 0.9013 → 0.7349). Multi-allelic records go 2.36% → 3.38% on
+entirely precision (chr6 `readlik` 0.9013 → 0.7349). Multi-allelic records go 2.36% → 3.38% on
 chr6 and 2.23% → 3.45% on chr20, so the exposure effect §9.24 identified is the same size on both
 chromosomes. The MHC did not make chr6 special.
 
@@ -2681,6 +2681,55 @@ has least room to be wrong. Partial reads at large sites are untested, and are e
 first, flawed attempt showed active harm. The honest statement is that realignment does not help
 where it is well-posed, and is unsafe where it is not.
 
+### 9.29 Panel enumeration becomes the default under `--read-likelihood`, and only there
+
+The proposal was to make haplotype enumeration (`-z`/`-g`) the default whenever a GBWT is present, on
+the grounds that it always performs better. Measured across all four datasets, that premise holds for
+one caller and fails for the other.
+
+Small-variant genotype F1, support enumeration → panel enumeration:
+
+| dataset | `poisson` | `poisson-z` | `readlik-support` | `readlik` |
+|---|---|---|---|---|
+| chr20 4-hap | 0.9355 | 0.9359 | 0.9487 | 0.9507 |
+| chr20 34-hap | 0.9107 | 0.9124 | 0.9513 | 0.9645 |
+| chr6 4-hap | 0.9461 | 0.9466 | 0.9583 | 0.9602 |
+| chr6 34-hap | 0.9297 | 0.9318 | 0.9588 | 0.9689 |
+
+Panel enumeration wins all eight. Structural variants do not agree:
+
+| dataset | `poisson` | `poisson-z` | `readlik-support` | `readlik` |
+|---|---|---|---|---|
+| chr20 4-hap | 0.4954 | 0.4930 | 0.5034 | 0.5016 |
+| chr20 34-hap | 0.4535 | **0.4391** | 0.4592 | 0.4944 |
+| chr6 4-hap | 0.5490 | 0.5478 | 0.5547 | 0.5691 |
+| chr6 34-hap | 0.4944 | 0.4881 | 0.4999 | 0.5268 |
+
+Under the Poisson caller panel enumeration loses SV F1 on all four datasets, by as much as 0.0144.
+Under the read-likelihood caller it wins on three of four, and the one loss — chr20 4-hap, 0.0018 —
+is under two events on a 765-event benchmark, below what that benchmark resolves. So the default
+changed under `--read-likelihood` only. Flipping it globally would have regressed the shipped
+caller's SV calls on every dataset measured, which is the whole reason the matrix carries both rows.
+
+The mechanism also says where it is weakest: panel enumeration cannot spell an allele no haplotype
+carries, so its ceiling is the panel's content, and the single loss is on the thinnest panel. Two
+guards follow from that. A GBZ always contains a GBWT but may hold nothing but reference paths, so
+the guard counts **HAPLOTYPE-sense** paths rather than all of them and declines below two — otherwise
+an empty panel would offer the reference allele at every site and produce near-zero alt recall in
+silence. And `--enumerate-support` is the way back, which matters because the evidence here is one
+sample against a panel that excludes it but represents its variation well. A sample poorly
+represented in the panel would fare worse, and nothing measured here bounds that.
+
+Consequences for the harness. The arms are now named for each caller's own default rather than for a
+flag, so `readlik` is the plain invocation and `readlik-support` is the one carrying a flag, while
+for Poisson it stays the other way round. `readlik-nomismap` moved to panel enumeration so that it
+stays a one-variable ablation against `readlik`; its numbers therefore changed and were re-measured.
+The other three renames — `readlik-z` → `readlik`, `readlik` → `readlik-support`, `readlik-z-nolink`
+→ `readlik-nolink` — were checked byte-identical against a binary built from the pre-change source
+before the rename, so for those only the label moved. The tier-0 matrix needed the same treatment for
+a subtler reason: its graph is a GBZ too, so its plain `readlik` arm silently became identical to its
+`readlik-gbwt-nopack` arm, leaving a duplicate row that still read as a control.
+
 ---
 
 ## Appendix B. Claims made here and later withdrawn
@@ -2745,7 +2794,7 @@ Three commits sit unpushed on `read-likelihood-genotyping` in the fork. Before t
 
 ### 2. Structural variants — the one real accuracy gap
 
-`readlik-z` trails `poisson-z` on SV F1 on three of four datasets. What is already established:
+`readlik` trails `poisson-z` on SV F1 on three of four datasets. What is already established:
 it is not a metric artefact (§9.22), not scorer bias (§9.24), and not fixable by either clamp, a
 genotype prior, or the scoring rule (§9.23–9.24). It is largely **exposure** — the richer graph
 offers multi-allelic sites the sparse one cannot produce.

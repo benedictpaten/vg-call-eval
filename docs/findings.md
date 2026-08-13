@@ -17,7 +17,7 @@ are optimistic; these are caller-vs-caller comparisons. See [simulation.md](simu
 | Config | Result |
 |---|---|
 | 20 kb, 20x, 150 bp | every arm F1 = 1.0000 |
-| 400 kb, 20x, 150 bp | poisson recall 0.9996, readlik 0.9985 — saturated, no signal |
+| 400 kb, 20x, 150 bp | poisson recall 0.9996, readlik-support 0.9985 — saturated, no signal |
 | 400 kb, **4x, 100 bp** | separates the callers; this is the useful regime |
 
 A configuration where every arm scores near-perfectly is a statement about the configuration.
@@ -26,7 +26,7 @@ A configuration where every arm scores near-perfectly is a statement about the c
 
 GT recall, mean over seeds, with the count of seeds where read-likelihood beat Poisson:
 
-| Type | poisson | readlik | readlik wins |
+| Type | poisson | readlik-support | readlik-support wins |
 |---|---|---|---|
 | ALL | **0.9096** | 0.8991 | 0/5 |
 | SNV | **0.9142** | 0.8975 | 0/5 |
@@ -34,7 +34,7 @@ GT recall, mean over seeds, with the count of seeds where read-likelihood beat P
 | Deletion | **0.9183** | 0.8929 | 0/5 |
 
 BASEPAIR (sequence-level, all types): poisson recall 0.9372 / precision 0.9725 / F1 0.9534 against
-readlik 0.8886 / 0.8426 / 0.8610. Read-likelihood emits materially more wrong sequence, and with much
+readlik-support 0.8886 / 0.8426 / 0.8610. Read-likelihood emits materially more wrong sequence, and with much
 higher variance across seeds (recall sd 0.11 vs 0.06).
 
 ### What this says
@@ -61,17 +61,20 @@ Three things to hold alongside that:
 
 ## Allele enumeration is not the bottleneck (in tier 0)
 
-Which traversal finder each arm uses matters for interpreting the above, and is worth stating because
-a GBZ input does *not* by itself change it — only `-g`/`-z` does:
+Which traversal finder each arm uses matters for interpreting the above, and no longer follows from the
+flags alone. A GBZ input used to change nothing by itself — only `-g`/`-z` did — but `--read-likelihood`
+now enumerates from the GBZ's haplotype panel by default wherever that panel holds at least two
+haplotypes, so under that caller the *plain* invocation is the one using `GBWTTraversalFinder`:
 
 | Arm | Traversal finder |
 |---|---|
-| `poisson`, `readlik`, `readlik-nomismap` | `FlowTraversalFinder` — Yen's k-widest paths, node/edge weights from the pack file |
-| `readlik-gbwt-nopack` | `GBWTTraversalFinder` — haplotypes recorded in the GBZ |
+| `poisson`, `readlik-support` | `FlowTraversalFinder` — Yen's k-widest paths, node/edge weights from the pack file |
+| `readlik`, `readlik-nomismap` | `GBWTTraversalFinder` — haplotypes recorded in the GBZ |
 
-So three of the four arms share support-driven enumeration, which is good experimental hygiene by
-accident: the poisson-vs-readlik comparison holds enumeration constant and varies only the genotyping
-model.
+`readlik-support` exists to keep the caller comparison honest. It asks for support enumeration
+explicitly (`--enumerate-support`), so poisson-vs-readlik-support still holds enumeration constant and
+varies only the genotyping model. Comparing `poisson` against `readlik` varies both at once: that is a
+comparison of shipped defaults, not of models, and the two questions have different answers.
 
 The fourth arm turns out to be an unintentionally strong diagnostic. In tier 0 the GBZ is built by
 `autoindex` from the truth VCF, so **its haplotypes are the true haplotypes** — that arm is enumerating

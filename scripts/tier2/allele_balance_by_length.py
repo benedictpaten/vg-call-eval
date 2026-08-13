@@ -24,7 +24,7 @@ from pathlib import Path
 
 def labels_aardvark(work: Path) -> dict:
     bd = {}
-    with gzip.open(work / "results/aardvark-readlik-z/query.vcf.gz", "rt") as fh:
+    with gzip.open(work / "results/aardvark-readlik/query.vcf.gz", "rt") as fh:
         for line in fh:
             if line.startswith("#"):
                 continue
@@ -39,7 +39,7 @@ def labels_aardvark(work: Path) -> dict:
 
 def labels_truvari(work: Path) -> dict:
     bd = {}
-    d = work / "results/truvari-readlik-z"
+    d = work / "results/truvari-readlik"
     for fname, lab in (("tp-comp.vcf.gz", "TP"), ("fp.vcf.gz", "FP")):
         with gzip.open(d / fname, "rt") as fh:
             for line in fh:
@@ -64,7 +64,7 @@ def main() -> None:
 
     q = subprocess.run(
         ["bcftools", "query", "-f", "%POS\t%REF\t%ALT[\t%GT\t%DP\t%AD]\n",
-         str(W / "results/readlik-z.vcf.gz")], capture_output=True, text=True)
+         str(W / "results/readlik.vcf.gz")], capture_output=True, text=True)
 
     # bucket -> [sum of alt fraction, n, sum of AD total / DP]
     acc = {b: [0.0, 0, 0.0] for b in BUCKETS}

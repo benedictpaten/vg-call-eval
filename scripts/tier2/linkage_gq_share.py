@@ -22,7 +22,7 @@ proposed change is a pure post-hoc transform of an emitted field:
     changed records:  GQ' = GQ * share        (share from AD/DP, as the caller computes it)
     other records:    GQ' = GQ                (already discounted)
 
-Records the HMM changed are identified by diffing `readlik-z` against `readlik-z-nolink`,
+Records the HMM changed are identified by diffing `readlik` against `readlik-nolink`,
 which differ only in `--linkage-weight`.
 
 Scored the way every other quality signal in this project has been: AUC over true against
@@ -127,10 +127,10 @@ def main() -> None:
     print("-" * len(hdr))
 
     for name, work in DATASETS:
-        vcf = work / "results/readlik-z.vcf.gz"
-        nolink = work / "results/readlik-z-nolink.vcf.gz"
+        vcf = work / "results/readlik.vcf.gz"
+        nolink = work / "results/readlik-nolink.vcf.gz"
         if not vcf.exists() or not nolink.exists():
-            print(f"{name:14s} (missing readlik-z or readlik-z-nolink)")
+            print(f"{name:14s} (missing readlik or readlik-nolink)")
             continue
         try:
             bd = labels(work, args.kind)

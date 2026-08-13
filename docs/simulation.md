@@ -106,9 +106,9 @@ The simulated alignments are kept, though, and used for two things nothing else 
 |---|---|
 | `poisson` | the current default, as shipped |
 | `poisson-depthfix` | with the `depth_err` one-liner patched — quantifies how much that bug distorts the baseline |
-| `readlik` | the new caller |
+| `readlik` | the new caller as shipped: panel enumeration from the GBZ, no pack file |
 | `readlik-nomismap` | `--no-mismap-term`, to measure what the mismapping term contributes |
-| `readlik-gbwt-nopack` | `-g` enumeration with no pack file, to confirm it matches and to time it |
+| `readlik-support` | `--enumerate-support`, which puts enumeration back on the pack so the comparison against `poisson` varies only the genotyping model |
 
 `poisson-depthfix` needs a separately built vg, which is why the harness takes a **binary path per arm**
 rather than a single global one.

@@ -61,7 +61,7 @@ def main() -> None:
     truth, calls, sens = load()
 
     sec("Recall by type, size and zygosity")
-    for arm in ["poisson-z", "readlik-z"]:
+    for arm in ["poisson-z", "readlik"]:
         print(f"\n**`{arm}`**\n")
         h("dataset", "type", "zyg", *BINS)
         rule(3 + len(BINS))
@@ -84,7 +84,7 @@ def main() -> None:
         P = {(r["chrom"], r["pos"], r["svlen"]): r for r in truth
              if r["dataset"] == ds and r["arm"] == "poisson-z"}
         R = {(r["chrom"], r["pos"], r["svlen"]): r for r in truth
-             if r["dataset"] == ds and r["arm"] == "readlik-z"}
+             if r["dataset"] == ds and r["arm"] == "readlik"}
         b = collections.Counter()
         for k in P:
             if k not in R:
@@ -110,7 +110,7 @@ def main() -> None:
     rule(3 + len(CL))
     fn = [r for r in truth if r["outcome"] == "FN"]
     for ds in DS:
-        for arm in ["poisson-z", "readlik-z"]:
+        for arm in ["poisson-z", "readlik"]:
             sel = [r for r in fn if r["dataset"] == ds and r["arm"] == arm]
             c = collections.Counter(r["call_class"] for r in sel)
             h(ds, f"`{arm}`", len(sel),
@@ -121,7 +121,7 @@ def main() -> None:
     h("dataset", "arm", "FP", *MC)
     rule(3 + len(MC))
     for ds in DS:
-        for arm in ["poisson-z", "readlik-z"]:
+        for arm in ["poisson-z", "readlik"]:
             sel = [r for r in calls if r["dataset"] == ds and r["arm"] == arm
                    and r["outcome"] == "FP"]
             c = collections.Counter(r["match_class"] for r in sel)
@@ -156,7 +156,7 @@ def main() -> None:
     rule(8)
     for contig, a, b_ in [("chr6", "chr6-4hap", "chr6-34hap"),
                           ("chr20", "chr20-4hap", "chr20-34hap")]:
-        for arm in ["poisson-z", "readlik-z"]:
+        for arm in ["poisson-z", "readlik"]:
             f4, f34 = idx(a, arm, "FP"), idx(b_, arm, "FP")
             s4, s34 = set(f4), set(f34)
             carried = [k for k in f34 if near(k, s4)]
@@ -172,7 +172,7 @@ def main() -> None:
     import statistics as st
     for ds in DS:
         for out in ["TP", "FP"]:
-            sel = [r for r in calls if r["dataset"] == ds and r["arm"] == "readlik-z"
+            sel = [r for r in calls if r["dataset"] == ds and r["arm"] == "readlik"
                    and r["outcome"] == out]
             sh = [float(r["share"]) for r in sel if r["share"]]
             gq = [float(r["gq"]) for r in sel if r["gq"]]

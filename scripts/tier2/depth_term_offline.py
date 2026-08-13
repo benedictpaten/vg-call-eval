@@ -177,13 +177,13 @@ def main() -> None:
                           WORK / "sv-atlas/chr6-trav.gaf",
                           args.read_length, "chr6-4hap", args.depth_weights)
 
-    # Snarls of large heterozygous deletions poisson-z recovers and readlik-z misses.
+    # Snarls of large heterozygous deletions poisson-z recovers and readlik misses.
     truth = list(csv.DictReader(open(WORK / "sv-atlas/truth.tsv"), delimiter="\t"))
     def key(r):
         return (r["chrom"], r["pos"], r["svlen"])
     P = {key(r): r for r in truth if r["dataset"] == "chr6-4hap" and r["arm"] == "poisson-z"
          and r["svtype"] == "DEL" and r["sizebin"] == "1k+"}
-    Rz = {key(r): r for r in truth if r["dataset"] == "chr6-4hap" and r["arm"] == "readlik-z"
+    Rz = {key(r): r for r in truth if r["dataset"] == "chr6-4hap" and r["arm"] == "readlik"
           and r["svtype"] == "DEL" and r["sizebin"] == "1k+"}
     disc = {int(k[1]) for k in P if P[k]["outcome"] == "TP" and Rz[k]["outcome"] == "FN"}
     want = set()

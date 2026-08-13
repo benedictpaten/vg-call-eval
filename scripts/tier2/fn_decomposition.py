@@ -87,7 +87,7 @@ def explained(deltas: list, svlen: int, tol: float) -> bool:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arm", default="readlik-z")
+    ap.add_argument("--arm", default="readlik")
     ap.add_argument("--windows", nargs="+", type=int, default=[50, 200, 500])
     ap.add_argument("--tolerances", nargs="+", type=float, default=[0.1, 0.2, 0.3])
     args = ap.parse_args()

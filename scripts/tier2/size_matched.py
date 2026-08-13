@@ -40,7 +40,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from vgcalleval.engines import aardvark  # noqa: E402
 
-ARMS = ["poisson-z", "readlik-z"]
+ARMS = ["poisson-z", "readlik"]
 MAX_LEN = 50
 
 

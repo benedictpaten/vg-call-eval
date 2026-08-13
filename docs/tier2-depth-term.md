@@ -21,10 +21,10 @@ looked like.**
 
 **Built, measured across the whole five-arm matrix, and now the default at
 `--depth-term 0.1`**, with the rate measured over the read source's own fetch window.
-Structural-variant F1 for `readlik-z`, from the full refresh — `w_d` searched on chr20 and
+Structural-variant F1 for `readlik`, from the full refresh — `w_d` searched on chr20 and
 validated on chr6, then every arm re-run on one build:
 
-| dataset | `readlik-z`, term off | **+ depth term 0.1** | `poisson` | `poisson-z` |
+| dataset | `readlik`, term off | **+ depth term 0.1** | `poisson` | `poisson-z` |
 |---|---|---|---|---|
 | chr20-4hap | 0.4890 | **0.4998** | 0.4954 | 0.4930 |
 | chr20-34hap | 0.4588 | **0.4655** | 0.4535 | 0.4391 |
@@ -32,7 +32,15 @@ validated on chr6, then every arm re-run on one build:
 | chr6-34hap | 0.4963 | **0.5059** | 0.4944 | 0.4881 |
 
 Ahead of both Poisson arms on all four, and gaining on all four (+0.0067 to +0.0108).
-`readlik` gains on three with the fourth flat, `readlik-nomismap` on all four, and both
+> **Arm definitions changed after these numbers were measured.** `--read-likelihood` now
+> enumerates from the GBZ haplotype panel by default (harness plan §9.29), and
+> `readlik-nomismap` moved to panel enumeration with it so that it stays a one-variable
+> ablation against `readlik`. Every `readlik-nomismap` figure below was measured under
+> *support* enumeration and is not comparable to one carrying that name today. The other
+> arms' commands are unchanged; only their names moved (`readlik-z` → `readlik`, old
+> `readlik` → `readlik-support`), and those were checked byte-identical before renaming.
+
+`readlik-support` gains on three with the fourth flat, `readlik-nomismap` on all four, and both
 Poisson arms come out byte-identical — the control that makes the rest of the table
 comparable at all.
 
@@ -50,7 +58,7 @@ but costs precision, and more of it on the richer graph. See
 [tier2-parameters.md](tier2-parameters.md) for the grid.
 
 Small-variant genotype F1 does not move to four decimal places on any dataset or any read
-arm, the heterozygous fraction of calls shifts by 0.005, and chr20-4hap `readlik-z` runs in
+arm, the heterozygous fraction of calls shifts by 0.005, and chr20-4hap `readlik` runs in
 110 s against a 120–170 s baseline. Stage 0 predicted 4 of 10 sites with a deliberately
 naive global rate; a local rate does better, as Stage 0 said it would.
 
@@ -127,7 +135,7 @@ genotype that predicts about twice the reads observed. The depth term flips all 
 **Group B is a different failure wearing the same clothes.** The caller *does* call a
 deletion — homozygous — and packs 2 to 7 times the expected reads onto it. These are
 collapsed repeats. At `175895886`, 709 reads sit on a 326 bp allele: 0.745 reads per
-position against a global 0.102, and `readlik-z` emits **no record at all** while
+position against a global 0.102, and `readlik` emits **no record at all** while
 `poisson-z` calls the −7466 bp deletion from **DP 18**. The read caller is being handed
 709 reads where the depth caller sees 18 informative ones.
 
@@ -199,7 +207,7 @@ recalibration artefact is what cost the flip here.
 ## Where the local rate comes from: reads, not the pack — and not from within the site
 
 The rate must be derived from the reads rather than a pack file, and not only to keep
-`readlik-z` pack-free. `N` is *rows in the likelihood matrix*, which is neither coverage
+`readlik` pack-free. `N` is *rows in the likelihood matrix*, which is neither coverage
 nor what a pack reports: it depends on the read-fetch window and the placement filter.
 Estimating the rate through the same fetch and placement path makes the units match by
 construction, where a pack-derived rate would be a cross-unit comparison with a silent
@@ -416,13 +424,13 @@ worse than no knob.
 ## Still open
 
 - **On by default at `w_d = 0.1`.** The full five-arm refresh is what settled it: structural
-  variant F1 rises on 4 of 4 datasets for `readlik-z` (+0.0067 to +0.0108) and 3 of 4 for
-  `readlik` with the fourth flat, small-variant genotype F1 is unchanged to four decimal
+  variant F1 rises on 4 of 4 datasets for `readlik` (+0.0067 to +0.0108) and 3 of 4 for
+  `readlik-support` with the fourth flat, small-variant genotype F1 is unchanged to four decimal
   places on every read arm, and **both Poisson arms are byte-identical**, which is the
   control that makes the rest of the table comparable. `readlik-nomismap` gains too
   (+0.0030 to +0.0053) — a useful partial control, because with `e_r` pinned to the floor
   for every read the effective-count machinery is nearly inert there, so that gain is the
-  Poisson term itself. One ordering reverses: on chr20-4hap `readlik` now beats `readlik-z`,
+  Poisson term itself. One ordering reverses: on chr20-4hap `readlik-support` now beats `readlik`,
   0.5034 against 0.4998.
 - **Group B is untouched.** The term detects collapsed repeats emphatically and still
   cannot outvote the read evidence there; that needs `DR` wired into the quality field,

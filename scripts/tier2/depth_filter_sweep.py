@@ -90,7 +90,7 @@ def main() -> None:
             # Skip a benchmark this dataset genuinely lacks, but say so -- a silent skip
             # here prints an empty table that looks like a result.
             if not (W / f"results/{'truvari' if kind == 'truvari' else 'aardvark'}"
-                    f"-readlik-z").exists():
+                    f"-readlik").exists():
                 print(f"  (no {kind} output in {W})")
                 continue
             cache[kind] = (collect(W, kind), truth_counts(W, kind))

@@ -31,7 +31,7 @@ run() {
     local ds=$1 contig=$2 gbzdb=$3 gafdb=$4 label=$5
     shift 5
     local w="$REPO/work/$ds"
-    local out="$w/results/readlik-z-${label}.vcf.gz"
+    local out="$w/results/readlik-${label}.vcf.gz"
     if [ -s "${out}.tbi" ] && [ "${FORCE:-0}" != "1" ]; then
         echo "skip $ds $label (exists)"; return
     fi
@@ -40,12 +40,12 @@ run() {
         -p "CHM13#0#${contig}" -t "$THREADS" --read-likelihood -z \
         --gaf-base "$REPO/work/$gafdb" --gbz-base "$REPO/work/$gbzdb" \
         --gaf-base-binary "$GBZ_BASE_BIN" "$@" \
-        2> "$w/results/readlik-z-${label}.time.log" \
+        2> "$w/results/readlik-${label}.time.log" \
         | bgzip -c > "$out"
     tabix -f -p vcf "$out"
     local secs rss
-    secs=$(awk '/real/{print $1}' "$w/results/readlik-z-${label}.time.log" | tail -1)
-    rss=$(awk '/maximum resident set size/{printf "%.1f", $1/1073741824}' "$w/results/readlik-z-${label}.time.log")
+    secs=$(awk '/real/{print $1}' "$w/results/readlik-${label}.time.log" | tail -1)
+    rss=$(awk '/maximum resident set size/{printf "%.1f", $1/1073741824}' "$w/results/readlik-${label}.time.log")
     echo "  $ds $label: $(bcftools index -n "$out") variants, ${secs}s, ${rss} GB peak"
 }
 

@@ -136,9 +136,12 @@ individual reads to the genotyper is genuinely new work, and it is the largest p
   [graph_caller.cpp:2060](vg/src/graph_caller.cpp:2060)) to reach `get_support_finder()`, which
   supplies the node/edge weights that `FlowTraversalFinder` uses to *enumerate* alleles. **The new
   caller must therefore subclass `SupportBasedSnarlCaller`** — but `-k` (the pack file) is
-  required only for *enumeration*, never for genotyping. With `-g`/`-z`, `GBWTTraversalFinder`
-  enumerates alleles from recorded haplotypes rather than from support, so nothing on that path
-  consults the pack and it can be omitted entirely; a `NullTraversalSupportFinder` stands in.
+  required only for *enumeration*, never for genotyping. `GBWTTraversalFinder` enumerates alleles
+  from recorded haplotypes rather than from support, so nothing on that path consults the pack and
+  it can be omitted entirely; a `NullTraversalSupportFinder` stands in. This is now the **default**
+  under `--read-likelihood` on a GBZ carrying at least two haplotype-sense paths (§9.29 of the
+  harness plan), so the pack is optional for the plain invocation and `--enumerate-support` is what
+  puts enumeration back on it.
   A caller doing that must override `get_skip_allele_fn()`, since the support-based version prunes
   any allele below a support threshold and would discard every allele when support reads zero.
 - `VCFGenotyper` takes a generic `SnarlCaller&`
@@ -971,7 +974,7 @@ benchmark — yet the two confident regions overlap almost completely (58.9 Mb v
 insertion called inside the small-variant confident region has every one of its bases scored as a false
 positive, however right the call is. It is unscoreable-as-correct by construction.
 
-That is precisely where the gap lives. 246 `readlik-z` calls carry a >=200 bp insertion allele, and they
+That is precisely where the gap lives. 246 `readlik` calls carry a >=200 bp insertion allele, and they
 contribute **27,951 FP bases and zero TP bases** — the whole of the precision difference. The Poisson
 caller scores better because it does not emit them; at the two largest sites it emits nothing at all.
 
@@ -981,7 +984,7 @@ allele >=50 bp from REF, applied identically to each) settles it:
 | arm | insertion BP recall | precision | F1 |
 |---|---|---|---|
 | `sm50-poisson-z` | 0.7637 | **0.8700** | 0.8134 |
-| `sm50-readlik-z` | **0.8578** | 0.8624 | **0.8601** |
+| `sm50-readlik` | **0.8578** | 0.8624 | **0.8601** |
 
 The precision gap collapses from **0.139 to 0.008**, and insertion BASEPAIR F1 flips from a 0.047 loss
 into a 0.047 win. Overall BASEPAIR F1 goes 0.9184 → 0.9413 the same way. There is no insertion-sequence
@@ -995,7 +998,7 @@ characterised in §5.3.3.
 
 ### 5.3.3 What is actually wrong: no depth-plausibility term
 
-`readlik-z` emits a handful of enormous homozygous insertions in and around the chr20 pericentromere at
+`readlik` emits a handful of enormous homozygous insertions in and around the chr20 pericentromere at
 impossible depths — 61,958 bp at DP 7,873; 57,716 bp at DP 5,337; 33,050 bp at DP 291; 23,450 bp at
 DP 932 — all `1/1` at saturated GQ. Chromosome-median DP is 29, and the Poisson caller's expected depth
 never exceeds 167 anywhere on chr20. Median DP rises monotonically with called insertion length (28 at
@@ -1072,7 +1075,7 @@ roughly 10²–10³× less, scaling linearly in window length. Consequently:
   long tail a support-based prefilter would discard. This matters for `GBWTTraversalFinder`, which
   has no allele cap at all.
 - **No read subsampling needed.**
-- **`-k` is required only for enumeration** (§2.3), so with `-g`/`-z` it is not required at all.
+- **`-k` is required only for enumeration** (§2.3), so under panel enumeration — the default here — it is not required at all.
 - **The bottleneck moves to read retrieval (§6)** — SQLite queries, index scans, GAF parsing — not
   scoring. That is where optimisation effort should go.
 
@@ -1641,9 +1644,9 @@ the four things that looked expensive turned out not to be.
 | | wall | user | sys | peak RSS |
 |---|---|---|---|---|
 | `poisson-z` (reads a pack, never touches a read) | 74 s | — | — | 2.5 GB |
-| `readlik-z` GAF-Base, before | 570 s | 680 s | **520 s** | 4.25 GB |
-| `readlik-z` in-memory GAF (`--gaf-reads`) | 150 s | 170 s | 30 s | 18.2 GB |
-| **`readlik-z` GAF-Base, after** | **99 s** | 280 s | 102 s | **3.74 GB** |
+| `readlik` GAF-Base, before | 570 s | 680 s | **520 s** | 4.25 GB |
+| `readlik` in-memory GAF (`--gaf-reads`) | 150 s | 170 s | 30 s | 18.2 GB |
+| **`readlik` GAF-Base, after** | **99 s** | 280 s | 102 s | **3.74 GB** |
 
 The in-memory run was the first measurement taken and the most useful: same 105,936
 variants with no windowing, no cache and no subprocess, so everything above 150 s was
@@ -1652,9 +1655,9 @@ the same thing from the other side — that is an I/O and allocation profile, no
 genotyper's. The final number is *below* that floor because GAF-Base parses reads
 across six threads where `--gaf-reads` parses 4.9 GB of text on one.
 
-Re-running the whole tier-2 arm set through the evaluation harness afterwards agrees: `readlik-z` 97 s,
-`readlik` 115 s, `readlik-nomismap` 115 s, against `poisson` 156 s and `poisson-z` 72 s on the same
-machine in the same session. **`readlik` is now faster than `poisson` at matched enumeration**, and
+Re-running the whole tier-2 arm set through the evaluation harness afterwards agrees: `readlik` 97 s,
+`readlik-support` 115 s, `readlik-nomismap` 115 s, against `poisson` 156 s and `poisson-z` 72 s on the same
+machine in the same session. **`readlik-support` is now faster than `poisson` at matched enumeration**, and
 every accuracy number in `docs/tier2-chr20-results.md` is unchanged — the only lines that moved in that
 file were the cost table.
 
@@ -1982,7 +1985,7 @@ to be run or a graph limitation will be misreported as a caller limitation.
 | 3b 🟡 | **De novo truth-concordance harness** — built as a separate repo, [benedictpaten/vg-call-eval](https://github.com/benedictpaten/vg-call-eval), so its dependencies stay out of vg's build. Uses `aardvark`, not truvari/vcfeval (see its plan). Tier-0 simulation, the five-arm matrix and comparison work; the `GQ` sweep and calibration remain. | positive and negative controls both pass: identical inputs score 1.0, corrupted inputs are detected |
 | 4 ✅ | Accuracy comparison vs the Poisson caller. **Done on real data over two chromosomes and two graphs.** The model leads on genotype F1 on every class of every dataset, and its margin widens with graph richness. Structural variants remain the weak class for both callers. See the tier-2 summary at the end of this document | stage 3b's harness; `18_vg_call.t` for the `-v` path — plus the §4.6 risk triggers |
 | 4b | *Only if stage 4 shows `GQ` inflation:* fit the `read_weight` discount (§4.4) | binned reported `GQ` vs actual error rate against truth — diagonal after fitting |
-| 5 ✅ | Profile — expected read *retrieval* to dominate, not scoring. **The expectation was wrong, and then the gap closed anyway.** Retrieval was never the bottleneck at chromosome scale; the work in §6.5 removed 5.8× from the read path with byte-identical output, and `readlik-z` now runs at 99 s against `poisson-z`'s 75 s on chr20 | wall-clock on a whole chromosome, both graphs |
+| 5 ✅ | Profile — expected read *retrieval* to dominate, not scoring. **The expectation was wrong, and then the gap closed anyway.** Retrieval was never the bottleneck at chromosome scale; the work in §6.5 removed 5.8× from the read path with byte-identical output, and `readlik` now runs at 99 s against `poisson-z`'s 75 s on chr20 | wall-clock on a whole chromosome, both graphs |
 | 5b | *Only if stage 4 shows it matters:* bounded DP escape hatch (§5.3) | A/B on the HGSVC harness |
 | 6 ✅ | `IndexedGamSiteReadSource` (`.gai`) + the per-thread cache (§6.2), selected with `--gam-index`. No new dependency | **done.** Identical calls asserted by test. On the HGSVC fixture: 354 MB to 58 MB peak RSS and 0.67s to 0.35s. Cache hit rate is reported under `--progress`: 21% with `--top-down`, 0% in flat mode |
 | 6b ✅ | **Align the visit order with read windows (§6.2.1).** Sort top-level snarls by node ID and process them window by window, so each window is fetched exactly once and released. ~60-80 lines; touches `graph_caller.cpp`, so **gated** to keep the default path unchanged | default byte-identical with the gate off; **calls byte-identical with the gate on**, which is the load-bearing check; query count falls to ~span/window; peak RSS must **not** regress |
@@ -2133,7 +2136,7 @@ is in [vg-call-eval-plan.md](vg-call-eval-plan.md) Appendix A.
 | | chr20 4-hap | chr20 34-hap | chr6 4-hap | chr6 34-hap |
 |---|---|---|---|---|
 | `poisson-z` | 0.9359 | 0.9124 | 0.9466 | 0.9318 |
-| `readlik-z` | **0.9490** | **0.9547** | **0.9586** | **0.9616** |
+| `readlik` | **0.9490** | **0.9547** | **0.9586** | **0.9616** |
 
 It leads on every class on every dataset, and its margin **widens** from +0.012 to +0.042 as the
 graph goes from 4 to 34 haplotypes — the Poisson caller loses ground there while this one gains.
@@ -2144,7 +2147,7 @@ both comparison types, and it does roughly ten times more work on the richer gra
 anomaly that had `readlik-nomismap` ahead on BASEPAIR is best explained as an artefact of reads
 simulated from the graph they are mapped back to, where MAPQ is uninformative.
 
-**Structural variants are the weak class, and the deficit is real.** Against truvari, `readlik-z`
+**Structural variants are the weak class, and the deficit is real.** Against truvari, `readlik`
 trails `poisson-z` on SV F1 on three of four datasets (chr20 4-hap 0.4824 vs 0.4930; chr6 4-hap
 0.5349 vs 0.5478), winning narrowly only on chr20 34-hap. Both callers recover roughly half of true
 SVs at roughly half precision. Two things are established about this: it is **not** a metric artefact
@@ -2166,8 +2169,8 @@ sites sit at MAPQ 1 (p(wrong) = 0.79) and were being told 0.1; the default is no
 lesson worth carrying: a clamp that is inert on a sparse graph is not thereby harmless, and a sweep
 that sets a default has to be scored on every benchmark the project runs.
 
-**Cost is no longer a reason not to use this.** After the read-path work (§6.5), `readlik-z` on chr20
-runs in 99 s against `poisson-z`'s 75 s, and `readlik` is *faster* than `poisson` (120 s vs 168 s) —
+**Cost is no longer a reason not to use this.** After the read-path work (§6.5), `readlik` on chr20
+runs in 99 s against `poisson-z`'s 75 s, and `readlik-support` is *faster* than `poisson` (120 s vs 168 s) —
 near parity at matched enumeration, against 4.5–9× slower before. Peak RSS 3.6–3.8 GB on chr20 and
 9–10 GB on chr6. The windowed read source is what makes that possible: chr20's 13.3 M reads held in
 memory would need ~40 GB.
