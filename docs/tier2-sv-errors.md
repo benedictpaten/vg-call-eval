@@ -235,8 +235,10 @@ ln P(reads | G) = Σ_r ln[ (1 − e_r) · max_{h∈G} rel(r,h) + e_r ]
 ```
 
 An interior read then scores 1 under both `long/long` and `long/deletion`, so it cancels
-instead of costing `ln 2`, while junction reads still separate the two. Implemented as
-`--max-allele-likelihood` and run on chr6-4hap.
+instead of costing `ln 2`, while junction reads still separate the two. Implemented as `--max-allele-likelihood` and run on chr6-4hap. **The flag has since
+been removed from `vg call`** — the measurement below settled the question, and a knob whose
+answer is known is a trap rather than an option. The result is kept here because it is the
+reason the mixture is length-weighted rather than a maximum.
 
 **On deletions it works, and dramatically.**
 
