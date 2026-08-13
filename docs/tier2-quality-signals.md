@@ -257,6 +257,21 @@ class). Mid-size events are where the read count and the claimed sequence disagr
 tuning. The bar that put the explained-share discount on by default was 8 of 8 on AUC; this is 7.
 So `--depth-quality A` is a flag, `A = 0.5` when used.
 
+**Re-measured on chr6-34hap after the linkage layer went on by default and `GQ` on
+linkage-changed records began being capped at `GQI`**, since both change the quantity this
+discount multiplies. The conclusion is unchanged and the reversal survives: small-variant
+AUC 0.89148 → 0.89215 (+0.00067), structural 0.72625 → 0.72447 (−0.00178). Smaller than the
+−0.005 measured at the same exponent before, but the same sign, so neither change rescued it.
+Invariants re-checked on the same pair: 0 genotype, `GQI` and `DR` changes, 1,006 `GQ` changes,
+and `GQ` raised at 0 records.
+
+One nuance worth recording, because it reads against the headline. On structural variants the
+AUC falls while *surviving false calls also fall*, 198 → 192. Those measure different things —
+AUC is the whole ordering, the false-call count is the ordering near one threshold — so at the
+operating point anyone would actually filter at, the discount helps here even though the global
+ranking is marginally worse. With 887 structural records a 0.0018 AUC move is a handful of pairs
+reordering, which is the honest size of the objection to this flag.
+
 One caveat this data cannot settle: 34-haplotype false positives are disproportionately calls with no
 truth candidate anywhere nearby, and some are likely real variation the draft benchmark lacks. If so,
 a signal that correctly flags implausible depth would not rank them badly, and the measured AUC
