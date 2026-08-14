@@ -103,9 +103,22 @@ a position is a statement about one reference path. A consumer reconstructs a ha
 the named GBWT sequence from `start_node` to `end_node`. `*` in the haplotype column means the panel
 does not explain that strand there.
 
-Sizes: 255 KB measured for chr20, against ~45 MB if the two paths were written out explicitly as
-node lists — a factor of about 180. Whole-genome the mosaic is on the order of 12 MB where explicit
-paths would be about 2 GB.
+### Why this is small, measured rather than estimated
+
+The mosaic and an explicit path list describe the *same two walks* through the graph. They differ in
+how they say it: the mosaic names a panel haplotype and a node range and lets the graph supply the
+steps, while an explicit list enumerates every node.
+
+Extracting one chr20 haplotype as GAF (`vg paths -A`) gives the enumeration exactly: **2,031,992
+steps in a 20.3 MB record**, so the two strands are ~4.06 M node references and **~40.6 MB** of
+text. Against the mosaic's 255 KB that is a factor of **159**.
+
+(The reference path averages 66,210,255 / 2,031,992 = 32.6 bp per node, close to the graph-wide 26.6
+bp, so the earlier back-of-envelope estimate of ~45 MB was sound — this replaces it with the
+measurement.)
+
+The trade is that the mosaic is written **by reference**: it cannot be read without the GBZ it names,
+where an explicit list is self-contained. That is the whole reason the header carries the graph name.
 
 Only one segment on chr20-34hap carries `*`, matching the two sites the run reports as having a
 strand the panel cannot explain.
