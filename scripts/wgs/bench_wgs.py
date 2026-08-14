@@ -27,6 +27,9 @@ sys.path.insert(0, str(REPO / "src"))
 
 from vgcalleval.engines import aardvark  # noqa: E402
 
+sys.path.insert(0, str(HERE.parent / "tier2"))
+from truvari_sv import split_multiallelic  # noqa: E402
+
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
 ALL_CONTIGS = AUTOSOMES + ["chrX", "chrY"]
 
@@ -85,15 +88,12 @@ def score_contig(work: Path, contig: str, sample: str, threads: int, truvari: st
         ref = d / f"{contig}.fa"
         norm = score / f"{contig}.norm.vcf.gz"
         truth_norm = score / f"{contig}.truth.norm.vcf.gz"
+        # The harness's own splitter, not a local bcftools norm. It sorts after splitting, which
+        # is not optional: left-aligning a split allele can move it upstream of the record that
+        # followed, and tabix then refuses to index. Reimplementing it here reproduced exactly
+        # that failure, which the tier-2 version carries a comment about having already hit.
         for src, dst in ((renamed, norm), (d / f"truth.{contig}.stvar.vcf.gz", truth_norm)):
-            if not dst.exists():
-                p1 = subprocess.run(["bcftools", "norm", "-m", "-any", "-f", str(ref),
-                                     "-Oz", "-o", str(dst), str(src)],
-                                    capture_output=True, text=True)
-                if p1.returncode != 0:
-                    out["truvari_error"] = p1.stderr[-500:]
-                    return out
-                run(["bcftools", "index", "-f", "-t", dst])
+            split_multiallelic(src, dst, ref)
         if tdir.exists():
             run(["rm", "-rf", tdir])
         ok = run([truvari, "bench", "-b", truth_norm, "-c", norm, "-f", ref,
@@ -129,7 +129,9 @@ def main() -> None:
     p.add_argument("--out", default="work/wgs/score/wgs-summary.md")
     p.add_argument("--sample", default="HG002")
     p.add_argument("--threads", type=int, default=6)
-    p.add_argument("--truvari", default="truvari")
+    # The harness keeps truvari in its own venv; truvari_sv.py defaults to the same path, and a
+    # different build would not be comparable with the tier-2 SV numbers.
+    p.add_argument("--truvari", default=str(REPO / "work/truvari-venv/bin/truvari"))
     p.add_argument("--contigs", nargs="*", default=ALL_CONTIGS)
     args = p.parse_args()
 
@@ -149,7 +151,10 @@ def main() -> None:
              "pseudoautosomal regions and diploid inside them, spliced from two runs.", "",
              "## Small variants (aardvark, GT)", ""]
 
-    for vtype, label in (("ALL", "ALL"), ("Snv", "SNV"), ("Indel", "Indel")):
+    # JointIndel, not Indel: aardvark's plain Indel row is query-only (truth_total 0), so summing
+    # it reports FPs against no truth at all and an F1 of nan. The tier-2 pages use the joint row
+    # for the same reason.
+    for vtype, label in (("ALL", "ALL"), ("Snv", "SNV"), ("JointIndel", "Indel")):
         tp = fp = fn = 0
         for r in results:
             row = pick(r.get("aardvark"), "GT", vtype)
