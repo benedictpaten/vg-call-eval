@@ -92,8 +92,18 @@ def score_contig(work: Path, contig: str, sample: str, threads: int, truvari: st
         # is not optional: left-aligning a split allele can move it upstream of the record that
         # followed, and tabix then refuses to index. Reimplementing it here reproduced exactly
         # that failure, which the tier-2 version carries a comment about having already hit.
-        for src, dst in ((renamed, norm), (d / f"truth.{contig}.stvar.vcf.gz", truth_norm)):
-            split_multiallelic(src, dst, ref)
+        try:
+            for src, dst in ((renamed, norm), (d / f"truth.{contig}.stvar.vcf.gz", truth_norm)):
+                split_multiallelic(src, dst, ref)
+        except (Exception, SystemExit) as exc:   # noqa: BLE001
+            # SystemExit as well as Exception: tier2's run() reports a failed command with
+            # sys.exit rather than by raising, so `except Exception` does not catch it and the
+            # first draft of this guard let chrY kill the run exactly as before.
+            #
+            # One contig's failure must not end the run. chrY's did, after 23 contigs had already
+            # been scored, and the script died before writing any summary at all.
+            out["truvari_error"] = f"normalisation failed: {exc}"
+            return out
         if tdir.exists():
             run(["rm", "-rf", tdir])
         ok = run([truvari, "bench", "-b", truth_norm, "-c", norm, "-f", ref,
@@ -133,13 +143,26 @@ def main() -> None:
     # different build would not be comparable with the tier-2 SV numbers.
     p.add_argument("--truvari", default=str(REPO / "work/truvari-venv/bin/truvari"))
     p.add_argument("--contigs", nargs="*", default=ALL_CONTIGS)
+    # chrY is called but not scoreable against this truth. The graph's CHM13 chrY path is
+    # 57,686,750 bp where the truth's chrY runs past 62,111,784, and the sequences do not
+    # correspond at any constant offset -- REF alleles match the graph FASTA at chance level
+    # (15/60) whether shifted by a PAR length or not at all. CHM13v2.0's chrY is HG002-derived at
+    # 62.46 Mb, and this graph's matches neither it nor GRCh38's 57.23 Mb. So chrY calls are on a
+    # different coordinate system than the truth, and scoring them measures the mismatch: aardvark
+    # returns recall 0.09 at precision 0.000 against 0.9361 for chrX.
+    #
+    # Excluded by name rather than dropped by a filter, so the exclusion is visible in the output
+    # instead of being a silent hole in a genome-wide number.
+    p.add_argument("--unscoreable", nargs="*", default=["chrY"])
     args = p.parse_args()
 
     work = Path(args.work)
     results = []
     for c in args.contigs:
         print(f"[score] {c}", flush=True)
-        results.append(score_contig(work, c, args.sample, args.threads, args.truvari))
+        r = score_contig(work, c, args.sample, args.threads, args.truvari)
+        r["scoreable"] = c not in args.unscoreable
+        results.append(r)
 
     (work / "score" / "per-contig.json").write_text(json.dumps(results, indent=2))
 
@@ -149,7 +172,14 @@ def main() -> None:
              "Called per contig on the 34-haplotype HPRC graph, `--read-likelihood` with panel",
              "enumeration, phasing and mosaic on. chrY haploid; chrX haploid outside the",
              "pseudoautosomal regions and diploid inside them, spliced from two runs.", "",
-             "## Small variants (aardvark, GT)", ""]
+             "**chrY is called but excluded from every total below.** The graph's CHM13 chrY path",
+             "is 57,686,750 bp where the truth's chrY runs past 62,111,784, and the two do not",
+             "correspond at any constant offset -- REF alleles match the graph's own FASTA at",
+             "chance level whether shifted by a PAR length or not at all. CHM13v2.0's chrY is",
+             "HG002-derived at 62.46 Mb and this graph's matches neither it nor GRCh38's 57.23 Mb.",
+             "Scored anyway it returns recall 0.09 at precision 0.000, which measures the",
+             "coordinate mismatch and not the caller. The calls remain in the VCF and the mosaic.",
+             "", "## Small variants (aardvark, GT)", ""]
 
     # JointIndel, not Indel: aardvark's plain Indel row is query-only (truth_total 0), so summing
     # it reports FPs against no truth at all and an F1 of nan. The tier-2 pages use the joint row
@@ -157,6 +187,8 @@ def main() -> None:
     for vtype, label in (("ALL", "ALL"), ("Snv", "SNV"), ("JointIndel", "Indel")):
         tp = fp = fn = 0
         for r in results:
+            if not r.get("scoreable", True):
+                continue
             row = pick(r.get("aardvark"), "GT", vtype)
             if row:
                 tp += int(row.get("truth_tp", 0) or 0)
@@ -170,6 +202,8 @@ def main() -> None:
     lines += ["", "## Structural variants (truvari, >=50 bp)", ""]
     tp = fp = fn = 0
     for r in results:
+        if not r.get("scoreable", True):
+            continue
         s = r.get("truvari") or {}
         tp += int(s.get("TP-base", 0) or 0)
         fp += int(s.get("FP", 0) or 0)
@@ -186,6 +220,8 @@ def main() -> None:
         t = r.get("truvari") or {}
         sv = f"{t['f1']:.4f}" if isinstance(t.get("f1"), (int, float)) else "-"
         notes = "; ".join(k for k in ("error", "aardvark_error", "truvari_error") if k in r)
+        if not r.get("scoreable", True):
+            notes = ("excluded: reference mismatch with truth" + ("; " + notes if notes else ""))
         lines.append(f"| {r['contig']} | {sm} | {sv} | {notes} |")
 
     Path(args.out).write_text("\n".join(lines) + "\n")

@@ -55,7 +55,7 @@ for C in $CONTIGS; do
     D="$W/$C"
     [ -s "$D/$C.gbz" ] || { echo "missing subgraph for $C -- run prep_wgs.sh" >&2; exit 1; }
 
-    if [ -s "$D/$C.done" ]; then
+    if [ -f "$D/$C.done" ]; then
         echo "[$(date +%H:%M:%S)] $C: already called, skipping"
         continue
     fi
@@ -102,6 +102,6 @@ for C in $CONTIGS; do
             call_one "$C" 2 "$D/$C"
             ;;
     esac
-    touch "$D/$C.done"
+    grep -vc "^#" "$D/$C.vcf" > "$D/$C.done"
 done
 echo "CALL_DONE"
