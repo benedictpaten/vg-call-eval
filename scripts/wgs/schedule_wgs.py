@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Run the per-contig calls concurrently, packed under a memory budget.
 
-Why this exists. The caller spends its time blocked, not computing: every read-fetch window
-`posix_spawn`s a gbz-base and opens the 22 GB SQLite read database afresh. Caches are per thread
-and fetches are not lock-serialised, so nothing is contending -- the threads are simply waiting on
-subprocesses and disk. Measured, a contig uses about one CPU whatever `-t` says. That idle CPU is
-what this converts into throughput.
+Why this exists. A single contig at `-t 5` uses about 3.5 of this machine's 10 cores, so a serial
+run leaves two thirds of it idle. Running two or three contigs at once converts that into
+throughput: on a six-contig subset, 1451 s serial becomes 797 s scheduled, a 1.82x speedup.
+
+Not because the caller is I/O-bound. That was the first theory -- every read-fetch window
+`posix_spawn`s a gbz-base and reopens the 22 GB SQLite database, which looked like enough to
+explain a process sitting at one CPU -- and it is wrong. Measured on chr20 over two replicates,
+`-t` 1/2/5 gives 0.99/1.79/3.48 CPU and 422/247/142 s, so it parallelises at about 70% efficiency,
+and the per-thread read caches that were supposed to make threads expensive account for 0.4 GB
+between `-t` 1 and 5. Scheduling more, thinner jobs on that theory produced 1126 s against 797 s.
+The lesson worth keeping is that the spawn-per-window is real and still looks like the bottleneck
+in the source; it just is not the one that governs wall clock here.
 
 Memory is the binding constraint, so contigs are packed rather than run at a fixed concurrency. The
 model is fitted from the serial run's own measurements:
