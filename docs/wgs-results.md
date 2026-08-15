@@ -22,6 +22,31 @@ coordinate mismatch and not the caller. The calls remain in the VCF and the mosa
 
 - TP 12,694  FP 12,696  FN 11,423  **F1 0.5128**
 
+## Phasing (whatshap, autosomes)
+
+| | |
+|---|---|
+| assessed het pairs | 2,442,552 |
+| switches | 58,885 |
+| **switch error** | **2.41%** |
+| blocks | 22 — one per chromosome |
+| longest block | 248,384,435 bp (chr1, end to end) |
+
+One phase block per chromosome, so this is switch error at chromosome scale rather than over short
+islands. It sits between the two tier-2 chromosomes measured on the same graph (chr20 2.30%, chr6
+1.74%), which is the consistency check worth having. Per chromosome it spans 2.10% (chr6) to 3.22%
+(chr17) — no single contig carries the total.
+
+**Autosomes only, and that is a constraint rather than a choice.** whatshap requires uniform
+ploidy in a file and rejects the genome-wide VCF outright -- "Inconsistent ploidy (2 and 1)" --
+because chrY and non-pseudoautosomal chrX are haploid. Haploid records carry no phase to score, so
+excluding them loses nothing measurable, but it does mean this number covers 22 of 24 contigs.
+
+As on the tier-2 pages, the switch error already excludes genotype errors: whatshap assesses only
+variants het and identically genotyped in both files, so the two rows above agree by construction.
+Hamming is reported by the tool and is not a quality here -- over chromosome-length blocks every
+switch flips everything downstream, so it approaches 50% at any non-zero switch rate.
+
 ## Per contig
 
 | contig | small F1 | SV F1 | notes |

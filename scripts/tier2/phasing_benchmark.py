@@ -107,19 +107,59 @@ def read_tsv(path: Path) -> list[dict]:
         return list(csv.DictReader(fh, delimiter="\t"))
 
 
+def _num(row, key):
+    try:
+        return float(row.get(key, "") or 0)
+    except ValueError:
+        return 0.0
+
+
 def compare(truth: Path, calls: Path, out_prefix: Path, sample: str) -> dict:
+    """Switch statistics, summed across chromosomes.
+
+    whatshap writes **one row per chromosome**, and this used to return `rows[0]`. On a
+    single-contig run that was right; on a genome it silently reported chr1 and called it the
+    genome -- 191,676 pairs where the autosomes carry 2,442,552, and a rate that happened to look
+    plausible. Counts are summed and the rate recomputed, never averaged over chromosomes, which
+    would weight chr21 like chr1.
+    """
     tsv = out_prefix.with_suffix(".compare.tsv")
     sh([WHATSHAP, "compare", "--sample", sample, "--names", "truth,calls",
         "--tsv-pairwise", str(tsv), str(truth), str(calls)])
     rows = read_tsv(tsv)
-    return rows[0] if rows else {}
+    if not rows:
+        return {}
+    pairs = sum(_num(r, "all_assessed_pairs") for r in rows)
+    switches = sum(_num(r, "all_switches") for r in rows)
+    out = dict(rows[0])
+    out["all_assessed_pairs"] = f"{pairs:.0f}"
+    out["all_switches"] = f"{switches:.0f}"
+    out["all_switchflip_rate"] = f"{switches / pairs:.6f}" if pairs else "nan"
+    out["blockwise_hamming"] = f"{sum(_num(r, 'blockwise_hamming') for r in rows):.0f}"
+    out["intersection_blocks"] = f"{sum(_num(r, 'intersection_blocks') for r in rows):.0f}"
+    out["chromosomes"] = str(len(rows))
+    return out
 
 
 def stats(calls: Path, out_prefix: Path, sample: str) -> dict:
+    """Block statistics, summed across chromosomes -- same per-chromosome trap as compare()."""
     tsv = out_prefix.with_suffix(".stats.tsv")
     sh([WHATSHAP, "stats", "--sample", sample, "--tsv", str(tsv), str(calls)])
     rows = read_tsv(tsv)
-    return rows[0] if rows else {}
+    if not rows:
+        return {}
+    # whatshap emits an ALL row alongside the per-chromosome ones in some versions; drop it so it
+    # is not counted twice.
+    per = [r for r in rows if (r.get("chromosome") or "").lower() not in ("all", "")]
+    out = dict(per[0]) if per else dict(rows[0])
+    out["phased"] = f"{sum(_num(r, 'phased') for r in per):.0f}"
+    out["blocks"] = f"{sum(_num(r, 'blocks') for r in per):.0f}"
+    # N50 does not sum. The longest block is the meaningful summary here, since the claim being
+    # made is chain-length blocks.
+    out["block_n50"] = f"{max((_num(r, 'block_n50') for r in per), default=0):.0f}"
+    out["bp_per_block_max"] = f"{max((_num(r, 'bp_per_block_max') for r in per), default=0):.0f}"
+    out["chromosomes"] = str(len(per))
+    return out
 
 
 def fmt(row: dict, key: str, default="-"):
