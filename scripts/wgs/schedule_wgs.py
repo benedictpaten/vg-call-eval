@@ -14,14 +14,19 @@ between `-t` 1 and 5. Scheduling more, thinner jobs on that theory produced 1126
 The lesson worth keeping is that the spawn-per-window is real and still looks like the bottleneck
 in the source; it just is not the one that governs wall clock here.
 
-Memory is the binding constraint, so contigs are packed rather than run at a fixed concurrency. The
-model is fitted from the serial run's own measurements:
+Memory is a constraint, so contigs are packed rather than run at a fixed concurrency. The model is
+refitted from a full 24-contig run:
 
-    peak GB ~ 2.2 + 21e-6 * emitted_records
+    peak GB ~ 2.25 + 11.2e-6 * emitted_records
 
-    chr21 106,403 records  4.4 GB      chr8 238,309  6.8 GB
-    chr6  284,529          7.3 GB      chr2 369,207  9.2 GB
-    chr1  353,741          9.6 GB
+    chr20 105,251 records  3.1 GB      chr8  238,309  5.6 GB
+    chr6  284,529          5.0 GB      chr2  369,207  5.6 GB
+    chr1  353,741          5.7 GB
+
+**The previous coefficient was nearly double this and made the scheduler throttle itself on a
+fiction.** It predicted 9.6 GB for chr1 where the measured peak is 5.7, overestimating every
+contig by 0.4-4.4 GB, so the budget refused packings that would have fit comfortably. Refitting
+cut the worst residual from 4.39 GB to 0.87.
 
 Record counts are not known before a contig runs, so the truth's record count for that contig is
 used as the predictor -- it is available from prep and correlates with what the caller emits far
@@ -47,8 +52,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-BASE_GB = 2.2
-GB_PER_RECORD = 21e-6
+BASE_GB = 2.25
+GB_PER_RECORD = 11.2e-6
 
 
 def predict_gb(truth_records: int) -> float:

@@ -10,25 +10,6 @@ export PATH="$HOME/CLionProjects/vg/bin:$PATH"
 PY=/opt/homebrew/bin/python3.11
 step() { echo; echo "=============== $* ==============="; date +%H:%M:%S; }
 
-# --- 0. Fix the resume marker -----------------------------------------------
-# `[ -s ]` requires a non-empty file and `touch` makes an empty one, so the skip never fired and a
-# resumed run silently recalled every contig. Write the record count instead: non-empty, and it
-# says what was done.
-step "fix resume marker"
-$PY - <<'PY'
-import pathlib
-p = pathlib.Path("scripts/wgs/call_wgs.sh"); s = p.read_text()
-s = s.replace('    if [ -s "$D/$C.done" ]; then',
-              '    if [ -f "$D/$C.done" ]; then')
-s = s.replace('    touch "$D/$C.done"',
-              '    grep -vc "^#" "$D/$C.vcf" > "$D/$C.done"')
-p.write_text(s); print("patched call_wgs.sh")
-PY
-for d in work/wgs/*/; do
-    c=$(basename "$d")
-    [ -f "$d/$c.done" ] && [ -s "$d/$c.vcf" ] && grep -vc "^#" "$d/$c.vcf" > "$d/$c.done"
-done
-
 # --- 1. Assemble -------------------------------------------------------------
 step "assemble"
 bash scripts/wgs/assemble_wgs.sh 2>&1 | tail -8

@@ -93,6 +93,38 @@ This bounds the shared limitation; it does not fully separate *not offered* from
 called*. A variant missed by vg but found by PanGenie proves the panel carried it, but the converse
 inference is not available from these files alone.
 
+## What the split means
+
+The two tools see the same panel and the same reads and disagree in a patterned way, which makes
+the pattern more informative than the ranking.
+
+**Where alignment evidence wins: indels.** PanGenie emits 125,606 indel false positives against
+vg's 67,114, and finds fewer true ones. An indel changes k-mer content over a short window, and
+distinguishing a real short indel from a homopolymer miscount is exactly the case where counting
+k-mers is weakest and where aligning a read across the site and asking how well it fits is
+strongest. This is the largest small-variant difference and it is not a trade-off — vg is ahead on
+both precision and recall.
+
+**Where they trade: SNVs.** PanGenie finds 29,506 more true SNVs; vg emits 54,256 fewer false
+ones (a 4.5x lower FP count). A SNV is one k-mer-length window's worth of signal, which k-mer
+counting handles well and is why its recall is higher; the alignment model's advantage is that a
+read spanning the site can be judged against every candidate allele, which is why its precision is.
+Neither is obviously the better error to make, so the near-tie in F1 is the honest summary.
+
+**Where k-mer evidence wins: structural variants.** PanGenie has 1,273 more true SVs *and* 1,791
+fewer false ones. This is the one class where a tool is better in both directions. The plausible
+reason is that a large event's k-mer signature is distinctive and does not require a read to align
+across the breakpoint at all, whereas the read model needs traversals that reads can be scored
+against — and `vg call`'s SV performance has a known weakness here, documented separately in
+[tier2-sv-errors.md](tier2-sv-errors.md). Treat this as the strongest single result in the
+comparison, and as the clearest direction for work on the read model.
+
+**A caution on reading the FP counts.** vg's lower false-positive counts are partly a property of
+what each tool emits: PanGenie genotypes every panel site and reports what it decides, while
+`vg call` emits a record only where it calls non-reference. Both were reduced to non-reference
+records before scoring, so the comparison is fair, but the two are not making the same *number* of
+decisions and a per-decision error rate would differ from a per-record one.
+
 ## Caveats
 
 - One sample, one graph, one read technology. Nothing here is replicated.
