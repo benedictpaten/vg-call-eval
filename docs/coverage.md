@@ -147,5 +147,106 @@ cannot see it.
 - **Stage 2** gains support: the residual low-end spread that survives normalisation is the
   conflicting-evidence population, which is what the allele-balance and `ploidy_conflict` signal
   targets directly rather than by rescaling.
-- **Stage 5** should re-tune `--linkage-weight` per coverage as planned; nothing here contradicts
-  that, and it is untested so far.
+- **Stage 5** re-tuned the three model parameters across coverage. See below.
+
+## Stage 5: are the defaults still right at other coverages?
+
+Each of `--linkage-weight`, `--linkage-freq-prior` and `--depth-term` was swept around its shipped
+default at four corners -- low and high coverage at each ploidy -- with everything else left alone.
+A coordinate sweep rather than a grid, because the defaults were fitted one at a time and the
+question is whether each still holds elsewhere.
+
+**Read the gain column, not the argmax.** An optimum a few ten-thousandths better on one arm is
+noise plus a different arm; changing a default on that basis would invalidate every published
+number for nothing.
+
+### `--linkage-weight` (default 2)
+
+| arm | 0 | 1 | 2 | 4 | 8 | best | gain |
+|---|---|---|---|---|---|---|---|
+| chr20 5x | 0.8546 | 0.8998 | **0.9008** | 0.9002 | 0.8987 | 2 | +0.0000 |
+| chr20 30x | 0.9546 | 0.9643 | 0.9645 | **0.9646** | 0.9637 | 4 | +0.0001 |
+| chrX 2.5x | 0.8471 | **0.8637** | 0.8609 | 0.8595 | 0.8593 | 1 | +0.0028 |
+| chrX 14.6x | 0.9362 | **0.9438** | 0.9421 | 0.9417 | 0.9418 | 1 | +0.0018 |
+
+**The prediction that optimal weight rises as coverage falls is refuted.** It is flat at 2 on the
+diploid arms and sits at 1 on the haploid ones, with gains over the default between 0.0000 and
+0.0028. The default stands.
+
+The valuable column is `0`: linkage is worth **+0.046** at 5x diploid and **+0.017** at 2.5x
+haploid, so the layer earns its place at low coverage even though its weight does not need tuning.
+
+This sweep is also what exposed the [haploid linkage bug](#a-bug-this-sweep-found).
+
+### `--linkage-freq-prior` (default 5)
+
+| arm | 0 | 3 | 5 | 8 | best | gain |
+|---|---|---|---|---|---|---|
+| chr20 5x | 0.8960 | **0.9021** | 0.9008 | 0.8981 | 3 | +0.0012 |
+| chr20 30x | 0.9593 | 0.9631 | 0.9645 | **0.9649** | 8 | +0.0003 |
+| chrX 2.5x | 0.8561 | **0.8613** | 0.8609 | 0.8601 | 3 | +0.0005 |
+| chrX 14.6x | 0.9385 | 0.9406 | 0.9421 | **0.9445** | 8 | +0.0024 |
+
+**This is the one real coverage trend**, and it is consistent: low coverage prefers 3, high
+coverage prefers 8, on *both* ploidies. Replication across ploidy is what makes it credible rather
+than four independent argmaxes.
+
+The direction is the opposite of the intuition behind the linkage-weight prediction. A stronger
+frequency prior pulls calls toward alleles the panel carries often; where the reads are weak that
+overrides them and costs rare true variants, so the prior should be *weaker* at low coverage, not
+stronger.
+
+The effect is nonetheless small -- at most 0.0024, and the default of 5 is never more than that
+from the best value on any arm.
+
+### `--depth-term` (default 0.1)
+
+| arm | 0 | 0.05 | 0.1 | 0.2 | best | gain |
+|---|---|---|---|---|---|---|
+| chr20 5x | 0.9007 | 0.9008 | 0.9008 | 0.9008 | 0.1 | +0.0000 |
+| chr20 30x | 0.9646 | 0.9646 | 0.9645 | 0.9645 | 0 | +0.0000 |
+| chrX 2.5x | **0.8614** | 0.8609 | 0.8609 | 0.8608 | 0 | +0.0005 |
+| chrX 14.6x | 0.9421 | 0.9420 | 0.9421 | 0.9421 | 0 | +0.0001 |
+
+Flat to four decimals across the whole range at every coverage. On small variants the term does
+essentially nothing, which is expected -- it exists for large deletions, where absent reads are the
+evidence, and those are a small share of an F1 dominated by SNVs. This sweep says nothing about
+that case and should not be read as doing so.
+
+### The decision: neither auto-scaling nor a table
+
+The plan left open whether to auto-scale parameters from the measured coverage or to ship a
+documented table. **Neither is justified.** Two of the three parameters have optima that do not
+move with coverage at all, and the third moves by at most 0.0024 F1 -- less than the spread between
+adjacent values at a single coverage.
+
+Auto-scaling would make a run's behaviour depend on its own data in a way that is hard to explain
+and hard to reproduce, and it would buy under 0.003. A table would ask users to look something up
+for the same. The defaults stay, and what is documented instead is the shape: `--linkage-freq-prior`
+3 is worth about 0.001 below 10x and 8 is worth about 0.002 above 15x, for anyone who wants it.
+
+### A bug this sweep found
+
+chrX returned *identical* F1 at every `--linkage-weight`, and the VCFs were byte-identical, while
+chr20's moved. But `--progress` reported 8,945 genotypes changed.
+
+`apply_linkage_change` built the genotype it expected as `"i/j"`, which a haploid record's bare
+allele can never match, so its guard rejected every haploid change. The linkage layer had been
+doing the work on haploid contigs and discarding all of it -- and since phasing and the mosaic are
+built from the post-linkage genotypes, the mosaic described genotypes the VCF did not contain.
+
+Fixed in vg; the haploid rows above are post-fix. **Haploid linkage is worth +0.017 F1 at 2.5x and
++0.008 at 14.6x**, none of which chrY or non-pseudoautosomal chrX was receiving.
+
+Three points of method, all learned the hard way in this stage:
+
+- A resume marker that skips completed work is wrong for a sweep. The fix landed mid-sweep and the
+  marker kept the pre-fix chrX arms, which then scored as though they were the fixed caller and
+  were identifiable only by their file timestamps. `sweep_params.sh` now reuses a result only if it
+  is **newer than the vg binary** -- a sweep measures a build, so a result from an older build is
+  an answer to a different question.
+- The same applies to the scoring cache. `bench_coverage.py` and `sweep_report.py` reuse a
+  `.renamed.vcf.gz` if one exists, which will happily re-score a deleted-and-regenerated VCF's
+  stale twin.
+- In zsh, one non-matching glob aborts the whole `rm`, so a cleanup command that looks like it ran
+  may have done nothing. Use `find -delete` and check.
