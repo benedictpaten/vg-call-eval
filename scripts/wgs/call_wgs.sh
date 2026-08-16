@@ -47,9 +47,13 @@ call_one_bed() {   # contig ploidy outprefix [ploidy-bed]
     local D="$W/$C"
     local extra=()
     [ -n "$BED" ] && extra=(--ploidy-bed "$BED")
+    # ${extra[@]+"${extra[@]}"}, not "${extra[@]}". Under `set -u`, bash 3.2 -- which is what
+    # /bin/bash still is on macOS -- treats an empty array expansion as an unbound variable and
+    # aborts. Every diploid contig died this way on the first whole-genome rerun: only chrX passes
+    # a BED, so only chrX had exercised this function since it gained the argument.
     /usr/bin/time -l "$VG" call "$D/$C.gbz" \
         -p "${REF_SAMPLE}#0#${C}" -s "$SAMPLE" -d "$PLOIDY" -t "$THREADS" --progress \
-        --read-likelihood --phased --mosaic-out "$OUT.mosaic.tsv" "${extra[@]}" \
+        --read-likelihood --phased --mosaic-out "$OUT.mosaic.tsv" ${extra[@]+"${extra[@]}"} \
         --gaf-base "$READS_DB" --gbz-base "$GRAPH_DB" \
         > "$OUT.vcf" 2> "$OUT.log"
     local secs rss
@@ -62,9 +66,17 @@ for C in $CONTIGS; do
     D="$W/$C"
     [ -s "$D/$C.gbz" ] || { echo "missing subgraph for $C -- run prep_wgs.sh" >&2; exit 1; }
 
+    # Resume, but only past work done by *this* binary. A marker that just says "called"
+    # will happily carry a result from before a fix across a rebuild, and it did: the
+    # coverage sweep kept pre-fix chrX arms that then scored as though they were the fixed
+    # caller, identifiable only by their file timestamps.
     if [ -f "$D/$C.done" ]; then
-        echo "[$(date +%H:%M:%S)] $C: already called, skipping"
-        continue
+        if [ "$D/$C.done" -nt "$VG" ]; then
+            echo "[$(date +%H:%M:%S)] $C: already called by this binary, skipping"
+            continue
+        fi
+        echo "[$(date +%H:%M:%S)] $C: called by an older binary, recalling"
+        rm -f "$D/$C.done"
     fi
 
     case $C in

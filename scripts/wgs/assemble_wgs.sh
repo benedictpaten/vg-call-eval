@@ -22,7 +22,11 @@ list=()
 for C in $CONTIGS; do
     V="$W/$C/$C.vcf"
     [ -s "$V" ] || { echo "missing calls for $C" >&2; exit 1; }
-    if [ ! -s "$V.gz.tbi" ]; then
+    # Freshness, not existence. Keying on "is there a .tbi" silently concatenated the previous
+    # run's compressed VCFs after a full recall: every .vcf was new, every .vcf.gz was a week old,
+    # and the refreshed whole-genome numbers came out byte-identical to the run they were meant to
+    # replace. Nothing in the output said so.
+    if [ ! -s "$V.gz.tbi" ] || [ "$V" -nt "$V.gz" ]; then
         bgzip -f -c "$V" > "$V.gz"
         tabix -f -p vcf "$V.gz"
     fi

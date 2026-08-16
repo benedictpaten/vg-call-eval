@@ -55,15 +55,21 @@ def score_contig(work: Path, contig: str, sample: str, threads: int, truvari: st
         return out
 
     # aardvark pairs by sample name, and the caller writes whatever -s was given.
+    # Freshness, not existence, for the same reason assemble_wgs.sh now checks it: a cached
+    # rename or an old aardvark summary will happily answer for a VCF that has since been
+    # recalled, and the only trace is a file timestamp.
+    def stale(path):
+        return not path.exists() or path.stat().st_mtime < calls.stat().st_mtime
+
     renamed = score / f"{contig}.renamed.vcf.gz"
-    if not renamed.exists():
+    if stale(renamed):
         names = score / f"{contig}.sample.txt"
         names.write_text(f"{sample}\n")
         run(["bcftools", "reheader", "-s", names, "-o", renamed, calls])
         run(["bcftools", "index", "-f", "-t", renamed])
 
     adir = score / f"{contig}.aardvark"
-    if not (adir / "summary.tsv").exists():
+    if stale(adir / "summary.tsv"):
         try:
             aardvark.compare(
                 aardvark="aardvark",
@@ -84,7 +90,7 @@ def score_contig(work: Path, contig: str, sample: str, threads: int, truvari: st
 
     # truvari, matching truvari_sv.py: split multiallelics first, matched size bounds, --pick ac.
     tdir = score / f"{contig}.truvari"
-    if not (tdir / "summary.json").exists():
+    if stale(tdir / "summary.json"):
         ref = d / f"{contig}.fa"
         norm = score / f"{contig}.norm.vcf.gz"
         truth_norm = score / f"{contig}.truth.norm.vcf.gz"
@@ -171,7 +177,7 @@ def main() -> None:
     lines = ["# Whole-genome results: HG002 against T2T-Q100", "",
              "Called per contig on the 34-haplotype HPRC graph, `--read-likelihood` with panel",
              "enumeration, phasing and mosaic on. chrY haploid; chrX haploid outside the",
-             "pseudoautosomal regions and diploid inside them, spliced from two runs.", "",
+             "pseudoautosomal regions and diploid inside them, in one run via --ploidy-bed.", "",
              "**chrY is called but excluded from every total below.** The graph's CHM13 chrY path",
              "is 57,686,750 bp where the truth's chrY runs past 62,111,784, and the two do not",
              "correspond at any constant offset -- REF alleles match the graph's own FASTA at",

@@ -95,20 +95,34 @@ def main() -> None:
     p.add_argument("--max-jobs", type=int, default=3)
     p.add_argument("--contigs", nargs="*",
                    default=[f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY"])
+    p.add_argument("--vg", default=str(Path.home() / "CLionProjects/vg/bin/vg"),
+                   help="the binary whose mtime decides whether a .done marker is still valid")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
     work = Path(args.work)
+    # Resume past work done by *this* binary only. A marker saying merely "called" carries a
+    # pre-fix result across a rebuild without saying so; the coverage sweep kept pre-fix chrX
+    # arms exactly this way and they scored as though they were the fixed caller.
+    vg_mtime = Path(args.vg).stat().st_mtime if Path(args.vg).exists() else 0.0
     plan = []
+    stale = []
     for c in args.contigs:
-        if (work / c / f"{c}.done").exists():
-            continue
+        marker = work / c / f"{c}.done"
+        if marker.exists():
+            if marker.stat().st_mtime >= vg_mtime:
+                continue
+            stale.append(c)
+            marker.unlink()
         n = truth_record_count(work, c)
         plan.append({"contig": c, "truth_records": n, "predict_gb": round(predict_gb(n), 2)})
     plan.sort(key=lambda x: -x["predict_gb"])
 
+    if stale:
+        print(f"recalling {len(stale)} contig(s) whose marker predates {args.vg}: "
+              + " ".join(stale))
     if not plan:
-        print("nothing to do: every contig has a .done marker")
+        print("nothing to do: every contig was called by this binary")
         return
 
     print(f"{'contig':8s} {'truth recs':>11s} {'predicted GB':>13s}")
