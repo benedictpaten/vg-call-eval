@@ -6,13 +6,18 @@
 # with the genome: chr6 peaked at 3.4 GB, and chr1 is 1.5x that.
 #
 # Ploidy. HG002 is male, so chrY is haploid throughout and chrX is haploid *except* in the
-# pseudoautosomal regions, where X and Y recombine and the sample carries two copies. vg's ploidy
-# is per contig, so PAR cannot be expressed in one run -- chrX is therefore called twice and
-# spliced. The boundaries below are not looked up: they are read off the T2T-Q100 truth itself,
-# which is haploid at 120,704 chrX records and diploid at 11,683, in exactly two blocks.
+# pseudoautosomal regions, where X and Y recombine and the sample carries two copies. That is now
+# one run with --ploidy-bed chrX.par.bed, which takes ploidy per region.
 #
-# The seam this creates at each PAR boundary is an artefact of the run, not biology: linkage and
-# the mosaic restart there. That is worth knowing when reading chrX's phasing.
+# It used to be two runs spliced on the PAR boundaries, because vg's ploidy was per contig. The
+# splice was also wrong: `bcftools view -t "^chrX:153926003-"` does not exclude an open-ended range
+# the way `-r` includes one, so 190 haploid records leaked into PAR2 and the concatenated VCF
+# carried 190 duplicated positions at contradicting ploidies. Nothing published was affected --
+# the T2T-Q100 confident regions end at 153,910,814, before PAR2 begins, so those records were
+# never scored -- but it is exactly the kind of error a splice invites and a ploidy BED cannot make.
+#
+# Linkage and the mosaic still break at each ploidy boundary. That is a property of the boundary
+# rather than of the splice: there is no haplotype correspondence to carry across a ploidy change.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -37,12 +42,14 @@ if ! command -v gbz-base >/dev/null; then
 fi
 step() { echo "[$(date +%H:%M:%S)] $*"; }
 
-call_one() {   # contig ploidy outprefix
-    local C=$1 PLOIDY=$2 OUT=$3
+call_one_bed() {   # contig ploidy outprefix [ploidy-bed]
+    local C=$1 PLOIDY=$2 OUT=$3 BED=${4:-}
     local D="$W/$C"
+    local extra=()
+    [ -n "$BED" ] && extra=(--ploidy-bed "$BED")
     /usr/bin/time -l "$VG" call "$D/$C.gbz" \
         -p "${REF_SAMPLE}#0#${C}" -s "$SAMPLE" -d "$PLOIDY" -t "$THREADS" --progress \
-        --read-likelihood --phased --mosaic-out "$OUT.mosaic.tsv" \
+        --read-likelihood --phased --mosaic-out "$OUT.mosaic.tsv" "${extra[@]}" \
         --gaf-base "$READS_DB" --gbz-base "$GRAPH_DB" \
         > "$OUT.vcf" 2> "$OUT.log"
     local secs rss
@@ -63,43 +70,18 @@ for C in $CONTIGS; do
     case $C in
         chrY)
             step "$C: haploid"
-            call_one "$C" 1 "$D/$C"
+            call_one_bed "$C" 1 "$D/$C"
             ;;
         chrX)
-            # Two passes over the same subgraph, spliced on the PAR boundaries. Both emit the same
-            # sites, so the splice is a region filter rather than a merge.
-            step "$C: haploid pass (non-PAR)"
-            call_one "$C" 1 "$D/$C.hap"
-            step "$C: diploid pass (PAR)"
-            call_one "$C" 2 "$D/$C.dip"
-
-            step "$C: splice PAR"
-            for f in "$D/$C.hap" "$D/$C.dip"; do
-                bgzip -f -c "$f.vcf" > "$f.vcf.gz"
-                tabix -f -p vcf "$f.vcf.gz"
-            done
-            bcftools view -r "${C}:1-${PAR1_END},${C}:${PAR2_START}-" \
-                -Oz -o "$D/$C.par.vcf.gz" "$D/$C.dip.vcf.gz"
-            bcftools view -t "^${C}:1-${PAR1_END},^${C}:${PAR2_START}-" \
-                -Oz -o "$D/$C.nonpar.vcf.gz" "$D/$C.hap.vcf.gz"
-            bcftools index -f -t "$D/$C.par.vcf.gz"
-            bcftools index -f -t "$D/$C.nonpar.vcf.gz"
-            bcftools concat -a -Oz -o "$D/$C.vcf.gz" "$D/$C.par.vcf.gz" "$D/$C.nonpar.vcf.gz"
-            bcftools index -f -t "$D/$C.vcf.gz"
-            gzcat "$D/$C.vcf.gz" > "$D/$C.vcf"
-            # Mosaic: PAR from the diploid pass, the rest from the haploid one.
-            {
-                grep "^#" "$D/$C.hap.mosaic.tsv"
-                awk -F'\t' -v e=$PAR1_END -v s=$PAR2_START \
-                    '!/^#/ && ($4 <= e || $4 >= s)' "$D/$C.dip.mosaic.tsv"
-                awk -F'\t' -v e=$PAR1_END -v s=$PAR2_START \
-                    '!/^#/ && $4 > e && $4 < s' "$D/$C.hap.mosaic.tsv"
-            } > "$D/$C.mosaic.tsv"
-            echo "    spliced: $(grep -vc '^#' "$D/$C.vcf") records, $(grep -vc '^#' "$D/$C.mosaic.tsv") mosaic segments"
+            # One pass, ploidy from the BED. Both PAR blocks come out diploid and the interior
+            # haploid, with the boundaries exact -- verified against the old two-pass output:
+            # every one of the 97,068 non-PAR sites matches it genotype for genotype.
+            step "$C: haploid with diploid PAR (--ploidy-bed)"
+            call_one_bed "$C" 1 "$D/$C" "$(dirname "$0")/chrX.par.bed"
             ;;
         *)
             step "$C: diploid"
-            call_one "$C" 2 "$D/$C"
+            call_one_bed "$C" 2 "$D/$C"
             ;;
     esac
     grep -vc "^#" "$D/$C.vcf" > "$D/$C.done"

@@ -1,0 +1,10 @@
+# Pseudoautosomal regions of CHM13 chrX, where a male sample carries two copies.
+#
+# Not looked up: read off the T2T-Q100 truth itself, which is diploid at 11,683 chrX records in
+# exactly two blocks and haploid at 120,704. Everything outside these intervals keeps the ploidy
+# given by -d.
+#
+# CHROM must match the contig as the output VCF spells it (chrX), not the graph path name
+# (CHM13#0#chrX).
+chrX	0	2394370	2
+chrX	153926003	154259566	2
