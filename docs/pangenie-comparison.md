@@ -111,13 +111,40 @@ counting handles well and is why its recall is higher; the alignment model's adv
 read spanning the site can be judged against every candidate allele, which is why its precision is.
 Neither is obviously the better error to make, so the near-tie in F1 is the honest summary.
 
-**Where k-mer evidence wins: structural variants.** PanGenie has 1,273 more true SVs *and* 1,791
-fewer false ones. This is the one class where a tool is better in both directions. The plausible
-reason is that a large event's k-mer signature is distinctive and does not require a read to align
-across the breakpoint at all, whereas the read model needs traversals that reads can be scored
-against — and `vg call`'s SV performance has a known weakness here, documented separately in
-[tier2-sv-errors.md](tier2-sv-errors.md). Treat this as the strongest single result in the
-comparison, and as the clearest direction for work on the read model.
+**Structural variants: PanGenie leads, but not for the reason the headline implies.** The
+"better in both directions" reading does not survive taking the numbers apart. Full working in
+[sv-delta.md](sv-delta.md), [sv-fn-mechanism.md](sv-fn-mechanism.md) and
+[sv-unmatched.md](sv-unmatched.md). The conclusions:
+
+- **The false-positive deficit is not an evidence deficit.** Of vg's 12,335 SV false positives,
+  2,219 are same-length substitutions — REF and ALT of equal length, which truvari sizes by allele
+  length and therefore scores as structural. PanGenie has 29. On genuine insertions and deletions
+  vg emits **399 fewer** false positives than PanGenie. vg's output is multiallelic and carries such
+  records; PanGenie's biallelic-split output essentially does not. Excluding them from both sides,
+  **42% of the headline F1 gap disappears** (0.0587 → 0.0343). What is left is recall, not precision.
+- **The remaining recall gap sits at the small end, which is new.** 2,630 truth SVs are missed by vg
+  and found by PanGenie — so the panel carried the allele and the read model declined it. 74% of them
+  are 50–300 bp and heterozygous. This is *not* the large-heterozygous-deletion mechanism in
+  [tier2-sv-errors.md](tier2-sv-errors.md), which was ≥300 bp with a break-even near 700 bp; that one
+  was fixed. This is a different defect.
+- **Nearly half of that gap is not a scoring failure at all.** Only 47% of the 2,630 have no vg
+  record within 100 bp. 34% have a record of *comparable size* that truvari declined, and a quarter
+  of those were declined because the call had already been matched to a neighbouring truth variant.
+  Truvari matches one-to-one, so clustered truth SVs produce false negatives however good the calls
+  are, and that share cannot be recovered by changing the model.
+- **It is not a repeat-context effect.** 87.0% of vg-only misses are in tandem repeats against 86.4%
+  of PanGenie-only misses — indistinguishable. Repeat context explains the *shared* recall floor
+  (89.4% of variants missed by both are in tandem repeats, against 53.8% of those vg calls) and
+  explains nothing about the difference between the two tools.
+- **Genotyping is a real but second-order loss.** Among locus-matched SVs vg gets the genotype right
+  89.8% of the time against PanGenie's 91.2%. Requiring a correct genotype widens the gap from
+  0.0587 to 0.0613.
+
+So the actionable population is much smaller than `1,273 more TP and 1,791 fewer FP` suggests:
+roughly **1,230 heterozygous 50–300 bp events vg did not call at all**, plus **561 where it called
+something truvari rejected on sequence or size similarity**. The remainder is representation and
+metric, and the earlier framing of this as "the clearest direction for work on the read model"
+overstated it — most of the gap was not the model.
 
 **A caution on reading the FP counts.** vg's lower false-positive counts are partly a property of
 what each tool emits: PanGenie genotypes every panel site and reports what it decides, while

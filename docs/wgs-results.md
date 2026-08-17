@@ -18,7 +18,9 @@ coordinate mismatch and not the caller. The calls remain in the VCF and the mosa
 **Compared against PanGenie on the same graph and reads**: see
 [pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on small
 variants (ALL F1 0.9630 against 0.9505, driven by indels) and PanGenie is ahead on structural
-variants (0.5739 against 0.5152).
+variants (0.5739 against 0.5152) -- though 42% of that gap is a representation artefact
+rather than an evidence one, and the recall remainder sits at 50-300 bp; see
+[sv-delta.md](sv-delta.md).
 
 **The mosaic** this run also emits: 143,365 segments over 4,742,752 sites, 11.05 MB
 (3.46 MB gzipped). See wgs-performance.md for why assembling it is not `cat`.
