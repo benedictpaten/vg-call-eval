@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 # Assemble the per-contig calls into one genome-wide VCF and one mosaic.
 #
-# The mosaic can legitimately be concatenated under a single header naming the *whole-genome* GBZ,
-# even though every segment was produced from a per-contig chunk. `vg chunk` preserves whole-genome
-# node IDs -- chr20's segments start around node 114.8M, not renumbered from 1 -- so the node
-# anchors address the same nodes in the full graph. Each chunk's own header names only its chunk,
-# which would be misleading in a genome-wide file, so it is replaced rather than kept.
+# Concatenating mosaics is not just `cat`, and mosaic v2 is why. Two of the columns are meaningful
+# only relative to the graph that produced them:
+#
+#   * `hap_index` is the haplotype's position in *that chunk's* GBWT metadata, and the chunks do not
+#     agree on an ordering. Emitting 24 files' worth of rows under one #haplotype table would
+#     silently relabel haplotypes. We reindex on the `haplotype` (sample#phase) column instead,
+#     which is portable by construction -- that is what it is for.
+#   * `gbwt_offset` is a rank among the sequences visiting that node in the chunk's GBWT. The
+#     whole-genome GBWT has more sequences at the same node, so the same offset addresses a
+#     different path there. The offsets are not portable and cannot be made portable by renaming.
+#
+# So the genome-wide file names each contig's *own* graph in a #contig table rather than claiming a
+# single whole-genome GBZ, and says which columns resolve against it. What does survive
+# concatenation is `start_node`/`end_node`: `vg chunk` preserves whole-genome node IDs -- chr20's
+# segments start around node 114.8M, not renumbered from 1 -- so the node anchors address the same
+# nodes in the full graph, and they are the authoritative anchors precisely because of that.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -42,19 +53,9 @@ echo "  $(bcftools view -H "$OUT.vcf.gz" | wc -l | tr -d ' ') records -> $OUT.vc
 
 # --- mosaic ----------------------------------------------------------------
 step "concat mosaics"
-{
-    printf '#mosaic-version\t1\n'
-    printf '#graph\t%s\n' "$GBZ"
-    printf '#sample\t%s\n' "$SAMPLE"
-    printf '#decoding\tconstrained-viterbi\n'
-    printf '#note\tsegments are maximal runs on one panel haplotype; walk the haplotype from start_node to end_node to reconstruct it. * means the panel does not explain that strand there. Haploid contigs carry strand 0 only.\n'
-    printf '#H\tcontig\tstrand\tref_start\tref_end\tstart_node\tend_node\thap_index\thaplotype\tsites\n'
-    for C in $CONTIGS; do
-        M="$W/$C/$C.mosaic.tsv"
-        [ -s "$M" ] || { echo "missing mosaic for $C" >&2; exit 1; }
-        grep -v "^#" "$M"
-    done
-} > "$OUT.mosaic.tsv"
+specs=()
+for C in $CONTIGS; do specs+=("$C:$W/$C/$C.mosaic.tsv"); done
+bash scripts/wgs/concat_mosaic.sh "$SAMPLE" "$OUT.mosaic.tsv" "${specs[@]}"
 echo "  $(grep -vc '^#' "$OUT.mosaic.tsv") segments -> $OUT.mosaic.tsv ($(du -h "$OUT.mosaic.tsv" | cut -f1))"
 
 # Structural check: every strand's segments must tile that contig's sites exactly, which is the
