@@ -185,6 +185,22 @@ def main() -> None:
              "HG002-derived at 62.46 Mb and this graph's matches neither it nor GRCh38's 57.23 Mb.",
              "Scored anyway it returns recall 0.09 at precision 0.000, which measures the",
              "coordinate mismatch and not the caller. The calls remain in the VCF and the mosaic.",
+             "",
+             # These cross-links live here rather than in the .md because this script rewrites the
+             # whole file. Added by hand once, they were silently deleted by the next rescore --
+             # which is the failure mode of hand-editing a generated file, and it does not announce
+             # itself: the numbers were byte-identical, so the diff looked like a pure deletion of
+             # prose nobody had asked about. Anything meant to survive a rescore belongs in here.
+             "**How to run this, and how long it takes**: [wgs-performance.md](wgs-performance.md).",
+             "**Behaviour across coverage and ploidy**: [coverage.md](coverage.md).",
+             "",
+             "**Compared against PanGenie on the same graph and reads**: see",
+             "[pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on small",
+             "variants (ALL F1 0.9630 against 0.9505, driven by indels) and PanGenie is ahead on structural",
+             "variants (0.5739 against 0.5152).",
+             "",
+             "**The mosaic** this run also emits: 143,365 segments over 4,742,752 sites, 11.05 MB",
+             "(3.46 MB gzipped). See wgs-performance.md for why assembling it is not `cat`.",
              "", "## Small variants (aardvark, GT)", ""]
 
     # JointIndel, not Indel: aardvark's plain Indel row is query-only (truth_total 0), so summing

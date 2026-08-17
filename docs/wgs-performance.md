@@ -3,14 +3,43 @@
 `vg call --read-likelihood` on a 34-haplotype HPRC graph, 30x reads, on a 10-core laptop with
 32 GB. One contig per invocation, several contigs at once, packed under a memory budget.
 
-**Current: 24 contigs in 60.9 minutes**, against 144.4 minutes of summed per-contig time — a
-2.37x speedup, and about 82% of what 10 cores could theoretically deliver.
+**Current: 24 contigs in 54.3 minutes**, against 144.4 minutes of summed per-contig time — a
+2.66x speedup. An earlier full run of the same scheduler took 60.9 minutes (2.37x). Nothing between
+them was a performance change, and the faster run had `vg`'s own test suite competing for cores for
+ten of its minutes, so treat the difference as run-to-run variation on a laptop and not as a gain:
+whole-genome wall clock here is reproducible to about ±10%, which is worth knowing before reading
+any single number as a measurement.
 
 ```bash
 python3 scripts/wgs/schedule_wgs.py --work work/wgs      # calls every contig
 bash    scripts/wgs/assemble_wgs.sh                      # one VCF + one mosaic
 python3 scripts/wgs/bench_wgs.py --work work/wgs --out docs/wgs-results.md
 ```
+
+## The mosaic, and why assembly is not `cat`
+
+The genome mosaic is **143,365 segments over 4,742,752 sites in 11.05 MB**, 3.46 MB gzipped, at 80.8
+bytes per segment. 99.82% of segments carry a GBWT position; 390 are fragment splits.
+
+Concatenating the per-contig files needs `scripts/wgs/concat_mosaic.sh`, not `cat`, because two
+mosaic v2 columns are relative to the graph that produced them:
+
+- **`hap_index`** is the haplotype's position in *that chunk's* GBWT metadata, and the chunks do not
+  agree on an ordering. Appending 24 files under one `#haplotype` table relabels haplotypes silently
+  — no error, no missing data, a genome-wide file describing the wrong ancestry. The script reindexes
+  on the `haplotype` (`sample#phase`) name, which is portable by construction.
+- **`gbwt_offset`** cannot be fixed that way at all. It is a rank among the sequences visiting a
+  node, and the whole-genome GBWT has more of them, so the same offset addresses a different path
+  there. The output therefore names each contig's *own* graph in a `#contig` table instead of
+  claiming a single whole-genome GBZ.
+
+`start_node`/`end_node` do survive: `vg chunk` preserves whole-genome node IDs, which is why they
+are the authoritative anchors.
+
+The structural check worth keeping is that the two strands of every diploid contig agree on their
+site total, and that the strand-0 total equals the VCF's record count — 4,742,752, exactly. chrY is
+the only single-strand contig; chrX carries 298 strand-1 segments, which are its pseudoautosomal
+regions arriving via `--ploidy-bed`.
 
 ## Why one contig at a time
 

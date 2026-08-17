@@ -142,6 +142,27 @@ bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/bad.tsv" chrA:"$TMP/m/ghost.tsv"
     && bad "concat_mosaic.sh rejects a haplotype missing from its own panel" \
     || ok "concat_mosaic.sh rejects a haplotype missing from its own panel"
 
+echo "== generated docs regenerate everything they contain =="
+# bench_wgs.py rewrites docs/wgs-results.md wholesale, so anything hand-added to that file is
+# deleted by the next rescore. It happened: a set of cross-links to the other docs vanished, and
+# because every number was byte-identical the diff read as an unexplained deletion of prose. The
+# fix is that the links live in the generator; this asserts they still do.
+for link in wgs-performance.md coverage.md pangenie-comparison.md; do
+    if grep -q "$link" scripts/wgs/bench_wgs.py; then
+        ok "bench_wgs.py regenerates the link to $link"
+    else
+        bad "the link to $link is hand-added and the next rescore will delete it"
+    fi
+done
+# And the converse: every link the doc shows must come from the generator, or it is hand-added.
+if [ -f docs/wgs-results.md ]; then
+    missing=0
+    for link in $(grep -oE '\]\([a-z0-9-]+\.md\)' docs/wgs-results.md | tr -d '](){}' | sort -u); do
+        grep -q "$link" scripts/wgs/bench_wgs.py || missing=$((missing+1))
+    done
+    check "every link in wgs-results.md comes from the generator" "$missing" "0"
+fi
+
 echo "== the memory model matches its fitted constants =="
 python3 - <<'PY' && ok "schedule_wgs.py memory model is the refitted one" || bad "memory model drifted from the doc"
 import re, sys, pathlib

@@ -20,6 +20,9 @@ coordinate mismatch and not the caller. The calls remain in the VCF and the mosa
 variants (ALL F1 0.9630 against 0.9505, driven by indels) and PanGenie is ahead on structural
 variants (0.5739 against 0.5152).
 
+**The mosaic** this run also emits: 143,365 segments over 4,742,752 sites, 11.05 MB
+(3.46 MB gzipped). See wgs-performance.md for why assembling it is not `cat`.
+
 ## Small variants (aardvark, GT)
 
 - **ALL**: TP 4,039,700  FP 86,970  FN 227,119  recall 0.9468  precision 0.9789  **F1 0.9626**
