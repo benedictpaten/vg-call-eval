@@ -12,6 +12,9 @@ HG002-derived at 62.46 Mb and this graph's matches neither it nor GRCh38's 57.23
 Scored anyway it returns recall 0.09 at precision 0.000, which measures the
 coordinate mismatch and not the caller. The calls remain in the VCF and the mosaic.
 
+**How to run this, and how long it takes**: [wgs-performance.md](wgs-performance.md).
+**Behaviour across coverage and ploidy**: [coverage.md](coverage.md).
+
 **Compared against PanGenie on the same graph and reads**: see
 [pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on small
 variants (ALL F1 0.9630 against 0.9505, driven by indels) and PanGenie is ahead on structural
