@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Assemble the per-contig calls into one genome-wide VCF and one mosaic.
 #
-# Concatenating mosaics is not just `cat`, and mosaic v2 is why. Two of the columns are meaningful
+# Concatenating mosaics is not just `cat`. Two of the columns are meaningful
 # only relative to the graph that produced them:
 #
 #   * `hap_index` is the haplotype's position in *that chunk's* GBWT metadata, and the chunks do not

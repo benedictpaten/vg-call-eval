@@ -133,10 +133,13 @@ if bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/out.tsv" chrA:"$TMP/m/A.tsv" 
 else
     bad "concat_mosaic.sh runs on well-formed input ($(cat "$TMP/m/err"))"
 fi
-# Malformed input must stop the run rather than produce a plausible-looking genome file.
-sed 's/#mosaic-version	2/#mosaic-version	1/' "$TMP/m/A.tsv" > "$TMP/m/v1.tsv"
-bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/bad.tsv" chrA:"$TMP/m/v1.tsv" 2>/dev/null \
-    && bad "concat_mosaic.sh rejects a v1 input" || ok "concat_mosaic.sh rejects a v1 input"
+# Malformed input must stop the run rather than produce a plausible-looking genome file. A version
+# the script does not implement is the case worth pinning: the columns it needs may be absent or mean
+# something else, and appending the rows anyway yields a file that parses and lies.
+sed 's/#mosaic-version	2/#mosaic-version	9/' "$TMP/m/A.tsv" > "$TMP/m/otherver.tsv"
+bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/bad.tsv" chrA:"$TMP/m/otherver.tsv" 2>/dev/null \
+    && bad "concat_mosaic.sh rejects an unrecognised mosaic version" \
+    || ok "concat_mosaic.sh rejects an unrecognised mosaic version"
 printf '#mosaic-version\t2\n#graph\tg.gbz\n#reference\tR\n#haplotype\t0\tX#0\n#H\tc\nH\tchrA\t0\t1\t99\t10\t20\t0\tGHOST#9\t5\t21\t3\n' > "$TMP/m/ghost.tsv"
 bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/bad.tsv" chrA:"$TMP/m/ghost.tsv" 2>/dev/null \
     && bad "concat_mosaic.sh rejects a haplotype missing from its own panel" \

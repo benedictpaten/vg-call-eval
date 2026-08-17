@@ -22,7 +22,7 @@ The genome mosaic is **143,365 segments over 4,742,752 sites in 11.05 MB**, 3.46
 bytes per segment. 99.82% of segments carry a GBWT position; 390 are fragment splits.
 
 Concatenating the per-contig files needs `scripts/wgs/concat_mosaic.sh`, not `cat`, because two
-mosaic v2 columns are relative to the graph that produced them:
+mosaic columns are relative to the graph that produced them:
 
 - **`hap_index`** is the haplotype's position in *that chunk's* GBWT metadata, and the chunks do not
   agree on an ordering. Appending 24 files under one `#haplotype` table relabels haplotypes silently

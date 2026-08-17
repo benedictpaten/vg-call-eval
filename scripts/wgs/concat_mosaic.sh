@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Concatenate per-contig mosaic v2 files into one genome-wide mosaic.
+# Concatenate per-contig mosaic files into one genome-wide mosaic.
 #
-# This is not `cat`, and mosaic v2 is why. Two columns are meaningful only relative to the graph
+# This is not `cat`. Two of the columns are meaningful only relative to the graph
 # that produced them:
 #
 #   * `hap_index` is the haplotype's position in *that chunk's* GBWT metadata, and the chunks do not
