@@ -127,7 +127,14 @@ Neither is obviously the better error to make, so the near-tie in F1 is the hone
   are 50–300 bp and heterozygous. This is *not* the large-heterozygous-deletion mechanism in
   [tier2-sv-errors.md](tier2-sv-errors.md), which was ≥300 bp with a break-even near 700 bp; that one
   was fixed. This is a different defect.
-- **Nearly half of that gap is not a scoring failure at all.** Only 47% of the 2,630 have no vg
+- **The part with no vg record at all is mostly hidden by snarl scope, not misjudged.** Of the 47% of
+  the 2,630 with no record within 100 bp, re-calling chr20 and chr6 with reference calls emitted shows
+  **80.6% is upstream of the likelihood** -- no snarl covering the event (47%, and on chr20 every one
+  of those is a *nested* bubble the default scope never descends into) or a snarl that never offered a
+  comparable allele (34%). Only **6.7%** is the model weighing evidence and getting it wrong. Enabling
+  nested calling does surface the recall (+17 TP on chr20) but costs more in false positives, and
+  `--top-down` is worse than the default on every axis. Full working in [sv-nocall.md](sv-nocall.md).
+- **The rest of that gap is not a scoring failure either.** Only 47% of the 2,630 have no vg
   record within 100 bp. 34% have a record of *comparable size* that truvari declined, and a quarter
   of those were declined because the call had already been matched to a neighbouring truth variant.
   Truvari matches one-to-one, so clustered truth SVs produce false negatives however good the calls
