@@ -25,6 +25,11 @@ rather than an evidence one, and the recall remainder sits at 50-300 bp; see
 **The mosaic** this run also emits: 143,365 segments over 4,742,752 sites, 11.05 MB
 (3.46 MB gzipped). See wgs-performance.md for why assembling it is not `cat`.
 
+**`vg call --nested` beats these numbers substantially** and is the direction of travel:
+SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5478, with 59,413 SNV
+false negatives recovered. It is not the default yet; see
+[nested-calling-design.md](nested-calling-design.md).
+
 ## Small variants (aardvark, GT)
 
 - **ALL**: TP 4,039,700  FP 86,970  FN 227,119  recall 0.9468  precision 0.9789  **F1 0.9626**
