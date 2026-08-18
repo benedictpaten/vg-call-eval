@@ -22,6 +22,28 @@ SNVs predicted from the offline analysis. SNV recall of 0.9742 clears PanGenie's
 close to the 0.9737 projected from the swallowed count; the graph's own ceiling is 0.9828. SVs improve
 on both axes at once, 1,071 more true calls and 263 fewer false ones.
 
+**Phasing, autosomes, measured with whatshap against the same phased truth:**
+
+| | pairs | switch % | hamming | blocks | block N50 |
+|---|---|---|---|---|---|
+| default | 2,442,552 | 0.0241% | 1,185,383 | 22 | 248.384 Mb |
+| `--nested`, chains fragmented | 2,502,583 | 0.0235% | 780,795 | **9,460** | 1.079 Mb |
+| `--nested` + per-strand nested chains | 2,510,608 | 0.0240% | 1,212,244 | **22** | **248.386 Mb** |
+
+Block structure matches the default -- 22 blocks, N50 within 1.4 kb -- while phasing 68,056 more
+variants than it does. Switch error is 0.0240% against 0.0241%, and that comparison only means
+anything now the blocks are the same length: the fragmented run's apparently better 0.0235% was the
+trivial win short blocks always give, which the benchmark script warns about in its own docstring.
+
+Hamming distance is the one number that moves the wrong way: 1,212,244 against the default's
+1,185,383, 2.3% worse. Restoring long blocks forces a single global orientation per chromosome, where
+9,460 short blocks could each be locally correct and globally meaningless -- which is why the
+fragmented run's 780,795 flatters it. On 68k more phased variants the per-variant gap is close to
+flat, but it is not an improvement and should not be reported as one.
+
+**Runtime and memory are unchanged**, chr20, same graph and reads: default 136.5 s / 3.64 GB against
+`--nested` 135.9 s / 3.44 GB. Genome-wide both arms take the same ~55 minutes.
+
 ## Why
 
 `vg call` emits one record per top-level snarl, and a `SnarlTraversal` runs from snarl start to snarl
@@ -305,6 +327,55 @@ adds. Then the four tier-2 arms, the whole genome, and the PanGenie comparison r
 
 **Gates**: SNV recall past PanGenie's 0.9659, toward the 0.9737 the swallowed count implies; SV F1
 up; small-variant F1 not down; runtime and memory acceptable for the 24-contig laptop run.
+
+### Stage 7 — Two-pass calling, so descent uses post-linkage genotypes — *next, not started*
+
+Nested descent decides which children to visit, at what ploidy and on which strand, from the parent's
+**pre-linkage** genotype. Linkage then rewrites parents and nothing revisits those decisions, so a
+nested record can outlive the parent genotype that justified it, and the per-strand grouping of
+Stage 3 keys on strand assignments a later change can invalidate.
+
+**Measured, not assumed:** on chr20, `345 of 2,135` nested sites hang off a parent whose genotype
+linkage changed — 0.29% of 117,047 records, but 16.2% of the nested haploid subpopulation. That is an
+upper bound on incoherence rather than a count of wrong records: `0/1 -> 1/1` means both alleles now
+cross the child so its ploidy should be 2 and it is genuinely wrong, while `1/2 -> 1/1` with allele 1
+still crossing leaves ploidy at 1 and may only change the slot.
+
+**The dependency is circular**, so no reordering of a single pass resolves it: descent produces the
+nested sites, linkage needs every site before it can run (it is a chain-wide Viterbi), and descent
+needs linkage's output.
+
+**Rejected: reconciling at emission.** Dropping or flagging nested records whose final parent genotype
+no longer supports them is far cheaper and removes the incoherence, but it only *deletes* — it cannot
+add the records a corrected parent genotype would justify. Losing called records is not acceptable
+here, so this route is closed by choice rather than by cost.
+
+**The approach: defer the child's genotype decision, not the descent.**
+
+1. During pass one, for each non-leaf snarl retain a small table `child -> set of traversal indices
+   that cross it`. Only 1.5% of chr20's records are non-leaf, about 1,600 snarls, so this is trivial
+   in memory — and crucially it means the *traversals themselves* need not be kept.
+2. Descend into every child crossed by any candidate traversal and compute its likelihood vectors, but
+   do not finalise the genotype. Retaining the likelihoods rather than re-fetching reads is what keeps
+   this near-free: a second read-fetch pass over 1.5% of loci would otherwise be the main cost.
+3. After linkage settles the parent, derive each child's true ploidy and slot from the **final**
+   parent genotype and finalise the child's genotype from the retained likelihoods.
+4. Then run Stage 3's per-strand haploid linkage on the finalised nested sites.
+
+**Gate:** the `nested:` counter reports zero stale parents; accuracy holds at or above SNV F1 0.9833
+and SV F1 0.5478; runtime stays within the current 135.9 s on chr20, which is the baseline the fix has
+to hold since nested calling is free today.
+
+**Where the risk is.** This restructures the emission path — child records must be buffered
+unfinalised and completed later — and that is the same code that produced three of this work's bugs:
+`emit_variant` reporting success when it wrote nothing, the stale `PhaseCall` that silently cost 402
+sites their `PS`, and the one-site chain skipped for phasing as well as genotyping. All three were
+silent. Worth starting fresh rather than at the end of a long session, and worth a test that fails
+first: a fixture where linkage is known to move a parent, asserting the child's ploidy follows.
+
+**Also still open:** the per-strand grouping has no test that would catch cross-strand chaining. The
+attempt is recorded under Testing below — the fixture exposed this very coherence gap instead, which
+is why it was abandoned rather than completed.
 
 ## Testing
 
