@@ -200,12 +200,28 @@ def main() -> None:
 
     rows = [("whatshap intersection", all_cmp), ("+ correct-GT filter", good_cmp)]
     print()
+    # Both rates as actual percentages.
+    #
+    # `all_switchflip_rate` is recomputed above as switches/pairs, which is a *fraction*, and it used
+    # to be printed under a "switch %" heading -- so chr20's 0.027667 was read and published as
+    # 0.0277% when it is 2.77%. Every phasing figure quoted for this caller was a hundred times
+    # better than the measurement.
+    #
+    # The hamming column is here for the same reason. Switch rate and block length together read as
+    # near-perfect chromosome-scale phase; hamming says what the orientation is actually worth, and
+    # at 2.77% per adjacent pair over a 248 Mb block it is 49.3% -- a coin flip. A long block is a
+    # statement about how the sites are grouped into one PS, not about long-range phase accuracy.
     print(f"{'subset':26s} {'pairs':>10s} {'switches':>9s} {'switch %':>9s} "
-          f"{'hamming':>9s} {'blocks':>7s}")
+          f"{'hamming':>9s} {'hamming %':>10s} {'blocks':>7s}")
     for name, r in rows:
+        pairs = _num(r, "all_assessed_pairs")
+        rate = _num(r, "all_switchflip_rate")
+        ham = _num(r, "blockwise_hamming")
         print(f"{name:26s} {fmt(r, 'all_assessed_pairs'):>10s} "
-              f"{fmt(r, 'all_switches'):>9s} {fmt(r, 'all_switchflip_rate'):>9s} "
-              f"{fmt(r, 'blockwise_hamming'):>9s} {fmt(r, 'intersection_blocks'):>7s}")
+              f"{fmt(r, 'all_switches'):>9s} {100.0 * rate:>8.4f}% "
+              f"{fmt(r, 'blockwise_hamming'):>9s} "
+              f"{(100.0 * ham / pairs if pairs else float('nan')):>9.2f}% "
+              f"{fmt(r, 'intersection_blocks'):>7s}")
     print()
     print(f"phased variants: {fmt(all_stats, 'phased')}   "
           f"blocks: {fmt(all_stats, 'blocks')}   "

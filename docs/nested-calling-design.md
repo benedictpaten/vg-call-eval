@@ -24,19 +24,36 @@ on both axes at once, 1,071 more true calls and 263 fewer false ones.
 
 **Phasing, autosomes, measured with whatshap against the same phased truth:**
 
-| | pairs | switch % | hamming | blocks | block N50 |
-|---|---|---|---|---|---|
-| default | 2,442,552 | 0.0241% | 1,185,383 | 22 | 248.384 Mb |
-| `--nested`, chains fragmented | 2,502,583 | 0.0235% | 780,795 | **9,460** | 1.079 Mb |
-| `--nested` + per-strand nested chains | 2,510,608 | 0.0240% | 1,212,244 | **22** | **248.386 Mb** |
+| | pairs | switch % | hamming | hamming % | blocks | block N50 |
+|---|---|---|---|---|---|---|
+| default | 2,442,552 | 2.41% | 1,185,383 | 48.53% | 22 | 248.384 Mb |
+| `--nested`, chains fragmented | 2,502,583 | 2.35% | 780,795 | 31.20% | **9,460** | 1.079 Mb |
+| `--nested` + per-strand nested chains | 2,510,608 | 2.40% | 1,212,244 | 48.28% | **22** | **248.386 Mb** |
+
+**The switch percentages in this table were previously quoted a hundred times too low** -- 0.0240%
+against 0.0241% and so on. `phasing_benchmark.py` recomputes `all_switchflip_rate` as switches divided
+by assessed pairs, a fraction, and printed it under a column headed `switch %`; this table copied the
+figure and attached a percent sign. The script now converts, and prints the hamming rate beside it for
+the reason below. The comparison between arms is unaffected -- all three rows were mislabelled the
+same way -- and [tier2-phasing.md](tier2-phasing.md) was never wrong: it reports 2.30% for chr20 at 34
+haplotypes, which is what 2.40% here should always have read as.
 
 Block structure matches the default -- 22 blocks, N50 within 1.4 kb -- while phasing 68,056 more
-variants than it does. Switch error is 0.0240% against 0.0241%, and that comparison only means
-anything now the blocks are the same length: the fragmented run's apparently better 0.0235% was the
-trivial win short blocks always give, which the benchmark script warns about in its own docstring.
+variants than it does. Switch error is 2.40% against 2.41%, and that comparison only means anything
+now the blocks are the same length: the fragmented run's apparently better 2.35% was the trivial win
+short blocks always give, which the benchmark script warns about in its own docstring.
 
-Hamming distance is the one number that moves the wrong way: 1,212,244 against the default's
-1,185,383, 2.3% worse. Restoring long blocks forces a single global orientation per chromosome, where
+**What the two columns together say about long-range phase.** At 2.4% per adjacent het pair, the
+relative orientation re-randomises every forty sites or so, and every switch flips everything
+downstream of it -- so blockwise hamming sits at 48% whatever the block length. A 248 Mb block is a
+statement about which sites share one `PS`, not about phase that is trustworthy across a chromosome.
+`tier2-phasing.md` argues hamming is uninformative over long blocks, and is right; the corollary worth
+stating alongside it is that the phase is then only locally meaningful, so nothing should read the
+mosaic as chromosome-scale truth. At 2.4% the caller is where a 34-haplotype panel puts it -- that doc
+compares it against the 0.5-2% statistical phasers reach from thousands -- and the lever is the panel.
+
+Hamming still moves the wrong way between the last two rows: 1,212,244 against the default's
+1,185,383, 2.3% worse. Restoring long blocks forces one global orientation per chromosome where
 9,460 short blocks could each be locally correct and globally meaningless -- which is why the
 fragmented run's 780,795 flatters it. On 68k more phased variants the per-variant gap is close to
 flat, but it is not an improvement and should not be reported as one.
@@ -328,54 +345,162 @@ adds. Then the four tier-2 arms, the whole genome, and the PanGenie comparison r
 **Gates**: SNV recall past PanGenie's 0.9659, toward the 0.9737 the swallowed count implies; SV F1
 up; small-variant F1 not down; runtime and memory acceptable for the 24-contig laptop run.
 
-### Stage 7 — Two-pass calling, so descent uses post-linkage genotypes — *next, not started*
+### Stage 7 — Coherence between a nested call and its parent's final genotype — *partly done, and one confident change was withdrawn*
 
-Nested descent decides which children to visit, at what ploidy and on which strand, from the parent's
-**pre-linkage** genotype. Linkage then rewrites parents and nothing revisits those decisions, so a
-nested record can outlive the parent genotype that justified it, and the per-strand grouping of
-Stage 3 keys on strand assignments a later change can invalidate.
+Nested descent decides which children to visit, at what ploidy, and on which parent strand, from the
+parent's **pre-linkage** genotype. Linkage then rewrites parents and nothing revisited those decisions.
+Investigating that turned up four things. Two are fixed, one is reported rather than fixed, and one was
+implemented, measured, found to make the output worse, and reverted.
 
-**Measured, not assumed:** on chr20, `345 of 2,135` nested sites hang off a parent whose genotype
-linkage changed — 0.29% of 117,047 records, but 16.2% of the nested haploid subpopulation. That is an
-upper bound on incoherence rather than a count of wrong records: `0/1 -> 1/1` means both alleles now
-cross the child so its ploidy should be 2 and it is genuinely wrong, while `1/2 -> 1/1` with allele 1
-still crossing leaves ploidy at 1 and may only change the slot.
+#### The mechanism this rests on: a crossing mask
 
-**The dependency is circular**, so no reordering of a single pass resolves it: descent produces the
-nested sites, linkage needs every site before it can run (it is a chain-wide Viterbi), and descent
-needs linkage's output.
+Descent now carries a **crossing mask** into `LinkageCollector::Entry` -- one bit per parent VCF allele,
+set where that allele crosses this child chain -- so `resolve` can ask questions about the parent's
+*final* genotype that it previously could not ask at all. Eight bytes a site, placed beside
+`parent_record_key` rather than beside the slot it was meant to supersede, since after a `uint8_t` it
+would cost sixteen. chr20's retained linkage state goes 12.31 MB to 13.20 MB.
 
-**Rejected: reconciling at emission.** Dropping or flagging nested records whose final parent genotype
-no longer supports them is far cheaper and removes the incoherence, but it only *deletes* — it cannot
-add the records a corrected parent genotype would justify. Losing called records is not acceptable
-here, so this route is closed by choice rather than by cost.
+#### 1. Fixed: 255 of 2,135 nested sites have a ploidy their parent's final genotype contradicts
 
-**The approach: defer the child's genotype decision, not the descent.**
+The population used to be an upper bound -- nested sites whose parent's genotype moved at all, 345 on
+chr20. With the mask it is exact. Under the parent genotype linkage actually settled on:
 
-1. During pass one, for each non-leaf snarl retain a small table `child -> set of traversal indices
-   that cross it`. Only 1.5% of chr20's records are non-leaf, about 1,600 snarls, so this is trivial
-   in memory — and crucially it means the *traversals themselves* need not be kept.
-2. Descend into every child crossed by any candidate traversal and compute its likelihood vectors, but
-   do not finalise the genotype. Retaining the likelihoods rather than re-fetching reads is what keeps
-   this near-free: a second read-fetch pass over 1.5% of loci would otherwise be the main cost.
-3. After linkage settles the parent, derive each child's true ploidy and slot from the **final**
-   parent genotype and finalise the child's genotype from the retained likelihoods.
-4. Then run Stage 3's per-strand haploid linkage on the finalised nested sites.
+- **88 sites are diploid**: both parent haplotypes cross the child, so the locus has two alleles there
+  and the record names one.
+- **167 are unreachable**: neither haplotype crosses it, so the sample carries no copy of the chain
+  under its own parent record and the call has no haplotype to sit on.
 
-**Gate:** the `nested:` counter reports zero stale parents; accuracy holds at or above SNV F1 0.9833
-and SV F1 0.5478; runtime stays within the current 135.9 s on chr20, which is the baseline the fix has
-to hold since nested calling is free today.
+Neither is dropped. Both are flagged, `FILTER=nested_diploid` and `FILTER=nested_unreachable`, with
+header descriptions saying what the flag means. The read evidence at the child is real, and it is
+evidence *against* the parent's new genotype as much as the parent is evidence against the child, so
+deleting the record would be asserting that the parent won that argument. Neither aardvark nor truvari
+filters on FILTER as this harness invokes them, so scoring is unaffected and the flags are information
+rather than a silent exclusion.
 
-**Where the risk is.** This restructures the emission path — child records must be buffered
-unfinalised and completed later — and that is the same code that produced three of this work's bugs:
-`emit_variant` reporting success when it wrote nothing, the stale `PhaseCall` that silently cost 402
-sites their `PS`, and the one-site chain skipped for phasing as well as genotyping. All three were
-silent. Worth starting fresh rather than at the end of a long session, and worth a test that fails
-first: a fixture where linkage is known to move a parent, asserting the child's ploidy follows.
+**This check survives the problem that sank the strand derivation below**, and for a specific reason: it
+asks about the *unordered* pair. Whether both called alleles cross, neither crosses, or exactly one
+does never requires knowing which allele is on which strand.
 
-**Also still open:** the per-strand grouping has no test that would catch cross-strand chaining. The
-attempt is recorded under Testing below — the fixture exposed this very coherence gap instead, which
-is why it was abandoned rather than completed.
+Their strand handling is honest rather than falling back to a slot that means nothing: a diploid one
+names the parent's haplotype on both strands, an unreachable one names neither, and both stay out of the
+per-strand chains of step three, which link within one haplotype and have no place for a site on two or
+on none.
+
+**The gap that remains** is re-genotyping the 88 at ploidy 2, and it cannot be done from what is
+retained: `Entry` holds the *haploid* likelihood vector, indexed by allele, because that is what the site
+was genotyped at, and a diploid genotype needs the triangular vector that was never computed. It needs
+either a speculative second genotyping of every candidate child at both ploidies -- affordable, since the
+candidates are 1.8% of loci and the read fetch would be shared -- or a genuine re-call from the write
+path. Not started.
+
+#### 2. Fixed: the mosaic put nested segments in the wrong place
+
+`write_mosaic` reads the phasing as one ordered sweep per contig and closes a segment only where the
+haplotype changes. Nested sites break that by construction: placing one needs its parent already phased,
+so they are appended after every chain, leaving the vector in two runs.
+
+Out of order, a nested site 451 kb into chr20 shared a run with one 65 Mb along. chr20's mosaic carried
+five segments spanning tens of megabases, one claiming 284 sites between `ref_start` 451,374 and
+`ref_end` 65,512,343, with `start_node`/`end_node` anchors to match. **The site totals still added up**,
+which is the invariant the harness checks, so the file looked complete while being wrong about where
+several hundred sites were.
+
+Fixed by sorting the phasing into `(contig, position, record_key)` at the end of `resolve` -- one
+guarantee for every consumer rather than each having to know, and unit-tested. chr20 goes from 4,563
+segments with five out-of-order rows to 5,111 with none, over the same 117,047 sites and the same 2,510
+wildcard site-slots.
+
+Sorting then exposed a latent hazard next door: the strand count was read off `phasing[i].ploidy`, the
+*first* site on the contig. A diploid contig can now open with a nested haploid site, which would have
+dropped that contig's entire second strand -- silently, since a one-strand mosaic is exactly what a
+haploid contig is supposed to look like. It takes the maximum over the run now. chr20 opens at position
+24 with a diploid record, which is the only reason this was never visible.
+
+#### 3. Withdrawn: deriving the nested strand from the parent's phased allele pair
+
+`parent_slot` is an index into the parent's *called traversal* order, recorded at descent. By the time
+the parent is phased, `record` has sorted its allele pair and the Viterbi has oriented that pair against
+the panel, so slot 0 and `allele_first` coincide only by chance. Using one to index the other looked like
+a category error rather than a tunable heuristic, and the crossing mask makes the correct derivation
+available: ask which of the parent's *phased* alleles crosses the child.
+
+It was implemented, and it moves **636 of 1,851** placed nested sites on chr20 -- 34%, close to the coin
+flip a wrong index predicts. Then it was measured against the phased truth, and **it is worse**. Paired
+on the 142 sites decisive for both runs: the recorded slot is right 106 times (74.6%), the derived slot
+64 (45.1%). Guarding the derivation against parents whose allele pair has no determined order (below)
+recovers most of the gap but does not close it: 94 (66.2%). So it was reverted, and the mask is kept only
+for the ploidy check of item 1, which does not depend on the ordering.
+
+Reverted rather than shipped-and-flagged because a change that moves a third of a population needs to be
+right, and "my reasoning says the index is wrong" lost to a direct measurement. **Why it lost is not
+resolved.** The leading explanation is item 4 -- for many parents nothing determines the order of the
+pair, so indexing it is no better founded than indexing traversal order -- but that accounts for the
+45.1% to 66.2% step and not the remaining eight points. A second candidate not yet tested is whether the
+VCF's allele order and the mosaic's haplotype order stay aligned through the fallback branches that build
+a `PhaseCall`, since the measurement reads the strand from one and the frame from the other.
+
+#### 4. Reported: heterozygous sites whose allele order nothing determines
+
+Building a `PhaseCall` for a diploid site takes the allele each phased panel haplotype carries. Where
+neither haplotype spells either called allele, the last-resort branch writes the pair in sorted order --
+and that pair is then emitted as the phased `GT`, in the block, indistinguishable from a site the panel
+actually oriented. `PhaseCall::order_arbitrary` now marks those, and the run reports how many there are.
+
+They are the reason the derivation in item 3 has less ground under it than it appears, and they are worth
+a look in their own right: a phased genotype that asserts an orientation nothing chose is a guess dressed
+as a call, which is the thing this caller avoids everywhere else.
+
+#### What could not be measured, and why it matters more than any of the above
+
+Every phasing number published for `--nested` is computed on the **diploid records alone**: whatshap
+refuses a VCF of mixed ploidy, so the 2,135 haploid nested records -- precisely the ones this stage is
+about -- are excluded from every switch and hamming figure. The strand is not in the VCF either. A
+haploid `GT` of `1` with a `PS` says which block the site is in and nothing about which strand of it, so
+there is no field for a phasing tool to read.
+
+`scripts/wgs/nested_strand_check.py` closes enough of that gap to have produced the verdict in item 3,
+by recovering the strand from the mosaic -- a nested site is a wildcard on the strand it is not on, and a
+wildcard breaks a segment -- and checking it against the phased truth in a local frame. Its limits are
+why item 3 says "not resolved" rather than "the old code was right":
+
+- Only **157 of 2,135** nested calls are decisive. 1,334 have no exact `POS`/`REF`/`ALT` match in the
+  truth, 95 have a homozygous truth genotype that cannot tell a right strand from a wrong one, and 549
+  have no single recoverable strand because wildcard segments merge across neighbouring sites.
+- The frame has to be local. At 2.4% switch error per adjacent het pair a block has no single
+  orientation -- blockwise hamming is 49% -- and a first version of the check used a block-wide majority
+  and measured exactly that noise.
+- The recovery itself checks out: it finds 572 sites differing between the two arms where the caller
+  reports 636 strands moved, the rest being sites it cannot compare.
+
+The way to settle this properly is to put the strand in the VCF -- `a|.` and `.|a` for a haploid record
+inside a diploid phase set -- so whatshap can score it directly. That is a separate change with its own
+scoring risk and is the obvious next thing to do.
+
+**On chr20, what the shipped state reports:** 88 diploid and 167 unreachable of 2,135 nested sites, none
+unchecked, so 255 records flagged; 180 heterozygous sites carrying an allele order the panel does not
+determine; 621 sites with a strand it does not explain, which now includes the 167 that legitimately
+have none. Runtime 166.47 s against the pre-change binary's 166.61 s on the same machine under the same
+ambient load, and peak RSS 3.28 GB against 3.30 GB -- so free. Both absolute figures sit well above the
+135.9 s recorded earlier in this document, which was measured on a quieter machine; the same-day
+pre-change run is the only comparison worth making.
+
+**Accuracy against the pre-change binary, chr20, shipped state against pre:**
+
+| | ALL | SNV | Indel | SV |
+|---|---|---|---|---|
+| before | 0.9697 | 0.9841 | 0.9156 | **0.5177** |
+| after | 0.9697 | 0.9841 | 0.9157 | **0.5164** |
+
+Seven small-variant false negatives recovered (3,535 to 3,528) against four more structural false
+positives (406 to 410). The SV cost is traceable: the 255 flagged sites are held out of step three's
+per-strand chains, since a site on both strands or on neither belongs to no single-haplotype chain, so
+four of them keep a per-site genotype linkage would otherwise have corrected. Not a wash in the caller's
+favour and reported as it came out.
+
+Structure is untouched: records 117,047 either way, one phase block with 116,983 sites carrying `PS`,
+114,907 diploid and 2,140 haploid in both. With the withdrawn derivation still in, the diploid whatshap
+comparison was bit-identical to the pre-change run -- 58,807 pairs, 1,627 switches, hamming 29,008 --
+which bounds the collateral of everything that stayed.
 
 ## Testing
 
