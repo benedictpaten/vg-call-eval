@@ -55,9 +55,19 @@ REPO = HERE.parent.parent
 BASE_GB = 2.25
 GB_PER_RECORD = 11.2e-6
 
+# --nested emits more records and holds more working state, and the record count alone does not
+# predict it: chr20 under -a has 64% more records than under --nested at *less* peak memory, so what
+# grows is the descent's own working set rather than the buffered output. Two paired contigs give
+# deltas of +0.21 GB (chr21) and +0.79 GB (chr20) for similar record increases, and chr21's default
+# is itself 0.5 GB above chr20's at a comparable record count -- so run-to-run noise is the same
+# order as the effect. Rather than fit a coefficient to two noisy points, apply a margin: it costs
+# only some packing density, where under-predicting costs a swap storm.
+NESTED_MARGIN = 1.25
 
-def predict_gb(truth_records: int) -> float:
-    return BASE_GB + GB_PER_RECORD * truth_records
+
+def predict_gb(truth_records: int, nested: bool = False) -> float:
+    gb = BASE_GB + GB_PER_RECORD * truth_records
+    return gb * NESTED_MARGIN if nested else gb
 
 
 def truth_record_count(work: Path, contig: str) -> int:
@@ -81,6 +91,8 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--work", default="work/wgs")
     p.add_argument("--budget-gb", type=float, default=24.0)
+    p.add_argument("--nested", action="store_true",
+                   help="pass --nested to vg call and budget memory for it")
     # -t 5, not the 2 this was first written with. The reasoning behind 2 was that the caller is
     # I/O-bound at about one CPU, so threads only bought per-thread read caches and could be traded
     # for concurrency. Measured on chr20, two replicates, that is wrong on both halves:
@@ -120,7 +132,8 @@ def main() -> None:
             stale.append(c)
             marker.unlink()
         n = truth_record_count(work, c)
-        plan.append({"contig": c, "truth_records": n, "predict_gb": round(predict_gb(n), 2)})
+        plan.append({"contig": c, "truth_records": n,
+                     "predict_gb": round(predict_gb(n, args.nested), 2)})
     plan.sort(key=lambda x: -x["predict_gb"])
 
     if stale:
@@ -174,7 +187,9 @@ def main() -> None:
                 proc = subprocess.Popen(
                     cmd, cwd=str(REPO),
                     env={**__import__("os").environ,
-                         "CONTIGS": e["contig"], "THREADS": str(args.threads)},
+                         "CONTIGS": e["contig"], "THREADS": str(args.threads),
+                         "EXTRA": "--nested" if args.nested else "",
+                         "W": args.work},
                     stdout=open(work / f"{e['contig']}.schedule.out", "w"),
                     stderr=subprocess.STDOUT)
                 running[proc] = e

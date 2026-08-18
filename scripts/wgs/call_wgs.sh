@@ -24,6 +24,9 @@ cd "$(dirname "$0")/../.."
 VG=${VG:-$HOME/CLionProjects/vg/bin/vg}
 export PATH="$(dirname "$VG"):$PATH"
 W=${W:-work/wgs}
+# Extra flags for every vg call invocation, e.g. EXTRA=--nested. Word-split deliberately, and
+# guarded for the empty case the way the ploidy array is: bash 3.2 aborts on "${a[@]}" under set -u.
+EXTRA=${EXTRA:-}
 READS_DB=${READS_DB:-work/reads.hap32.gaf.db}
 GRAPH_DB=${GRAPH_DB:-work/graph.hap32.gbz.db}
 REF_SAMPLE=${REF_SAMPLE:-CHM13}
@@ -53,7 +56,7 @@ call_one_bed() {   # contig ploidy outprefix [ploidy-bed]
     # a BED, so only chrX had exercised this function since it gained the argument.
     /usr/bin/time -l "$VG" call "$D/$C.gbz" \
         -p "${REF_SAMPLE}#0#${C}" -s "$SAMPLE" -d "$PLOIDY" -t "$THREADS" --progress \
-        --read-likelihood --phased --mosaic-out "$OUT.mosaic.tsv" ${extra[@]+"${extra[@]}"} \
+        ${EXTRA:+$EXTRA} --read-likelihood --phased --mosaic-out "$OUT.mosaic.tsv" ${extra[@]+"${extra[@]}"} \
         --gaf-base "$READS_DB" --gbz-base "$GRAPH_DB" \
         > "$OUT.vcf" 2> "$OUT.log"
     local secs rss
