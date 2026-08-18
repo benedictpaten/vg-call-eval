@@ -19,17 +19,18 @@ script took a block-wide majority and measured that noise. Only sites where the 
 on POS, REF and ALT are counted, and only where the truth is heterozygous, since a homozygous truth site
 carries the allele on both haplotypes and cannot tell a right strand from a wrong one.
 
-**What this found, so a future reader does not have to rediscover it.** Deriving a nested site's strand
-from which of the parent's *phased* alleles crosses the child chain -- which is what the phase means, and
-looked unarguable -- agrees with the truth *less* often than the traversal-order slot recorded at descent:
-paired on chr20's 142 decisive sites, 45.1% against 74.6%, or 66.2% once parents whose allele pair has no
-determined order are excluded. The derivation was reverted on that evidence and the reason it loses is
-still open. See the Stage 7 notes in docs/nested-calling-design.md.
+**Read the controls, not the percentage.** This script cannot compare two strand conventions, and
+finding that out is the main thing it has produced. On chr20 it scores the traversal-order slot the
+caller records at 73.9% and the derivation from the parent's phased allele pair at 47.1% -- but "put
+every nested site on strand 1" scores **74.5%** on the same sites. The recorded slot is 1 for about 82%
+of nested sites, so its apparent accuracy is that skew and not information, and a balanced convention
+loses to a constant against a one-sided truth subset. Both controls are printed for exactly this reason.
 
-The measurement is also weak, and its weakness is the real finding: only 157 of 2,135 nested calls are
-decisive at all, because the VCF has no field for a haploid record's strand and whatshap will not read a
-mixed-ploidy file. Emitting `a|.` and `.|a` for a haploid record inside a diploid phase set would make
-this measurable directly and retire this script.
+What can compare them is relative phase, which a constant cannot game: run whatshap over the call set
+including the nested records (they are readable now that the caller writes `a|.` and `.|a`, and
+`phasing_benchmark.py --half-missing ref` will feed them in). That says the two conventions are
+indistinguishable -- 1,655 switches against 1,661 on ~58,900 pairs -- while the nested sites themselves
+switch at about 21% against a 2.77% baseline. See the Stage 7 notes in docs/nested-calling-design.md.
 """
 
 from __future__ import annotations
@@ -56,6 +57,23 @@ def read_records(path, contig):
             continue
         gt = f[9].split(":")[0]
         out.append((int(f[1]), f[3], f[4], gt))
+    return out
+
+
+def strands_from_vcf(calls_records):
+    """position -> strand, read straight off a half-missing phased genotype.
+
+    `vg call --nested --phased` writes a nested haploid record as `a|.` or `.|a`, so the strand is in
+    the record and needs no recovery. This supersedes the mosaic route below, which loses a quarter of
+    the sites: wildcard segments merge across neighbouring sites, so a position can fall inside a
+    wildcard run on both strands or on neither.
+    """
+    out = {}
+    for pos, ref, alt, gt in calls_records:
+        if gt.endswith("|."):
+            out[pos] = 0
+        elif gt.startswith(".|"):
+            out[pos] = 1
     return out
 
 
@@ -108,6 +126,10 @@ def main() -> None:
 
     calls = read_records(args.calls, args.contig)
     spans = wildcard_intervals(args.mosaic, args.contig)
+    vcf_strand = strands_from_vcf(calls)
+    if vcf_strand:
+        print(f"strand read from the VCF for {len(vcf_strand)} nested records (half-missing "
+              f"genotypes); the mosaic is a fallback only where the VCF has none")
 
     # Anchors: diploid het calls whose truth record matches, and whether our first strand is the
     # truth's first haplotype *there*.
@@ -204,17 +226,23 @@ def main() -> None:
     stats = defaultdict(int)
     distances = []
     for pos, ref, alt, gt in calls:
-        if "|" in gt or "/" in gt or not gt.isdigit():
+        if pos in vcf_strand:
+            # The record says which strand, so no recovery and no losses.
+            strand = vcf_strand[pos]
+            gt = gt.replace("|.", "").replace(".|", "")
+            stats["haploid_records"] += 1
+        elif "|" in gt or "/" in gt or not gt.isdigit():
             continue          # diploid, or no call
-        stats["haploid_records"] += 1
-        wild0, wild1 = covered(spans[0], pos), covered(spans[1], pos)
-        if wild0 and wild1:
-            stats["no_strand"] += 1
-            continue
-        if not wild0 and not wild1:
-            stats["strand_not_recoverable"] += 1
-            continue
-        strand = 1 if wild0 else 0
+        else:
+            stats["haploid_records"] += 1
+            wild0, wild1 = covered(spans[0], pos), covered(spans[1], pos)
+            if wild0 and wild1:
+                stats["no_strand"] += 1
+                continue
+            if not wild0 and not wild1:
+                stats["strand_not_recoverable"] += 1
+                continue
+            strand = 1 if wild0 else 0
         t = truth.get((pos, ref, alt))
         if t is None:
             stats["no_matching_truth_record"] += 1
@@ -232,6 +260,13 @@ def main() -> None:
             stats["correct"] += 1
         else:
             stats["wrong"] += 1
+        # Controls. The recorded slot is 1 for about 82% of nested sites on chr20, so "it agrees with
+        # the truth 74% of the time" is only a result if a constant does worse. Scored on exactly the
+        # same sites and frames.
+        for name, const in (("always_strand_0", 0), ("always_strand_1", 1)):
+            c = const if frame == 0 else 1 - const
+            if t[c] == int(gt):
+                stats[name] += 1
         distances.append(distance)
 
     decisive = stats["correct"] + stats["wrong"]
@@ -241,6 +276,9 @@ def main() -> None:
     if decisive:
         print(f"\nstrand correct on {stats['correct']} of {decisive} decisive sites "
               f"({100.0 * stats['correct'] / decisive:.1f}%)")
+        for name in ("always_strand_0", "always_strand_1"):
+            print(f"  control {name:16s} {stats[name]:4d} "
+                  f"({100.0 * stats[name] / decisive:.1f}%)")
         if distances:
             print(f"  nearest anchor: median {int(statistics.median(distances))} bp, "
                   f"max {max(distances)} bp")

@@ -416,30 +416,76 @@ dropped that contig's entire second strand -- silently, since a one-strand mosai
 haploid contig is supposed to look like. It takes the maximum over the run now. chr20 opens at position
 24 with a diploid record, which is the only reason this was never visible.
 
-#### 3. Withdrawn: deriving the nested strand from the parent's phased allele pair
+#### 3. Fixed: the strand reaches the VCF, and it made the file more accurate
 
-`parent_slot` is an index into the parent's *called traversal* order, recorded at descent. By the time
-the parent is phased, `record` has sorted its allele pair and the Viterbi has oriented that pair against
-the panel, so slot 0 and `allele_first` coincide only by chance. Using one to index the other looked like
-a category error rather than a tunable heuristic, and the crossing mask makes the correct derivation
-available: ask which of the parent's *phased* alleles crosses the child.
+A nested haploid record used to be a bare `GT` of `1` plus a `PS`, which says which block the site is in
+and nothing about which strand of it. The strand existed in the caller and in the mosaic and nowhere a
+consumer would look -- and whatshap refuses a mixed-ploidy file, so the records nested calling creates
+were excluded from every phasing figure ever published for it.
 
-It was implemented, and it moves **636 of 1,851** placed nested sites on chr20 -- 34%, close to the coin
-flip a wrong index predicts. Then it was measured against the phased truth, and **it is worse**. Paired
-on the 142 sites decisive for both runs: the recorded slot is right 106 times (74.6%), the derived slot
-64 (45.1%). Guarding the derivation against parents whose allele pair has no determined order (below)
-recovers most of the gap but does not close it: 94 (66.2%). So it was reverted, and the mask is kept only
-for the ploidy check of item 1, which does not depend on the ordering.
+It is now written as `a|.` or `.|a`: the position in the pair is the strand, and `.` is the haplotype
+that carries nothing, because the parent's other allele deletes the chain there. `.` rather than `*`,
+which would say "absent because something deleted it" and say it more precisely -- but `*` is an ALT
+allele, and adding one changes the arity of `AD`, `GL` and `GQI`, all written long before the strand is
+known.
 
-Reverted rather than shipped-and-flagged because a change that moves a third of a population needs to be
-right, and "my reasoning says the index is wrong" lost to a direct measurement. **Why it lost is not
-resolved.** The leading explanation is item 4 -- for many parents nothing determines the order of the
-pair, so indexing it is no better founded than indexing traversal order -- but that accounts for the
-45.1% to 66.2% step and not the remaining eight points. A second candidate not yet tested is whether the
-VCF's allele order and the mosaic's haplotype order stay aligned through the fallback branches that build
-a `PhaseCall`, since the measurement reads the strand from one and the frame from the other.
+On chr20, 1,590 of 2,135 nested records carry a strand (285 `a|.`, 1,305 `.|a`). The other 604 correctly
+do not: 255 are the flagged sites of item 1 and the rest have no reachable phased parent.
 
-#### 4. Reported: heterozygous sites whose allele order nothing determines
+**It also removed 34 false positives**, which was not the point of the change and is the better argument
+for it -- a bare haploid genotype on a diploid contig was being read as something it is not:
+
+| | ALL F1 | FP | SNV F1 | Indel F1 | Indel precision | SV F1 |
+|---|---|---|---|---|---|---|
+| bare `1` | 0.9697 | 2,166 | 0.9841 | 0.9157 | 0.9090 | 0.5164 |
+| `a\|.` | **0.9699** | **2,132** | **0.9842** | **0.9163** | **0.9100** | 0.5164 |
+
+#### 4. Not resolved, and the measurements that failed to resolve it
+
+Which strand a nested site belongs to is *determined* rather than estimated -- the parent's other allele
+deletes the chain -- so it looked like the one thing here that could be got exactly right.
+`parent_slot`, the index recorded at descent, indexes the parent's **called traversal** order; by the
+time the parent is phased, `record` has sorted the pair and the Viterbi has oriented it against the
+panel, so slot 0 and `allele_first` coincide only by chance. Deriving the strand from the phased pair
+instead is the obvious correction, and it moves 636 of 1,851 sites.
+
+**Three measurements, and the first two were wrong.** Recorded here in order because each correction
+matters more than the conclusion:
+
+1. **Site-level check against the phased truth, strand recovered from the mosaic.** Paired on 142 sites:
+   recorded slot 74.6%, derived 45.1%. Read as "the derivation is much worse", and the derivation was
+   reverted on it.
+2. **Same check with the strand read from the VCF** once item 3 made that possible -- no recovery
+   losses. Recorded slot 73.9% (116/157), derived 47.1% (74/157). Consistent with (1), which is what
+   made it trustworthy.
+3. **The constant-strand control on the same 157 sites, which should have been run first.** "Put every
+   nested site on strand 1" scores **74.5%** -- better than the recorded slot's 73.9%. The recorded slot
+   is 1 for about 82% of nested sites, so its apparent accuracy was the base rate of that skew and not
+   information. The derived slot is roughly balanced, which is the whole reason it scored 47%: against a
+   one-sided truth subset, a balanced guess loses to a constant. **Neither convention beats a constant,
+   so this check cannot compare them.**
+
+**The instrument that can** is relative phase, which a constant cannot game, and item 3 is what made it
+available. whatshap over the call set including nested sites:
+
+| | pairs | switches | hamming |
+|---|---|---|---|
+| recorded slot | 58,938 | 1,655 | 29,045 |
+| derived from the phased pair | 58,934 | 1,661 | 29,087 |
+
+Six switches apart on 58,900 pairs. **The two conventions are indistinguishable**, so there is no
+evidence to change the behaviour and the revert stands -- on the absence of a difference rather than on
+the difference the site-level check appeared to show.
+
+**What the same numbers do say is that nested strands are badly assigned either way.** Against the
+diploid-only comparison of 58,807 pairs and 1,627 switches, the nested sites add 131 assessed pairs and
+28 switches: a **21% switch rate against the 2.77% baseline**. That is a real, bias-free signal, and it
+points at the mechanism rather than the indexing. The candidates, in order of suspicion: the parent's
+own phase is only 2.8%-switch accurate and the child inherits it; the 180 heterozygous sites of item 5
+whose allele pair has no determined order at all; and the 82% slot-1 skew, which nothing in the design
+predicts and which no one has explained.
+
+#### 5. Reported: heterozygous sites whose allele order nothing determines
 
 Building a `PhaseCall` for a diploid site takes the allele each phased panel haplotype carries. Where
 neither haplotype spells either called allele, the last-resort branch writes the pair in sorted order --
@@ -450,31 +496,24 @@ They are the reason the derivation in item 3 has less ground under it than it ap
 a look in their own right: a phased genotype that asserts an orientation nothing chose is a guess dressed
 as a call, which is the thing this caller avoids everywhere else.
 
-#### What could not be measured, and why it matters more than any of the above
+#### The measurement, and what it still cannot see
 
-Every phasing number published for `--nested` is computed on the **diploid records alone**: whatshap
-refuses a VCF of mixed ploidy, so the 2,135 haploid nested records -- precisely the ones this stage is
-about -- are excluded from every switch and hamming figure. The strand is not in the VCF either. A
-haploid `GT` of `1` with a `PS` says which block the site is in and nothing about which strand of it, so
-there is no field for a phasing tool to read.
+`scripts/wgs/nested_strand_check.py` is the site-level check of item 4, kept together with the control
+that invalidated it. It reads the strand from the VCF where item 3 put it and falls back to recovering it
+from the mosaic -- a nested site is a wildcard on the strand it is not on, and a wildcard breaks a
+segment. Its limits, since they bound anything built on it:
 
-`scripts/wgs/nested_strand_check.py` closes enough of that gap to have produced the verdict in item 3,
-by recovering the strand from the mosaic -- a nested site is a wildcard on the strand it is not on, and a
-wildcard breaks a segment -- and checking it against the phased truth in a local frame. Its limits are
-why item 3 says "not resolved" rather than "the old code was right":
-
-- Only **157 of 2,135** nested calls are decisive. 1,334 have no exact `POS`/`REF`/`ALT` match in the
-  truth, 95 have a homozygous truth genotype that cannot tell a right strand from a wrong one, and 549
-  have no single recoverable strand because wildcard segments merge across neighbouring sites.
+- Only **157 of 2,135** nested calls are decisive. 1,344 have no exact `POS`/`REF`/`ALT` match in the
+  truth, 97 have a homozygous truth genotype that cannot tell a right strand from a wrong one, and the
+  rest have no strand to test.
 - The frame has to be local. At 2.4% switch error per adjacent het pair a block has no single
-  orientation -- blockwise hamming is 49% -- and a first version of the check used a block-wide majority
-  and measured exactly that noise.
-- The recovery itself checks out: it finds 572 sites differing between the two arms where the caller
-  reports 636 strands moved, the rest being sites it cannot compare.
+  orientation -- blockwise hamming is 49% -- and the first version used a block-wide majority and
+  measured exactly that noise.
+- **Its verdicts are not usable for comparing conventions at all**, per the control in item 4. It is
+  retained because that is worth knowing, not because the percentages mean anything on their own.
 
-The way to settle this properly is to put the strand in the VCF -- `a|.` and `.|a` for a haploid record
-inside a diploid phase set -- so whatshap can score it directly. That is a separate change with its own
-scoring risk and is the obvious next thing to do.
+The strand recovery from the mosaic did check out, for what it is worth: it found 572 sites differing
+between the two arms where the caller reported 636 strands moved, the rest being sites it cannot compare.
 
 **On chr20, what the shipped state reports:** 88 diploid and 167 unreachable of 2,135 nested sites, none
 unchecked, so 255 records flagged; 180 heterozygous sites carrying an allele order the panel does not
@@ -484,18 +523,19 @@ ambient load, and peak RSS 3.28 GB against 3.30 GB -- so free. Both absolute fig
 135.9 s recorded earlier in this document, which was measured on a quieter machine; the same-day
 pre-change run is the only comparison worth making.
 
-**Accuracy against the pre-change binary, chr20, shipped state against pre:**
+**Accuracy against the pre-change binary, chr20, cumulative over items 1 to 5:**
 
 | | ALL | SNV | Indel | SV |
 |---|---|---|---|---|
 | before | 0.9697 | 0.9841 | 0.9156 | **0.5177** |
-| after | 0.9697 | 0.9841 | 0.9157 | **0.5164** |
+| ploidy check + mosaic order | 0.9697 | 0.9841 | 0.9157 | 0.5164 |
+| **+ strand in the VCF** | **0.9699** | **0.9842** | **0.9163** | 0.5164 |
 
-Seven small-variant false negatives recovered (3,535 to 3,528) against four more structural false
-positives (406 to 410). The SV cost is traceable: the 255 flagged sites are held out of step three's
-per-strand chains, since a site on both strands or on neither belongs to no single-haplotype chain, so
-four of them keep a per-site genotype linkage would otherwise have corrected. Not a wash in the caller's
-favour and reported as it came out.
+The middle row cost four structural false positives (406 to 410) for seven small-variant false negatives
+recovered, and that cost is traceable: the 255 flagged sites are held out of step three's per-strand
+chains, since a site on both strands or on neither belongs to no single-haplotype chain, so four keep a
+per-site genotype linkage would otherwise have corrected. The strand emission then took 34 false
+positives back off, which more than pays for it on small variants and leaves SV where it was.
 
 Structure is untouched: records 117,047 either way, one phase block with 116,983 sites carrying `PS`,
 114,907 diploid and 2,140 haploid in both. With the withdrawn derivation still in, the diploid whatshap

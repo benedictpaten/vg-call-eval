@@ -54,11 +54,52 @@ def sh(cmd, **kw):
     return proc.stdout
 
 
-def prepare_calls(calls: Path, out: Path, sample: str) -> Path:
-    """Rename the sample to match the truth and index, since whatshap pairs by sample name."""
+def prepare_calls(calls: Path, out: Path, sample: str, half_missing: str = "keep") -> Path:
+    """Rename the sample to match the truth and index, since whatshap pairs by sample name.
+
+    `half_missing` decides what to do with a nested haploid record, which `vg call --nested --phased`
+    writes as `a|.` or `.|a`: the allele is on a known strand of a diploid locus and the other strand
+    carries nothing, because the parent's other allele deletes the chain there.
+
+      * "keep" leaves them. The file is uniform ploidy so whatshap will read it, but whether it
+        *assesses* a pair with a missing allele is its own business.
+      * "ref" rewrites the missing side to 0. That is an approximation and not what the caller says --
+        the other haplotype has no sequence there, not the reference sequence -- but it is the only way
+        to get these sites into a switch-error number, and they are the sites nested calling changes.
+
+    Never the default. A measurement that quietly substitutes an allele is one nobody can check.
+    """
     names = out.with_suffix(".sample.txt")
     names.write_text(f"{sample}\n")
-    sh(["bcftools", "reheader", "-s", str(names), "-o", str(out), str(calls)])
+    renamed = out.with_suffix(".renamed.vcf.gz") if half_missing == "ref" else out
+    sh(["bcftools", "reheader", "-s", str(names), "-o", str(renamed), str(calls)])
+    if half_missing == "ref":
+        # Field-by-field on GT alone, so no other column is touched and no float is reformatted.
+        text = subprocess.run(["bcftools", "view", str(renamed)],
+                              capture_output=True, text=True, check=True).stdout
+        lines = []
+        rewritten = 0
+        for line in text.splitlines():
+            if line.startswith("#"):
+                lines.append(line)
+                continue
+            f = line.split("\t")
+            if len(f) >= 10:
+                v = f[9].split(":")
+                if v[0].endswith("|."):
+                    v[0] = v[0][:-1] + "0"
+                    rewritten += 1
+                elif v[0].startswith(".|"):
+                    v[0] = "0" + v[0][1:]
+                    rewritten += 1
+                f[9] = ":".join(v)
+            lines.append("\t".join(f))
+        print(f"[phasing] rewrote {rewritten} half-missing genotypes to reference on the empty strand",
+              flush=True)
+        raw = out.with_suffix(".halfref.vcf")
+        raw.write_text("\n".join(lines) + "\n")
+        sh(["bcftools", "view", "-o", str(out), "-O", "z", str(raw)])
+        raw.unlink()
     sh(["bcftools", "index", "-f", "-t", str(out)])
     return out
 
@@ -174,6 +215,8 @@ def main() -> None:
     p.add_argument("--truth", required=True, help="phased truth VCF")
     p.add_argument("--out", required=True, help="output prefix")
     p.add_argument("--sample", default="HG002")
+    p.add_argument("--half-missing", choices=["keep", "ref"], default="keep",
+                   help="what to do with a|. / .|a nested haploid records; see prepare_calls")
     args = p.parse_args()
 
     out = Path(args.out)
@@ -187,7 +230,7 @@ def main() -> None:
         sh(["bcftools", "view", "-o", str(packed), "-O", "z", str(src)])
         sh(["bcftools", "index", "-f", "-t", str(packed)])
         src = packed
-    prepare_calls(src, calls_gz, args.sample)
+    prepare_calls(src, calls_gz, args.sample, args.half_missing)
 
     print("== all het sites ==", flush=True)
     all_cmp = compare(truth, calls_gz, Path(str(out) + ".all"), args.sample)
