@@ -617,6 +617,97 @@ retained: `Entry` holds the *haploid* likelihood vector because that is the ploi
 at, and a diploid genotype needs the triangular vector that was never computed. Deciding ploidy before
 genotyping removes the problem rather than solving it — the vector computed is the right one.
 
+#### Stage 1: `--nested-after-linkage`, implemented and measured on chr20
+
+Default off. About 570 lines across `graph_caller.{cpp,hpp}`, `linkage_model.{cpp,hpp}` and
+`call_main.cpp`, nearly all of it moving existing code: nothing in the HMM, the per-site genotyper, or
+emission.
+
+**How it is put together.** `resolve()` becomes `resolve_generation(k, last, ...)`. Sites of a later
+generation do not exist yet -- the caller has not descended into them. Sites of an *earlier* generation
+stay in the chains but are **clamped**: their emission becomes a delta at the genotype they settled at
+and their phase is pinned to the pair already emitted for them, so they still carry transition context
+for this generation -- a generation alone is far too sparse for a 10 kb decay -- while being unable to
+move. `build_emission` already maps a non-finite likelihood to zero mass, so the clamp needed nothing
+from the model; the phase pin generalises the mechanism the window seams already used.
+
+Descent queues a `PendingDescent` instead of recursing, but **only where linkage can still move the
+parent** -- a snarl with no linkage entry has a final genotype already, so its children are visited
+inline exactly as before. On chr20 that keeps 11,166 of the descents out of the barrier. The queued
+entry deliberately retains no traversals: the crossing mask against the parent's settled allele pair
+gives both the copy number and the strand, which is all the child call takes.
+
+One thing the barrier forces: the child's **strand** now comes from the settled allele pair rather than
+from `parent_slot`, the traversal-order index, because the traversals are gone by then. Those two
+conventions were measured against the phased truth in Stage 7 and are indistinguishable -- 1,655
+switches against 1,661 -- so this is a forced choice that costs nothing known.
+
+**The loop, chr20:**
+
+| pass | sites settled | genotypes changed | seconds | then descended |
+|---|---|---|---|---|
+| generation 0 | 109,966 | 6,490 | 4.00 | 14,086 queued, 11,866 called, 2,220 not carried |
+| generation 1 | 5,550 | 1,799 | 3.39 | 2,600 queued, 2,319 called, 281 not carried |
+| generation 2 | 1,203 | 483 | 3.31 | 607 queued, 561 called, 46 not carried |
+| generation 3 | 218 | 148 | 3.27 | 60 queued, 58 called, 2 not carried |
+
+**The resolve cost is flat in the number of sites it settles** -- 218 sites cost the same 3.3 s as
+5,550 -- which is the full-chain rebuild the Stage 0 depth measurement predicted, and the direct
+argument for the windowed level-*k* pass. Total linkage time 17.2 s against 4.2 s inline.
+
+**Coherence, which is the whole claim:**
+
+| chr20 | inline | deferred |
+|---|---|---|
+| `nested_diploid` | 88 | **0** |
+| `nested_unreachable` | 167 | **0** |
+| children hanging off a parent linkage moved afterwards | 838 | **0** |
+
+Zero with 4,782 opportunities, not zero because the check could not fire. No child was lost to a
+missing parent either -- that counter reports nothing, which is to say zero of 14,086.
+
+**What changed in the output:**
+
+| | |
+|---|---|
+| records | 117,047 -> 116,960 |
+| records lost | 198, of which 165 were `nested_unreachable` |
+| records gained | 111 |
+| **the genotype itself differs** | **747 (0.64%)**, including 94 ploidy flips 1<->2 |
+| only the phase orientation differs | 21,862 (18.7%) |
+| phase sets differing | 20 |
+
+The genotype change is where the design aimed: 0.64%, against 255 flagged plus 296 never-made
+decisions predicted in Stage 0. The 165 vanished `nested_unreachable` records are that population
+disappearing rather than being flagged, and the 111 gained records are consistent with 296 gained
+descents at the 45% rate at which a descent emits a record at all.
+
+**The phase orientation churn is the open number and it is not small.** Generation 0's Viterbi runs
+over a chain missing the 7,081 deferred sites, so its path re-routes: 18.7% of records come out with
+their strands the other way round. Only 20 phase sets differ, so the block structure survives -- which
+means these are re-routings *inside* a block, exactly what a switch-error metric measures. Whether it
+helps or hurts is unmeasured until whatshap runs, and no claim of phasing neutrality should be made
+until then.
+
+**Cost: runtime 219.1 s against 205.2 s, +6.8%. Memory is not yet measured properly and the first
+reading should not be used.** The deferred run peaked at 3.86 GB against the shipped run's 2.94 GB, but
+the control that would attribute that -- the same binary with the flag off -- was run across a machine
+sleep, so both its wall time (1,540 s) and its 3.35 GB peak are unusable. What that spoiled reading does
+suggest is that some of the increase is *not* deferral at all, since the inline path is byte-identical
+in output and has no queues; `Entry` growing 8 bytes a site for the generation and settled genotype
+accounts for under a megabyte, so it is not that either. This needs a clean back-to-back pair before any
+number is quoted, and it matters: the whole-genome scheduler packs contigs on a fitted
+`2.25 + 11.2e-6 * records` GB model, so a real 30% miss would exhaust memory on chr1.
+
+**The bit-identity test the plan promised does not exist.** At `--linkage-weight 0` the linkage pass
+returns before producing any phasing, so deferred descent would have no settled parent to read and
+would drop every deferred child; the two orders cannot be compared that way. Nor are the generation-0
+records guaranteed identical with linkage on, since a deferred generation-0 chain is 6% sparser than
+the inline one. What is exact, and was verified, is that **inline mode is byte-identical to the shipped
+run** -- 117,047 records with identical content and an identical mosaic -- which is the regression that
+protects the shared write path. Re-verified with the final binary after every edit: 0 differing records
+and 0 differing mosaic lines.
+
 #### Instrumentation
 
 143 lines across `graph_caller.{cpp,hpp}` and `linkage_model.{cpp,hpp}`, reported under `--progress` and
