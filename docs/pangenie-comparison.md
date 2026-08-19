@@ -8,6 +8,26 @@ Both were run on the HPRC v2.1 MC CHM13 graph with HG002 held out of the panel, 
 30x NovaSeq PCR-free reads, and scored against T2T-Q100. The vg numbers are the shipped default:
 symbolic-allele nested calling and panel phasing both on ([nested-calling-design.md](nested-calling-design.md)).
 
+## The result in one table
+
+Autosomes, summed counts, rates recomputed from them:
+
+| autosomes | vg call | PanGenie |
+|---|---|---|
+| ALL F1 | **0.9703** | 0.9505 |
+| SNV F1 | **0.9837** | 0.9722 |
+| SNV recall | **0.9742** | 0.9659 |
+| Indel F1 | **0.9195** | 0.8687 |
+| SV ≥50 bp F1 | 0.5485 | **0.5739** |
+
+vg leads every small-variant class on both recall and precision; PanGenie leads structural variants
+on both, by 0.0254.
+
+These are autosome-only, which is the scope this comparison is drawn at because chrX measures a
+ploidy-handling difference rather than an evidence one (below). [wgs-results.md](wgs-results.md)
+quotes the same run including chrX, so its figures run a few ten-thousandths lower — ALL F1 0.9699,
+SNV 0.9833, SV 0.5467.
+
 ## What makes it like for like
 
 Both call sets go through the *same code path*: `scripts/wgs/prep_external_vcf.sh` lays the
@@ -55,10 +75,9 @@ axes; PanGenie leads structural variants on both.
   the ones nested calling stopped burying inside longer records.
 - **Indels**: vg leads by 0.051 F1, the largest small-variant margin. PanGenie emits 125,606 indel
   false positives against 73,848.
-- **Structural variants**: PanGenie leads by 0.025 F1, with slightly more true calls (13,749
+- **Structural variants**: PanGenie leads by 0.0254 F1, with slightly more true calls (13,749
   against 13,540) and fewer false ones (10,544 against 12,206). It is the one class where one tool
   is better in both directions, and it should be taken at face value rather than explained away.
-  What is actually in that gap: [sv-residual-errors.md](sv-residual-errors.md).
 
 ## chrX, reported apart
 
@@ -110,12 +129,34 @@ well it fits is strongest. The SNV lead is newer and has a specific cause: a SNV
 alternative allele is invisible to a caller that only emits the long allele, and descending into
 those nested bubbles recovered 59,413 SNV false negatives without costing precision.
 
-**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.025 F1 with both more true
-calls and fewer false ones. The anatomy is in
-[sv-residual-errors.md](sv-residual-errors.md); briefly, vg's false positives are overwhelmingly
-near-misses rather than inventions — 80% were compared against a real nearby SV and rejected on
-sequence or size similarity — and no confidence threshold removes them without costing more recall
-than it saves.
+**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.0254 F1 with both more true
+calls and fewer false ones. The numbers behind that, since one F1 hides which side it comes from:
+
+| autosomal SVs ≥50 bp | vg call | PanGenie |
+|---|---|---|
+| TP | 13,540 | 13,749 |
+| FP | 12,206 | 10,544 |
+| FN | 10,081 | 9,872 |
+| F1 | 0.5485 | **0.5739** |
+| F1 requiring the right genotype | 0.4805 | **0.5213** |
+| distinct truth SVs missed | 10,053 | 9,841 |
+| of those, missed by the other tool too | 8,172 | 8,172 |
+| missed by this tool alone | 1,881 | 1,669 |
+
+The first four rows are truvari's own row counts, kept so the F1s match the published figures; the
+last three are over *distinct* truth variants, which is lower because truvari emits a row per match
+and a multi-matched variant repeats. Set arithmetic needs the distinct form.
+
+Requiring a correct genotype widens the gap from 0.0254 to 0.0408, so part of it is genotyping
+rather than detection. The recall floor is mostly shared: 8,172 truth SVs are missed by both, 69.7%
+of everything either tool misses, and 89.4% of those sit in a tandem repeat.
+
+Of vg's 12,206 false positives, 9,748 (79.9%) were compared against a real nearby truth SV and
+rejected on sequence or size similarity — they are near-misses, not inventions — and the 2,458 with
+no truth SV within reach account for 63% of the whole 1,662 false-positive excess. 80.8% are under
+300 bp. No threshold on GQ, GQN or DR raises SV F1, because false negatives already outnumber that
+excess six to one. Full anatomy, including what nested calling did and did not reach:
+[sv-residual-errors.md](sv-residual-errors.md).
 
 **A caution on reading the FP counts.** vg's lower small-variant false-positive counts are partly a
 property of what each tool emits: PanGenie genotypes every panel site and reports what it decides,
