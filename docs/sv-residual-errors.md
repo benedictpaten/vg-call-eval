@@ -173,31 +173,46 @@ the largest -- so this is a tail, not a bias: about 10% of calls come out at twi
 more, slightly more often for insertions than deletions. It is enough. 12.6% of a 20-49 bp population
 that large is comparable to the whole 2,458.
 
-### A real defect: offsetting insertion/deletion pairs
+### Offsetting insertion/deletion pairs: two real errors, and a population that is mostly not
 
 Reading individual records turned up something a rate could not. At chr8:1,769,212 vg calls a 132 bp
 deletion, and 137 bp later at chr8:1,769,349 it calls an insertion of **the same 132 bp of sequence**,
-on the same haplotype. Reconstructing that haplotype from the calls and comparing it against the
-reference over the span, the two records together express a net change of **+5 bp**.
+on the same haplotype. Reconstructing that haplotype from the calls and diffing it against the
+reference over the span, the two records together express a net change of **+5 bp**, and the truth
+carries no variant within 300 bp. At chr1:206,041,378 a 177 bp deletion pairs with a 176 bp insertion
+241 bp later, together expressing **-1 bp**, where the truth carries exactly a 1 bp deletion.
 
-It is not a one-off. At chr1:206,041,378 a 177 bp deletion pairs with a 176 bp insertion 241 bp later,
-also on one haplotype, and together they express **-1 bp** -- and the truth there carries exactly a
-1 bp deletion. The haplotype sequence vg produces is essentially right; the way it is written is
-wrong, and it is written as two structural variants where there is a one-base indel.
+Both of those are real errors and the reconstruction is not in doubt. What does not survive is the
+generalisation from them.
 
-Counting pairs genome-wide -- opposite direction, sizes within 20%, same genotype, within 500 bp:
+Counting pairs genome-wide -- opposite direction, sizes within 20%, same genotype, within 500 bp --
+gives 1,100 records in 550 pairs, 3.00% of calls of 50 bp or more. **Against a null that keeps every
+position and shuffles the size and direction labels within each contig, chance alone produces
+1.31%.** So the effect is real but 2.3x over chance, and roughly 480 of those 1,100 records are
+coincidence -- two unrelated calls in the same repeat-dense neighbourhood.
 
-| outcome | calls ≥50 bp | in an offsetting pair | rate |
-|---|---|---|---|
-| matched a truth SV | 13,320 | 215 | 1.6% |
-| scored false, near-miss | 9,600 | 503 | 5.2% |
-| scored false, nothing to compare | 2,369 | 221 | **9.3%** |
+Three mechanisms were tested against the population and none of them survived:
 
-1,395 records in 549 pairs, and the rate is six times higher in exactly the population this section is
-about than among calls that matched. Each pair can cost two false positives and can never match a
-truth SV, because the event it describes is not structural. It does not explain the whole 2,458 --
-221 of 2,369 -- but unlike the rest of this document it is a defect with a location, and it is
-tracked separately.
+| hypothesis | prediction | measured |
+|---|---|---|
+| nested calling creates them | absent, or much rarer, under `--no-nested` | present at 2.58% there against 3.00% now |
+| the same sequence is being placed at the wrong copy | the two members carry identical sequence | identical in 0.4%; alignment-aware similarity ≥0.90 in 12.3% |
+| the likelihood is tied and the tie-break is arbitrary | paired records have much lower GQ | median GQ 8 paired against 10 unpaired |
+| consecutive snarls genotyped independently | the pair shares a snarl boundary node | 6.4%, against 5.8% for any nearby ≥50 bp call |
+
+So the chr8 locus -- identical sequence, consecutive snarls sharing boundary node 189964199 -- is a
+genuine instance of a comprehensible failure mode and is *not* representative of the 1,100.
+
+And on those individual loci the framing "bad representation" is itself too kind. If the caller
+believes the repeat unit sits at copy B rather than copy A, then a deletion at A and an insertion at
+B is the *correct* VCF for that belief. The belief is what is wrong. It is a genotyping error in an
+ambiguous tandem array, which then necessarily costs two structural false positives instead of one
+error -- so the doubling is a consequence of the mistake, not a separate defect in how records are
+written.
+
+What remains true and useful: the pair rate is 9.3% among false positives with nothing to compare
+against, against 1.6% among calls that matched. Whatever produces the enrichment is concentrated in
+the population this section is about. It has not been identified.
 
 ### The large-insertion excess
 
@@ -333,9 +348,11 @@ to 0.0408.
   carries variation under 50 bp that vg has written as something larger; 221 are offsetting
   insertion/deletion pairs whose net effect on the haplotype is a few bases. Only 28.7% sit where the
   truth carries nothing at all within 300 bp.
-- **The offsetting pairs are a defect with a location** and are worth fixing on their own: 549 pairs,
-  six times commoner in this population than among calls that matched, each able to cost two false
-  positives while describing a change that is not structural.
+- **The offsetting pairs are 2.3x over chance, not a wholesale defect.** 550 pairs against a null of
+  roughly 240, six times commoner in this population than among calls that matched. Two loci were
+  traced to a genotyping error in an ambiguous tandem array, which costs two structural false
+  positives for one wrong choice; no mechanism yet explains the population, and four hypotheses have
+  been ruled out.
 - **The 4:1 insertion skew among large false calls is unexplained**, against 1.10 in the truth and
   1.21 among vg's own correct large calls. Their median DR of 0.38 says the reads do not support the
   sequence claimed.
