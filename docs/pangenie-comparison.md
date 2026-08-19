@@ -5,7 +5,8 @@ An apples-to-apples comparison of two ways of genotyping the same panel from the
 PanGenie v4.2.1, which scores **k-mer counts**.
 
 Both were run on the HPRC v2.1 MC CHM13 graph with HG002 held out of the panel, from the same
-30x NovaSeq PCR-free reads, and scored against T2T-Q100.
+30x NovaSeq PCR-free reads, and scored against T2T-Q100. The vg numbers are the shipped default:
+symbolic-allele nested calling and panel phasing both on ([nested-calling-design.md](nested-calling-design.md)).
 
 ## What makes it like for like
 
@@ -27,68 +28,46 @@ Not adjusted: the allele representation. PanGenie's output is biallelic-split wh
 multiallelic. aardvark compares by local haplotype rather than by record, so this is exactly the
 difference it exists to absorb; normalising by hand would have been the riskier move.
 
-## What nested calling changed about all of this
-
-The analysis below was written against `vg call` as it was then. Symbolic-allele nested calling has
-since landed and **is now the default** ([nested-calling-design.md](nested-calling-design.md)), which
-moves vg past PanGenie on every class but one:
-
-| autosomes | vg, old default | **vg, current default** | PanGenie |
-|---|---|---|---|
-| SNV F1 | 0.9752 | **0.9833** | 0.9722 |
-| SNV recall | 0.9567 | **0.9740** | 0.9659 |
-| Indel F1 | 0.9147 | **0.9191** | 0.8687 |
-| ALL F1 | 0.9626 | **0.9699** | 0.9505 |
-| SV F1 | 0.5134 | 0.5467 | **0.5739** |
-
-The SV gap narrows from 0.0605 to 0.0272 but does not close. SNV recall was the one axis PanGenie led
-on, and the new default takes it -- 0.9740 against 0.9659 -- by recovering 59,413 SNV false negatives,
-the population this document identified as swallowed inside large alleles.
-
-`--no-nested` restores the arm labelled "old default" above.
-
-The analysis below stands as the diagnosis that led there, and the section on structural variants is
-still the honest account of the remaining gap.
-
 ## Autosomes — the like-for-like result
 
 |  | vg call | | | | PanGenie | | | |
 |---|---|---|---|---|---|---|---|---|
 | | TP | FP | FN | **F1** | TP | FP | FN | **F1** |
-| ALL | 3,956,007 | 82,837 | 220,981 | **0.9630** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
-| SNV | 3,173,587 | 15,723 | 142,707 | **0.9756** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
-| Indel | 782,420 | 67,114 | 78,274 | **0.9150** | 757,328 | 125,606 | 103,366 | 0.8687 |
-| SV ≥50 bp | 12,476 | 12,335 | 11,145 | 0.5152 | 13,749 | 10,544 | 9,872 | **0.5739** |
+| ALL | 4,026,067 | 95,173 | 150,921 | **0.9703** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
+| SNV | 3,230,752 | 21,325 | 85,542 | **0.9837** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
+| Indel | 795,315 | 73,848 | 65,379 | **0.9195** | 757,328 | 125,606 | 103,366 | 0.8687 |
+| SV ≥50 bp | 13,540 | 12,206 | 10,081 | 0.5485 | 13,749 | 10,544 | 9,872 | **0.5739** |
 
 Recall and precision behind those:
 
 | | vg recall | vg precision | PanGenie recall | PanGenie precision |
 |---|---|---|---|---|
-| ALL | 0.9471 | **0.9795** | 0.9482 | 0.9529 |
-| SNV | 0.9570 | **0.9951** | **0.9659** | 0.9786 |
-| Indel | **0.9091** | **0.9210** | 0.8799 | 0.8577 |
+| ALL | **0.9639** | **0.9769** | 0.9482 | 0.9529 |
+| SNV | **0.9742** | **0.9934** | 0.9659 | 0.9786 |
+| Indel | **0.9240** | **0.9150** | 0.8799 | 0.8577 |
 
-**The result is a clean split by variant class, not a winner.**
+**The result is a clean split by variant class.** vg leads every small-variant class on *both*
+axes; PanGenie leads structural variants on both.
 
-- **SNVs are close, and the two err differently.** PanGenie finds more of them — recall 0.9659
-  against 0.9570 — and vg rejects far more false ones, precision 0.9951 against 0.9786. Net F1
-  favours vg by 0.0034, which is small enough that the interesting statement is the trade, not the
-  ranking: k-mer evidence is more sensitive, alignment evidence more specific.
-- **Indels favour vg on both axes**, by 0.046 F1. PanGenie emits 125,606 indel false positives
-  against 67,114. This is the largest small-variant difference and it is not a trade-off.
-- **Structural variants favour PanGenie on both axes**, by 0.059 F1 — more true calls (13,749
-  against 12,476) *and* fewer false ones (10,544 against 12,335). It is the one class where one
-  tool is better in both directions, and it should be taken at face value rather than explained
-  away.
+- **SNVs**: vg finds 27,659 more true SNVs and emits 48,654 fewer false ones — a 3.3x lower
+  false-positive count at higher recall. This is the one place the ranking has actually changed
+  rather than merely widened: recall used to be PanGenie's, and the alleles that took it back are
+  the ones nested calling stopped burying inside longer records.
+- **Indels**: vg leads by 0.051 F1, the largest small-variant margin. PanGenie emits 125,606 indel
+  false positives against 73,848.
+- **Structural variants**: PanGenie leads by 0.025 F1, with slightly more true calls (13,749
+  against 13,540) and fewer false ones (10,544 against 12,206). It is the one class where one tool
+  is better in both directions, and it should be taken at face value rather than explained away.
+  What is actually in that gap: [sv-residual-errors.md](sv-residual-errors.md).
 
 ## chrX, reported apart
 
 | | vg call | PanGenie |
 |---|---|---|
-| ALL | **0.9422** | 0.8467 |
-| SNV | **0.9542** | 0.8766 |
-| Indel | **0.9004** | 0.7449 |
-| SV ≥50 bp | 0.4260 | **0.4768** |
+| ALL | **0.9494** | 0.8467 |
+| SNV | **0.9631** | 0.8766 |
+| Indel | **0.9022** | 0.7449 |
+| SV ≥50 bp | 0.4617 | **0.4768** |
 
 **This is a ploidy-handling difference, not an evidence one, and folding it into a genome-wide F1
 would misreport it.** HG002 is male, so chrX outside the pseudoautosomal regions carries one copy;
@@ -106,11 +85,14 @@ Comparing which truth variants each misses:
 
 | contig | vg FN | PanGenie FN | missed by both | vg only | PanGenie only |
 |---|---|---|---|---|---|
-| chr1 | 16,217 | 17,475 | 9,330 (58%) | 6,887 | 8,145 |
-| chr20 | 4,782 | 5,263 | 2,680 (56%) | 2,102 | 2,583 |
+| chr1 | 11,940 | 17,475 | 8,552 | 3,388 | 8,923 |
+| chr20 | 3,535 | 5,263 | 2,432 | 1,103 | 2,831 |
 
-So roughly **57% of missed variants are missed by both** — a shared, panel-limited recall floor —
-and the remaining 43% is tool-specific in both directions.
+Read down the vg column rather than across: **72% of what vg still misses on chr1 is also missed by
+PanGenie** (8,552 of 11,940), and 69% on chr20. vg's residual recall deficit is now mostly the
+shared, panel-limited floor rather than anything specific to the read model — which is a different
+statement from the one these two contigs supported before nested calling, when the shared share was
+58%.
 
 This bounds the shared limitation; it does not fully separate *not offered* from *offered and not
 called*. A variant missed by vg but found by PanGenie proves the panel carried it, but the converse
@@ -121,66 +103,25 @@ inference is not available from these files alone.
 The two tools see the same panel and the same reads and disagree in a patterned way, which makes
 the pattern more informative than the ranking.
 
-**Where alignment evidence wins: indels.** PanGenie emits 125,606 indel false positives against
-vg's 67,114, and finds fewer true ones. An indel changes k-mer content over a short window, and
-distinguishing a real short indel from a homopolymer miscount is exactly the case where counting
-k-mers is weakest and where aligning a read across the site and asking how well it fits is
-strongest. This is the largest small-variant difference and it is not a trade-off — vg is ahead on
-both precision and recall.
+**Where alignment evidence wins: small variants, on both axes.** An indel changes k-mer content
+over a short window, and distinguishing a real short indel from a homopolymer miscount is exactly
+the case where counting k-mers is weakest and where aligning a read across the site and asking how
+well it fits is strongest. The SNV lead is newer and has a specific cause: a SNV inside a long
+alternative allele is invisible to a caller that only emits the long allele, and descending into
+those nested bubbles recovered 59,413 SNV false negatives without costing precision.
 
-**Where they trade: SNVs.** PanGenie finds 29,506 more true SNVs; vg emits 54,256 fewer false
-ones (a 4.5x lower FP count). A SNV is one k-mer-length window's worth of signal, which k-mer
-counting handles well and is why its recall is higher; the alignment model's advantage is that a
-read spanning the site can be judged against every candidate allele, which is why its precision is.
-Neither is obviously the better error to make, so the near-tie in F1 is the honest summary.
+**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.025 F1 with both more true
+calls and fewer false ones. The anatomy is in
+[sv-residual-errors.md](sv-residual-errors.md); briefly, vg's false positives are overwhelmingly
+near-misses rather than inventions — 80% were compared against a real nearby SV and rejected on
+sequence or size similarity — and no confidence threshold removes them without costing more recall
+than it saves.
 
-**Structural variants: PanGenie leads, but not for the reason the headline implies.** The
-"better in both directions" reading does not survive taking the numbers apart. Full working in
-[sv-delta.md](sv-delta.md), [sv-fn-mechanism.md](sv-fn-mechanism.md) and
-[sv-unmatched.md](sv-unmatched.md). The conclusions:
-
-- **The false-positive deficit is not an evidence deficit.** Of vg's 12,335 SV false positives,
-  2,219 are same-length substitutions — REF and ALT of equal length, which truvari sizes by allele
-  length and therefore scores as structural. PanGenie has 29. On genuine insertions and deletions
-  vg emits **399 fewer** false positives than PanGenie. vg's output is multiallelic and carries such
-  records; PanGenie's biallelic-split output essentially does not. Excluding them from both sides,
-  **42% of the headline F1 gap disappears** (0.0587 → 0.0343). What is left is recall, not precision.
-- **The remaining recall gap sits at the small end, which is new.** 2,630 truth SVs are missed by vg
-  and found by PanGenie — so the panel carried the allele and the read model declined it. 74% of them
-  are 50–300 bp and heterozygous. This is *not* the large-heterozygous-deletion mechanism in
-  [tier2-sv-errors.md](tier2-sv-errors.md), which was ≥300 bp with a break-even near 700 bp; that one
-  was fixed. This is a different defect.
-- **The part with no vg record at all is mostly hidden by snarl scope, not misjudged.** Of the 47% of
-  the 2,630 with no record within 100 bp, re-calling chr20 and chr6 with reference calls emitted shows
-  **80.6% is upstream of the likelihood** -- no snarl covering the event (47%, and on chr20 every one
-  of those is a *nested* bubble the default scope never descends into) or a snarl that never offered a
-  comparable allele (34%). Only **6.7%** is the model weighing evidence and getting it wrong. Enabling
-  nested calling does surface the recall (+17 TP on chr20) but costs more in false positives, and
-  `--top-down` is worse than the default on every axis. Full working in [sv-nocall.md](sv-nocall.md).
-- **The rest of that gap is not a scoring failure either.** Only 47% of the 2,630 have no vg
-  record within 100 bp. 34% have a record of *comparable size* that truvari declined, and a quarter
-  of those were declined because the call had already been matched to a neighbouring truth variant.
-  Truvari matches one-to-one, so clustered truth SVs produce false negatives however good the calls
-  are, and that share cannot be recovered by changing the model.
-- **It is not a repeat-context effect.** 87.0% of vg-only misses are in tandem repeats against 86.4%
-  of PanGenie-only misses — indistinguishable. Repeat context explains the *shared* recall floor
-  (89.4% of variants missed by both are in tandem repeats, against 53.8% of those vg calls) and
-  explains nothing about the difference between the two tools.
-- **Genotyping is a real but second-order loss.** Among locus-matched SVs vg gets the genotype right
-  89.8% of the time against PanGenie's 91.2%. Requiring a correct genotype widens the gap from
-  0.0587 to 0.0613.
-
-So the actionable population is much smaller than `1,273 more TP and 1,791 fewer FP` suggests:
-roughly **1,230 heterozygous 50–300 bp events vg did not call at all**, plus **561 where it called
-something truvari rejected on sequence or size similarity**. The remainder is representation and
-metric, and the earlier framing of this as "the clearest direction for work on the read model"
-overstated it — most of the gap was not the model.
-
-**A caution on reading the FP counts.** vg's lower false-positive counts are partly a property of
-what each tool emits: PanGenie genotypes every panel site and reports what it decides, while
-`vg call` emits a record only where it calls non-reference. Both were reduced to non-reference
-records before scoring, so the comparison is fair, but the two are not making the same *number* of
-decisions and a per-decision error rate would differ from a per-record one.
+**A caution on reading the FP counts.** vg's lower small-variant false-positive counts are partly a
+property of what each tool emits: PanGenie genotypes every panel site and reports what it decides,
+while `vg call` emits a record only where it calls non-reference. Both were reduced to
+non-reference records before scoring, so the comparison is fair, but the two are not making the
+same *number* of decisions and a per-decision error rate would differ from a per-record one.
 
 ## Caveats
 

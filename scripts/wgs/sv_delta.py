@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Localise the structural-variant gap between vg call and PanGenie.
 
-The headline is that PanGenie leads SV F1 0.5739 to 0.5152 on the autosomes with both more true
-calls and fewer false ones. That is a summary, not a diagnosis, and a difference spread evenly over
-24k variants would call for different work than one concentrated in a size band or a repeat class.
+PanGenie leads SV F1 on the autosomes with both more true calls and fewer false ones. That is a
+summary, not a diagnosis, and a difference spread evenly over 24k variants would call for different
+work than one concentrated in a size band or a repeat class.
 
 Both call sets were scored by the same truvari invocations against byte-identical truth, so the
 per-contig fn/tp-base/fp VCFs are directly pairable on the truth side: an `fn` record in one and a
@@ -284,12 +284,23 @@ def main() -> None:
     add(f"| PanGenie | {psub:,} | {pind:,} | {len(pg_fp):,} |")
     add(f"| difference | **{vsub - psub:+,}** | **{vind - pind:+,}** | {len(vg_fp) - len(pg_fp):+,} |")
     add("")
-    add(f"**On genuine insertions and deletions vg emits {pind - vind:,} *fewer* false positives than")
-    add("PanGenie.** The entire false-positive deficit, and more, is same-length substitutions: REF and")
-    add("ALT of equal length, which truvari sizes by allele length and therefore scores as structural")
-    add("variants. vg's output is multiallelic and carries these; PanGenie's biallelic-split output")
-    add("essentially does not. It is a difference in what gets written, not in what the evidence")
-    add("supports.")
+    # The sign here has flipped once already, when nested calling removed most of the substitutions,
+    # so the sentence is derived rather than asserted. A template that only reads correctly one way
+    # round is how a stale conclusion survives a rerun.
+    add("Same-length substitutions -- REF and ALT of equal length -- are a representation artefact "
+        "rather than an evidence one: truvari sizes such a record by its allele length and so scores "
+        "it as structural. vg's output is multiallelic and carries them; PanGenie's biallelic-split "
+        "output essentially does not.")
+    add("")
+    if vind <= pind:
+        add(f"**On genuine insertions and deletions vg emits {pind - vind:,} fewer false positives "
+            f"than PanGenie**, so the whole of its false-positive deficit, and more, is those "
+            f"substitutions.")
+    else:
+        add(f"**vg emits {vind - pind:,} more genuine insertion and deletion false positives than "
+            f"PanGenie**, so the substitutions account for only {vsub - psub:,} of the "
+            f"{len(vg_fp) - len(pg_fp):,} excess and the rest is real disagreement about what is "
+            f"there.")
     add("")
     add("Rescoring with substitutions excluded from both sides:")
     add("")

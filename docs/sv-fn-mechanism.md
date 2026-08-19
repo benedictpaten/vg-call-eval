@@ -1,14 +1,14 @@
 # Why vg misses the SVs PanGenie finds: no call, or an unmatched call?
 
-Over the 2,630 autosomal truth SVs that vg misses and PanGenie finds, asking what vg
+Over the 1,881 autosomal truth SVs that vg misses and PanGenie finds, asking what vg
 actually wrote within 100 bp of each.
 
 | what vg emitted at the locus | n | share |
 |---|---|---|
-| no record within 100 bp | 1,230 | 46.8% |
-| record of comparable size present | 889 | 33.8% |
-| record present but far too small | 488 | 18.6% |
-| only a same-length substitution present | 23 | 0.9% |
+| record of comparable size present | 868 | 46.1% |
+| record present but far too small | 743 | 39.5% |
+| no record within 100 bp | 258 | 13.7% |
+| only a same-length substitution present | 12 | 0.6% |
 
 `comparable size` means a record whose largest allele-length change is at least half
 the truth variant's size, so the event was written but truvari declined the match --
@@ -19,18 +19,18 @@ an unmatched false positive in the same run.
 
 | size | no record | comparable record | same-length substitution only | too small |
 |---|---|---|---|---|
-| 50-100 | 482 | 501 | 4 | 172 |
-| 100-300 | 465 | 302 | 9 | 211 |
-| 300-700 | 177 | 56 | 9 | 60 |
-| 700+ | 106 | 30 | 1 | 45 |
+| 50-100 | 75 | 480 | 2 | 243 |
+| 100-300 | 98 | 306 | 4 | 328 |
+| 300-700 | 42 | 54 | 4 | 101 |
+| 700+ | 43 | 28 | 2 | 71 |
 
 ## Loci where the only nearby call is a same-length substitution
 
 | contig | truth pos | truth type | truth size | vg record pos | vg allele len |
 |---|---|---|---|---|---|
-| chr1 | 718,349 | DEL | 58 | 718,260 | 77 |
-| chr2 | 1,870,164 | INS | 81 | 1,870,071 | 1,428 |
-| chr5 | 44,416,030 | DEL | 52 | 44,416,058 | 53 |
+| chr1 | 116,445,238 | DEL | 128 | 116,445,302 | 52 |
+| chr2 | 860,334 | INS | 383 | 860,314 | 98 |
 | chr6 | 156,230,969 | DEL | 75 | 156,230,899 | 73 |
-| chr8 | 62,875 | DEL | 133 | 62,860 | 67 |
-| chr8 | 62,942 | DEL | 133 | 62,860 | 67 |
+| chr9 | 88,463,150 | INS | 532 | 88,463,173 | 134 |
+| chr11 | 121,210,820 | INS | 385 | 121,210,778 | 71 |
+| chr14 | 30,136,381 | DEL | 81 | 30,136,388 | 80 |

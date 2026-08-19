@@ -93,9 +93,11 @@ represented on output rather than a change to scoring or to a traversal limit.
 
 ## What this changes about the earlier conclusion
 
-[pangenie-comparison.md](pangenie-comparison.md) attributes the residual SV recall gap to the read
+[pangenie-comparison.md](pangenie-comparison.md) attributed the residual SV recall gap to the read
 model, on the grounds that the panel carried alleles vg did not call. The panel did, and vg did not —
-but the model was never shown them. **80.6% of this population is snarl scope and allele enumeration;
+but the model was never shown them. (This is what nested calling was then built to fix; it did, and
+the share of missed SVs with no vg record nearby fell from 46.7% to 13.7% —
+[sv-residual-errors.md](sv-residual-errors.md).) **80.6% of this population is snarl scope and allele enumeration;
 6.7% is the likelihood weighing evidence and getting it wrong.**
 
 That is a different kind of problem from the mixture-weight defect in

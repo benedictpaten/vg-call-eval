@@ -577,6 +577,20 @@ predicts: nested calling recovers variants buried inside long collapsing ALTs, a
 panel enumerates few of them, so there is little to recover while the extra-records cost still applies.
 The right trade for HPRC-scale graphs, and not a free one everywhere.
 
+**Did it reach the thing it was built for?** The Stage 0 gate was the 2,219 same-length
+substitution false positives and the population of SVs with no record anywhere near them. Measured
+against `--no-nested` on the same graph, reads and scoring:
+
+| | `--no-nested` | current default |
+|---|---|---|
+| same-length substitution SV false positives | 2,219 | **294** (PanGenie: 29) |
+| truth SVs missed with no vg record within 100 bp | 1,230 (46.7%) | **258 (13.7%)** |
+| truth SVs recovered / lost, per variant | -- | **+1,174 / -119** |
+
+The gate is met. The residual gap against PanGenie is a different population, and the inverse
+pathology -- one event written as several sub-threshold records -- exists at 156 loci, up from 98.
+Both in [sv-residual-errors.md](sv-residual-errors.md).
+
 **Genome-wide coherence, the first time these counters have run at scale:**
 
 | | |
