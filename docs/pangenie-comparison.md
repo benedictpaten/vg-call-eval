@@ -27,23 +27,25 @@ Not adjusted: the allele representation. PanGenie's output is biallelic-split wh
 multiallelic. aardvark compares by local haplotype rather than by record, so this is exactly the
 difference it exists to absorb; normalising by hand would have been the riskier move.
 
-## What `--nested` changes about all of this
+## What nested calling changed about all of this
 
-Everything below compares PanGenie against `vg call` **as it is by default**. Since it was written,
-symbolic-allele nested calling has landed behind `vg call --nested`
-([nested-calling-design.md](nested-calling-design.md)), and it moves vg past PanGenie on every class:
+The analysis below was written against `vg call` as it was then. Symbolic-allele nested calling has
+since landed and **is now the default** ([nested-calling-design.md](nested-calling-design.md)), which
+moves vg past PanGenie on every class but one:
 
-| autosomes | vg default | **vg --nested** | PanGenie |
+| autosomes | vg, old default | **vg, current default** | PanGenie |
 |---|---|---|---|
 | SNV F1 | 0.9752 | **0.9833** | 0.9722 |
-| SNV recall | 0.9567 | **0.9742** | 0.9659 |
-| Indel F1 | 0.9147 | **0.9189** | 0.8687 |
+| SNV recall | 0.9567 | **0.9740** | 0.9659 |
+| Indel F1 | 0.9147 | **0.9191** | 0.8687 |
 | ALL F1 | 0.9626 | **0.9699** | 0.9505 |
-| SV F1 | 0.5134 | 0.5478 | **0.5739** |
+| SV F1 | 0.5134 | 0.5467 | **0.5739** |
 
-The SV gap narrows from 0.0605 to 0.0261 but does not close. SNV recall was the one axis PanGenie
-led on and `--nested` takes it, 0.9742 against 0.9659, by recovering 59,413 SNV false negatives --
+The SV gap narrows from 0.0605 to 0.0272 but does not close. SNV recall was the one axis PanGenie led
+on, and the new default takes it -- 0.9740 against 0.9659 -- by recovering 59,413 SNV false negatives,
 the population this document identified as swallowed inside large alleles.
+
+`--no-nested` restores the arm labelled "old default" above.
 
 The analysis below stands as the diagnosis that led there, and the section on structural variants is
 still the honest account of the remaining gap.

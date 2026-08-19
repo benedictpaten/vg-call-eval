@@ -22,49 +22,58 @@ variants (0.5739 against 0.5152) -- though 42% of that gap is a representation a
 rather than an evidence one, and the recall remainder sits at 50-300 bp; see
 [sv-delta.md](sv-delta.md).
 
-**The mosaic** this run also emits: 143,365 segments over 4,742,752 sites, 11.05 MB
-(3.46 MB gzipped). See wgs-performance.md for why assembling it is not `cat`.
+**The mosaic** this run also emits: 182,328 segments over 5,041,066 sites, 14 MB.
+See wgs-performance.md for why assembling it is not `cat`.
 
-**`vg call --nested` beats these numbers substantially** and is the direction of travel:
-SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5478, with 59,413 SNV
-false negatives recovered. It is not the default yet; see
+**Nested calling and phasing are the defaults** as of this run, which is why these
+numbers moved: SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5467,
+with 59,413 SNV false negatives recovered, at no runtime or memory cost. `--no-nested`
+and `--no-phased` restore the old behaviour. See
 [nested-calling-design.md](nested-calling-design.md).
+
+**Two caveats that belong with these numbers.** The gain is a rich-panel effect: on the
+4-haplotype tier-2 graphs nested calling is flat to 0.0005 *down* on ALL F1, because a
+small panel enumerates few of the long collapsing ALTs it exists to break up while the
+extra-records cost still applies. And 0.15% of records carry a ploidy-coherence FILTER
+(`nested_diploid` 2,458, `nested_unreachable` 5,000, `nested_haploid` 0), meaning the
+child's ploidy and its parent's final genotype disagree; those calls are flagged rather
+than corrected.
 
 ## Small variants (aardvark, GT)
 
-- **ALL**: TP 4,039,700  FP 86,970  FN 227,119  recall 0.9468  precision 0.9789  **F1 0.9626**
-- **SNV**: TP 3,239,401  FP 17,958  FN 146,786  recall 0.9567  precision 0.9945  **F1 0.9752**
-- **Indel**: TP 800,299  FP 69,012  FN 80,333  recall 0.9088  precision 0.9206  **F1 0.9147**
+- **ALL**: TP 4,111,896  FP 100,316  FN 154,923  recall 0.9637  precision 0.9762  **F1 0.9699**
+- **SNV**: TP 3,298,256  FP 24,108  FN 87,931  recall 0.9740  precision 0.9927  **F1 0.9833**
+- **Indel**: TP 813,640  FP 76,208  FN 66,992  recall 0.9239  precision 0.9144  **F1 0.9191**
 
 ## Structural variants (truvari, >=50 bp)
 
-- TP 12,686  FP 12,615  FN 11,431  **F1 0.5134**
+- TP 13,781  FP 12,513  FN 10,336  **F1 0.5467**
 
 ## Per contig
 
 | contig | small F1 | SV F1 | notes |
 |---|---|---|---|
-| chr1 | 0.9649 | 0.5366 |  |
-| chr2 | 0.9598 | 0.5285 |  |
-| chr3 | 0.9675 | 0.5509 |  |
-| chr4 | 0.9650 | 0.5243 |  |
-| chr5 | 0.9639 | 0.5117 |  |
-| chr6 | 0.9690 | 0.5268 |  |
-| chr7 | 0.9638 | 0.4865 |  |
-| chr8 | 0.9656 | 0.5297 |  |
-| chr9 | 0.9631 | 0.5187 |  |
-| chr10 | 0.9592 | 0.4807 |  |
-| chr11 | 0.9641 | 0.5148 |  |
-| chr12 | 0.9654 | 0.5227 |  |
-| chr13 | 0.9688 | 0.5077 |  |
-| chr14 | 0.9636 | 0.5495 |  |
-| chr15 | 0.9523 | 0.5324 |  |
-| chr16 | 0.9501 | 0.4612 |  |
-| chr17 | 0.9593 | 0.5018 |  |
-| chr18 | 0.9716 | 0.4708 |  |
-| chr19 | 0.9410 | 0.4915 |  |
-| chr20 | 0.9646 | 0.4944 |  |
-| chr21 | 0.9592 | 0.5213 |  |
-| chr22 | 0.9602 | 0.4815 |  |
-| chrX | 0.9422 | 0.4260 |  |
-| chrY | 0.0047 | - | excluded: reference mismatch with truth; truvari_error |
+| chr1 | 0.9700 | 0.5666 |  |
+| chr2 | 0.9665 | 0.5615 |  |
+| chr3 | 0.9744 | 0.5879 |  |
+| chr4 | 0.9745 | 0.5707 |  |
+| chr5 | 0.9739 | 0.5502 |  |
+| chr6 | 0.9749 | 0.5662 |  |
+| chr7 | 0.9708 | 0.5152 |  |
+| chr8 | 0.9744 | 0.5636 |  |
+| chr9 | 0.9724 | 0.5447 |  |
+| chr10 | 0.9624 | 0.4982 |  |
+| chr11 | 0.9713 | 0.5562 |  |
+| chr12 | 0.9725 | 0.5678 |  |
+| chr13 | 0.9761 | 0.5461 |  |
+| chr14 | 0.9726 | 0.5750 |  |
+| chr15 | 0.9598 | 0.5538 |  |
+| chr16 | 0.9583 | 0.4937 |  |
+| chr17 | 0.9667 | 0.5294 |  |
+| chr18 | 0.9737 | 0.5115 |  |
+| chr19 | 0.9525 | 0.5332 |  |
+| chr20 | 0.9698 | 0.5131 |  |
+| chr21 | 0.9733 | 0.5426 |  |
+| chr22 | 0.9674 | 0.5025 |  |
+| chrX | 0.9494 | 0.4617 |  |
+| chrY | 0.0034 | - | excluded: reference mismatch with truth; truvari_error |

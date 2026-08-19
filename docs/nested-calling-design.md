@@ -542,6 +542,65 @@ Structure is untouched: records 117,047 either way, one phase block with 116,983
 comparison was bit-identical to the pre-change run -- 58,807 pairs, 1,627 switches, hamming 29,008 --
 which bounds the collateral of everything that stayed.
 
+## Shipped as the default
+
+`vg call` turns nested calling on wherever `--read-likelihood` runs, and phasing on wherever the
+linkage layer runs. `--no-nested` and `--no-phased` restore the old behaviour. Both follow the pattern
+`--linkage-weight` already used: the default declines where its preconditions are absent, and only an
+explicit request errors.
+
+**Whole genome, autosomes, against T2T-Q100, one build:**
+
+| | old default | new default |
+|---|---|---|
+| SNV F1 | 0.9752 | **0.9833** |
+| SNV recall | 0.9567 | **0.9740** |
+| ALL F1 | 0.9626 | **0.9699** |
+| Indel F1 | 0.9147 | **0.9191** |
+| SV F1 | 0.5134 | **0.5467** |
+
+5,041,066 records over 24 contigs in 59.3 minutes, at no runtime or memory cost.
+
+**Tier-2, `readlik` arm, GT comparison, ALL F1 -- and the caveat the genome run cannot show:**
+
+| dataset | before | after |
+|---|---|---|
+| chr20, 34-hap | 0.9645 | **0.9698** |
+| chr6, 34-hap | 0.9689 | **0.9749** |
+| chr20, 4-hap | 0.9507 | 0.9502 |
+| chr6, 4-hap | 0.9601 | 0.9598 |
+
+**The gain is a rich-panel effect.** On 34 haplotypes recall rises about 1.3 points for about 0.3 of
+precision -- chr20 SNV F1 0.9780 to 0.9841. On 4 haplotypes recall barely moves (0.9329 to 0.9335)
+while precision slips (0.9691 to 0.9675), so F1 lands marginally *down*. That is what the mechanism
+predicts: nested calling recovers variants buried inside long collapsing ALTs, and a four-haplotype
+panel enumerates few of them, so there is little to recover while the extra-records cost still applies.
+The right trade for HPRC-scale graphs, and not a free one everywhere.
+
+**Genome-wide coherence, the first time these counters have run at scale:**
+
+| | |
+|---|---|
+| sites phased | 5,041,066 |
+| nested haploid sites | 54,551 |
+| flagged `nested_diploid` | 2,458 |
+| flagged `nested_unreachable` | 5,000 |
+| children called at ploidy 2 | 237,814 |
+| of those, parent moved by linkage | 10,767 |
+| flagged `nested_haploid` (2 -> 1) | **0** |
+| het sites with an undetermined allele order | 5,931 |
+
+0.15% of records carry a coherence flag. The 2 -> 1 class is empty with 10,767 opportunities, so the
+incoherence really is one-sided: 13.7% of haploid nested children against 0% of the diploid ones, a
+population four times larger.
+
+**Phasing, now that the nested records are readable.** Including them: 2,512,675 pairs, 61,169
+switches, 2.43%, blockwise hamming 48.29%, 22 blocks, N50 248.386 Mb. Against the diploid-only
+2,510,608 pairs and 60,319 switches, the nested records contribute **2,067 pairs and 850 switches -- a
+41% switch rate against a 2.43% baseline**. Their genotypes are good and the haplotype they are
+assigned to is close to a coin flip. That is the open item, and it is now a property of the default
+rather than of an opt-in flag.
+
 ## Testing
 
 Unit tests accompany each stage as described. Beyond those:

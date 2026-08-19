@@ -36,13 +36,34 @@ from __future__ import annotations
 
 import argparse
 import csv
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-WHATSHAP = "/tmp/wsenv/bin/whatshap"
+def _find_whatshap() -> str:
+    """whatshap, from the repo's own venv first.
+
+    This used to be a hard path into /tmp, which is exactly as durable as it sounds: the venv was
+    swept and every phasing number in the harness became unreachable, with the failure surfacing as
+    a FileNotFoundError from deep inside subprocess rather than as anything about whatshap. The
+    repo-local venv matches how truvari is kept, and the old path stays as a fallback so an existing
+    checkout does not have to rebuild it.
+    """
+    here = Path(__file__).resolve().parent.parent.parent
+    for candidate in (here / "work/whatshap-venv/bin/whatshap", Path("/tmp/wsenv/bin/whatshap")):
+        if candidate.exists():
+            return str(candidate)
+    found = shutil.which("whatshap")
+    if found:
+        return found
+    sys.exit("whatshap not found: expected work/whatshap-venv/bin/whatshap "
+             "(python3 -m venv work/whatshap-venv && work/whatshap-venv/bin/pip install whatshap)")
+
+
+WHATSHAP = _find_whatshap()
 
 
 def sh(cmd, **kw):
