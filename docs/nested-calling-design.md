@@ -542,6 +542,93 @@ Structure is untouched: records 117,047 either way, one phase block with 116,983
 comparison was bit-identical to the pre-change run -- 58,807 pairs, 1,627 switches, hamming 29,008 --
 which bounds the collateral of everything that stayed.
 
+### Stage 8 — Genotype nested chains *after* linkage has settled their parents — *Stage 0 measured, gate missed on its letter*
+
+Stage 7 made the ploidy incoherence exact and flagged it. The incoherence itself is still there, and it
+is structural rather than incidental: descent decides a child's ploidy from the parent's **pre-linkage**
+genotype, and linkage then rewrites parents. The proposed fix is to reorder — score the top-level snarls,
+let linkage settle them, then descend. Greedy, and coherent by construction.
+
+Two things had to be measured before touching the driver, because the design's cost and its payoff both
+turn on numbers nobody had.
+
+#### Descent depth: 6, not 2
+
+Instrumented on the current default, chr20, 27,400 symbolic child calls:
+
+| depth | child calls | share | at or below |
+|---|---|---|---|
+| 1 | 21,839 | 79.70% | 79.70% |
+| 2 | 4,464 | 16.29% | 96.00% |
+| 3 | 989 | 3.61% | **99.61%** |
+| 4 | 98 | 0.36% | 99.96% |
+| 5 | 8 | 0.03% | 99.99% |
+| 6 | 2 | 0.01% | 100% |
+
+**The gate was depth ≤ 3, and on its letter it is missed.** On its substance it is met: the gate was a
+proxy for how many barriers a level-synchronised design pays for, 99.61% of descents sit at depth ≤ 3,
+and the deep tail is 108 calls on a chromosome.
+
+What the tail costs is one `resolve` pass per level. On chr20 that pass is 4.24–4.49 s of a 205 s run, so
+six full-chain passes would be about 27 s — **+11% of runtime for the last 0.4% of descents**. Paying it
+in full is not the answer and neither is capping the depth, which would leave 1,097 descents (4.0%)
+incoherent. The answer is that a level-*k* pass does not need the whole chain: linkage decays over 10 kb,
+`window_posteriors` already does windowed inference, and levels 2–6 add 4,464, 989, 98, 8 and 2 sites
+respectively. Restricting each pass to the windows around its own new sites makes every level after the
+first nearly free. That is now part of Stage 1 rather than a later optimisation, and it is the depth
+measurement that made it so.
+
+#### The children nothing has ever counted
+
+Descent skips a child when no called parent allele crosses it (`copies <= 0`) and never revisits the
+decision, so a parent that linkage moves onto an allele which *does* cross the chain leaves a call
+nobody makes. It cannot be flagged — there is no record to flag — and it appears in no total. chr20:
+
+| child descents skipped | | |
+|---|---|---|
+| no reference path through the chain | 12,359 | not a coherence problem; this is the `--nested-pseudo-ref` population |
+| no called allele crosses it | 2,620 | |
+| — parent linkage could not move | 0 | |
+| — crossing mask unreadable | 0 | |
+| — still uncrossed by the final genotype | 2,324 | correctly skipped, before and after |
+| — **crossed by the final parent genotype** | **296** | 208 gaining one copy, 88 gaining two |
+
+**All 296 hang off a parent whose genotype linkage actually rewrote.** That matters because a set mask
+bit is not by itself evidence of a change: two traversals can flatten to the same VCF allele, and the
+reference traversal crosses every chain descent considers, so bit 0 is set at essentially all of them.
+Cross-checking against the parents linkage moved was meant to separate the real class from that
+artefact, and it found the artefact to be empty here.
+
+So the reordering reaches **more than twice** the population Stage 7 flagged: 255 records at a
+contradicted ploidy, plus 296 decisions never made at all. 45.2% of descents emit a record (12,383 of
+27,400), so the 296 are worth roughly 134 new records on chr20. Scaling by the flagged population, where
+chr20's 255 is 1/29.2 of the genome's 7,458: about **8,700 gained descents and 3,900 new records
+genome-wide**, against 7,458 flagged — 0.23% of the 5,041,066 records either way.
+
+The largest population here is none of those. **12,359 children are skipped because the reference does
+not cross them**, 4.7× everything else on this table, and reordering does nothing for them. That is the
+off-reference decision recorded under [Decisions taken](#decisions-taken), now with a number against it
+for the first time.
+
+#### One thing the reordering gets for free
+
+Stage 7's remaining gap was re-genotyping the 88 `nested_diploid` sites, and it is blocked by what is
+retained: `Entry` holds the *haploid* likelihood vector because that is the ploidy the site was called
+at, and a diploid genotype needs the triangular vector that was never computed. Deciding ploidy before
+genotyping removes the problem rather than solving it — the vector computed is the right one.
+
+#### Instrumentation
+
+143 lines across `graph_caller.{cpp,hpp}` and `linkage_model.{cpp,hpp}`, reported under `--progress` and
+otherwise inert. Verified behaviour-neutral: chr20 re-called with it produces 117,047 records whose
+content is identical to the shipped run's, and every pre-existing counter reproduces exactly (2,135
+nested sites, 88 diploid, 167 unreachable, 10,248 diploid children, 8,799 genotypes changed, 255 records
+flagged). The only diff is the relative order of two records sharing a position, which the output sort
+has always left to thread arrival.
+
+Kept rather than reverted: the depth histogram says how many barriers a Stage 1 build actually ran, and
+the skipped-child counter is the check on whether the 296 became calls.
+
 ## Shipped as the default
 
 `vg call` turns nested calling on wherever `--read-likelihood` runs, and phasing on wherever the
