@@ -678,16 +678,44 @@ missing parent either -- that counter reports nothing, which is to say zero of 1
 | phase sets differing | 20 |
 
 The genotype change is where the design aimed: 0.64%, against 255 flagged plus 296 never-made
-decisions predicted in Stage 0. The 165 vanished `nested_unreachable` records are that population
+decisions predicted in Stage 0. Scored against the benchmark, chr20 moves by a hair in the right
+direction on every class -- ALL F1 (GT) 0.96986 -> 0.96990, SNV 0.98412 -> 0.98419, SV >=50 bp 0.51309
+-> 0.51434 -- and all of it is precision: small-variant FP 2,134 -> 2,104 and SV FP 410 -> 407, against
+TP 91,156 -> 91,135. Fourth-decimal changes, reported because the alternative is to leave the
+impression that the reordering is free of them. The 165 vanished `nested_unreachable` records are that population
 disappearing rather than being flagged, and the 111 gained records are consistent with 296 gained
 descents at the 45% rate at which a descent emits a record at all.
 
-**The phase orientation churn is the open number and it is not small.** Generation 0's Viterbi runs
-over a chain missing the 7,081 deferred sites, so its path re-routes: 18.7% of records come out with
-their strands the other way round. Only 20 phase sets differ, so the block structure survives -- which
-means these are re-routings *inside* a block, exactly what a switch-error metric measures. Whether it
-helps or hurts is unmeasured until whatshap runs, and no claim of phasing neutrality should be made
-until then.
+**The phase orientation churn is large and it costs nothing.** Generation 0's Viterbi runs over a
+chain missing the 7,081 deferred sites, so its path re-routes: 18.7% of records come out with their
+strands the other way round. Only 20 phase sets differ, so those are re-routings *inside* a block --
+exactly what a switch rate measures, and the reason this had to be measured rather than argued about.
+Against the phased Q100 truth, chr20:
+
+| | inline | deferred |
+|---|---|---|
+| assessed pairs | 58,937 | 58,947 |
+| switches | 1,655 | **1,635** |
+| switch rate | 2.8081% | **2.7737%** |
+| blocks | 1 | 1 |
+| block N50 | 66.208 Mb | 66.209 Mb |
+| phased variants | 69,893 | 70,087 |
+
+Twenty fewer switches, and the block structure is unchanged. On 1,655 switches the counting error alone
+is about 41, so **the two are indistinguishable and the point estimate is slightly the better one**. The
+churn is a re-labelling of which strand is which, not a loss of phase.
+
+A second coherence gain fell out of preparing that comparison. A nested haploid record written as a
+bare `GT=1` names no strand, so nothing can place it and whatshap cannot read it: **545 such records
+inline, 279 deferred**. Deciding the parent's genotype first halves the population that has no strand to
+inherit.
+
+Measuring it needed the call set made strictly diploid first, which is worth recording because two
+separate things blocked it: the whole-genome truth VCF carries haploid chrX and chrY, so it has to be
+subset to the contig under test, and `--half-missing ref` rewrites `a|.` but leaves a bare `GT=1`, which
+still trips whatshap's uniform-ploidy check. The bare-haploid records are dropped rather than guessed --
+545 and 279 of about 117,000 -- and the half-missing ones get 0 on the empty strand, which is the
+existing approximation and not a new one.
 
 **Cost: runtime 219.1 s against 205.2 s, +6.8%. Memory is not yet measured properly and the first
 reading should not be used.** The deferred run peaked at 3.86 GB against the shipped run's 2.94 GB, but
