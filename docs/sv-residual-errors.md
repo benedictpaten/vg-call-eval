@@ -139,9 +139,82 @@ The first split that matters is whether truvari had any truth SV to compare the 
 | no truth SV near enough to compare with | 2,458 (20.1%) | 1,416 (13.4%) |
 | compared against a nearby truth SV and rejected | 9,748 (79.9%) | 9,128 (86.6%) |
 
-**63% of the entire false-positive excess is the first row** -- +1,042 of the +1,662 -- and that is
-the population where vg called something and the truth has nothing structural anywhere near it.
-The other 620 are near-misses on both sides.
+**63% of the entire false-positive excess is the first row** -- +1,042 of the +1,662. Taken apart
+below, it is not one thing, and it is not mostly calls out of nowhere: at 71% of these loci the truth
+carries variation, just not variation truvari scores as structural.
+
+### What the 2,458 with nothing to compare against actually are
+
+This is the population worth a mechanism rather than a rate, so each one was traced back to what the
+truth carries at that locus and what vg wrote there.
+
+| | n | share |
+|---|---|---|
+| truth has a 20-49 bp indel within 300 bp -- just under truvari's threshold | 792 | 33.6% |
+| truth has only variants under 20 bp within 300 bp | 891 | 37.8% |
+| truth has no variant of any size within 300 bp | 676 | 28.7% |
+
+So at 71% of them the truth is not quiet; it carries something smaller than 50 bp, and vg has written
+it as something larger. A truth indel of 20-49 bp that vg calls at 50 bp or more becomes a structural
+false positive that no truth SV can match, because the truth variant is a small variant. Selecting on
+the *truth* indel's size, so nothing is conditioned on our own call, that is how often it happens:
+
+| truth indel | type | n | median truth | median ours | our call reaches 50 bp |
+|---|---|---|---|---|---|
+| 10-19 | INS | 5,210 | 12 | 14 | 4.8% |
+| 10-19 | DEL | 5,154 | 12 | 13 | 3.6% |
+| 20-49 | INS | 2,936 | 26 | 26 | **12.6%** |
+| 20-49 | DEL | 2,962 | 27 | 26 | **10.7%** |
+| 100-299 | INS | 671 | 147 | 128 | 83.0% |
+| 300+ | INS | 723 | 573 | 406 | 92.8% |
+
+(chr1, chr6 and chr20.) Called sizes track the truth well in the median -- if anything vg *under*-calls
+the largest -- so this is a tail, not a bias: about 10% of calls come out at twice the truth's size or
+more, slightly more often for insertions than deletions. It is enough. 12.6% of a 20-49 bp population
+that large is comparable to the whole 2,458.
+
+### A real defect: offsetting insertion/deletion pairs
+
+Reading individual records turned up something a rate could not. At chr8:1,769,212 vg calls a 132 bp
+deletion, and 137 bp later at chr8:1,769,349 it calls an insertion of **the same 132 bp of sequence**,
+on the same haplotype. Reconstructing that haplotype from the calls and comparing it against the
+reference over the span, the two records together express a net change of **+5 bp**.
+
+It is not a one-off. At chr1:206,041,378 a 177 bp deletion pairs with a 176 bp insertion 241 bp later,
+also on one haplotype, and together they express **-1 bp** -- and the truth there carries exactly a
+1 bp deletion. The haplotype sequence vg produces is essentially right; the way it is written is
+wrong, and it is written as two structural variants where there is a one-base indel.
+
+Counting pairs genome-wide -- opposite direction, sizes within 20%, same genotype, within 500 bp:
+
+| outcome | calls ≥50 bp | in an offsetting pair | rate |
+|---|---|---|---|
+| matched a truth SV | 13,320 | 215 | 1.6% |
+| scored false, near-miss | 9,600 | 503 | 5.2% |
+| scored false, nothing to compare | 2,369 | 221 | **9.3%** |
+
+1,395 records in 549 pairs, and the rate is six times higher in exactly the population this section is
+about than among calls that matched. Each pair can cost two false positives and can never match a
+truth SV, because the event it describes is not structural. It does not explain the whole 2,458 --
+221 of 2,369 -- but unlike the rest of this document it is a defect with a location, and it is
+tracked separately.
+
+### The large-insertion excess
+
+One anomaly is not accounted for by either mechanism. Among calls changing length by 2 kb or more:
+
+| | INS | DEL | ratio |
+|---|---|---|---|
+| truth SVs | 579 | 526 | 1.10 |
+| vg calls that matched | 461 | 380 | 1.21 |
+| PanGenie calls scored false | 118 | 82 | 1.44 |
+| **vg calls scored false** | **473** | **117** | **4.04** |
+
+The truth is balanced and vg's *correct* large calls are balanced, so a 4:1 insertion skew among its
+wrong ones is not biology and is not shared by the other tool. These sit at very high depth -- median
+DP 563 against 42 for SV calls generally -- so they are collapsed repeats, and their median DR is
+**0.38** against 0.95 for large insertions that matched: they claim about 2.6x more sequence than the
+reads support. The depth model is already saying so; nothing acts on it.
 
 ### The near-misses are near
 
@@ -185,9 +258,13 @@ no threshold on GQ, on the depth- and ploidy-invariant GQN, or on DR raises SV F
 | GQN >= 0.05 | 9,455 | 5,429 | 0.4997 |
 | GQ >= 20 | 8,226 | 3,437 | 0.4758 |
 
-The reason is arithmetic rather than modelling: false negatives (10,081) already outnumber the
-false-positive excess over PanGenie (1,662) six to one, so a gate that turns a true call into a
-missed one is paying more than it collects. Confidence filtering is a lever for precision-limited
+The reason is arithmetic, and it can be stated exactly. Removing a true call costs twice -- once in
+the numerator and once as a new false negative -- so a gate improves F1 only if it removes more than
+(TP + FP + FN) / TP = **2.65** false positives per true call it discards. Nothing available reaches
+that. The closest is a depth-ratio gate restricted to the large insertions in the section above,
+where the signal is strongest: dropping calls of 2 kb or more with DR below 0.5 removes 347 false
+positives for 143 true ones, a ratio of 2.43, and still lands slightly *below* the ungated F1 at
+0.5482. Confidence filtering is a lever for precision-limited
 call sets, and on SVs this one is recall-limited. **Zygosity is not a discriminator either** --
 74.3% of false positives are heterozygous against 70.7% of the calls that matched.
 
@@ -251,9 +328,17 @@ to 0.0408.
 - **The recall side is the binding constraint**, and it is no longer about records that were never
   written. 13.7% of the actionable misses have no record nearby, down from 46.7%; the rest have a
   record that is the wrong size or the wrong shape.
-- **The false-positive excess is concentrated in 2,458 calls with no truth SV within reach**, 85.5%
-  of them heterozygous. That is a model problem and not a representation one, and it is where the
-  +1,662 actually comes from.
+- **The false-positive excess is concentrated in 2,458 calls with no truth SV within reach**, and it
+  is mostly a representation problem rather than an evidence one. At 71% of those loci the truth
+  carries variation under 50 bp that vg has written as something larger; 221 are offsetting
+  insertion/deletion pairs whose net effect on the haplotype is a few bases. Only 28.7% sit where the
+  truth carries nothing at all within 300 bp.
+- **The offsetting pairs are a defect with a location** and are worth fixing on their own: 549 pairs,
+  six times commoner in this population than among calls that matched, each able to cost two false
+  positives while describing a change that is not structural.
+- **The 4:1 insertion skew among large false calls is unexplained**, against 1.10 in the truth and
+  1.21 among vg's own correct large calls. Their median DR of 0.38 says the reads do not support the
+  sequence claimed.
 - **Nothing here is fixed by filtering.** Every confidence gate measured costs more F1 than it
   saves.
 - **The long-record pathology is closed as a line of work.** No insertion or deletion false positive
