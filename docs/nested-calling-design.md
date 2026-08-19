@@ -598,8 +598,74 @@ population four times larger.
 switches, 2.43%, blockwise hamming 48.29%, 22 blocks, N50 248.386 Mb. Against the diploid-only
 2,510,608 pairs and 60,319 switches, the nested records contribute **2,067 pairs and 850 switches -- a
 41% switch rate against a 2.43% baseline**. Their genotypes are good and the haplotype they are
-assigned to is close to a coin flip. That is the open item, and it is now a property of the default
-rather than of an opt-in flag.
+assigned to is close to a coin flip.
+
+That, and the 5,931 heterozygous sites whose allele order nothing determines, are the two defects this
+work is shipping in the default. Both are written up under
+[Open, and now shipping in the default](#open-and-now-shipping-in-the-default) with what has already
+been ruled out and where to look next.
+
+## Open, and now shipping in the default
+
+Two defects belong to this work rather than to some future project, and both are properties of the
+**default** output as of vg 956864c18. Neither is a hypothesis: both are measured, and for the first
+the obvious explanations have already been ruled out.
+
+### 1. Nested haploid records are assigned to a haplotype barely better than chance
+
+Genome-wide, including the nested records in the whatshap comparison for the first time:
+
+| autosomes | pairs | switches | switch % |
+|---|---|---|---|
+| diploid records only | 2,510,608 | 60,319 | 2.40% |
+| including nested | 2,512,675 | 61,169 | 2.43% |
+| **the nested contribution** | **2,067** | **850** | **41%** |
+
+So a nested site's *genotype* is good -- that is what the whole recall gain rests on -- and the
+haplotype it is placed on is close to a coin flip. On chr20 alone the same figure is 21%; the genome
+is worse.
+
+**What has been ruled out.** The strand is derived from `parent_slot`, an index into the parent's
+called-traversal order. Deriving it instead from which of the parent's *phased* alleles crosses the
+child -- the obvious correction, since that is what a phase means -- was implemented and measured: the
+two conventions are indistinguishable, 1,655 switches against 1,661 on ~58,900 chr20 pairs. So this is
+not an indexing error, and the fix is not a better index. See item 4 of Stage 7 for the two earlier
+measurements that appeared to say otherwise and why both were wrong.
+
+**Where to look next**, in order of suspicion:
+
+1. **The child inherits the parent's phase, and the parent's phase is itself 2.4%-switch accurate.**
+   Test: condition the nested switch rate on whether the parent's own adjacent pairs switch. If the
+   nested rate collapses to the parent's when the parent is locally stable, the child is faithfully
+   inheriting a bad frame and the fix belongs upstream in the diploid phasing, not here.
+2. **The 5,931 sites of item 2 below.** A nested site hanging off a parent whose allele pair has no
+   determined order has no frame to inherit at all. Measure those separately.
+3. **The 82% `parent_slot == 1` skew.** Nothing in the design predicts it and nobody has explained it.
+   Find out what makes the crossing traversal almost always the second in `trav_genotype` order --
+   most likely `ref_trav_idx` sorting late, but that is a guess and should be checked rather than
+   assumed.
+
+**Instrument**: `scripts/wgs/nested_strand_check.py`, with the warning in its own docstring that its
+site-level percentages cannot compare two conventions -- a constant beats both. Relative phase through
+whatshap is the measure that works, and it works only because the strand now reaches the VCF as `a|.`
+or `.|a`.
+
+### 2. Heterozygous sites emit a phased genotype whose orientation nothing chose
+
+When neither phased panel haplotype spells either called allele, `LinkageCollector::resolve` falls
+through to writing the allele pair in **sorted order**, and that pair is then emitted as a phased `GT`
+inside the block, indistinguishable from one the panel actually oriented. `PhaseCall::order_arbitrary`
+marks them and the run reports the count: **5,931 genome-wide**, 180 on chr20.
+
+Small against 5,041,066 phased sites, and still wrong in kind rather than in degree: a phased genotype
+that asserts an orientation nothing chose is a guess dressed as a call, which this caller avoids
+everywhere else. It is also the most likely single contributor to item 1, since a nested child of such
+a parent inherits a frame that was never decided.
+
+**Options, none of them free.** Leave the pair unordered and emit the site unphased, which costs those
+records their `PS` and fragments nothing but is honest. Or expose the flag in the record -- a `FORMAT`
+field or a `FILTER` -- so a consumer can tell the two apart, which keeps the phase set intact. The
+second is cheaper and strictly more informative; the first is what the rest of the caller would do.
 
 ## Testing
 
