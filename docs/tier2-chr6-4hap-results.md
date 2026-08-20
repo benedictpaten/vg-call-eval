@@ -32,6 +32,14 @@ Two changes since the accuracy results were first produced left the calls untouc
 | `readlik-nolink` | panel (default) | **no** | 293,250 | 255 s | 5.8 GB |
 | `readlik` | panel (default) | **no** | 292,762 | 281 s | 6.6 GB |
 
+**Peak RSS in this table is repeatable to about ±0.35 GB, so read it accordingly.** Three
+back-to-back runs of one binary on chr6-4hap, identical parameters and a warm cache, gave 7.3, 6.6
+and 7.0 GB -- a 0.7 GB spread on a 7 GB measurement. Differences smaller than that are not evidence
+of anything, and a single measurement of each of two arms cannot resolve one. Thread count matters
+too: the same run at `--threads 6` instead of 5 measured 8.7 GB, because the read and GBWT caches
+are per thread. Wall clock is worse still -- a run immediately after a full rebuild took 956 s
+against 260 s warm, purely from page cache.
+
 ## Small variants (GIAB `smvar` benchmark)
 
 `GT` is the genotype-aware comparison — the one that matters for a genotyper. `BASEPAIR` weights by bases, so it penalises a call that finds the right locus with the wrong sequence. Bold marks the best GT F1 in each class.
