@@ -44,9 +44,9 @@ def query(path: str, fmt: str, region: str | None = None) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--vg-score", default="work/wgs/score")
+    ap.add_argument("--vg-score", default="work/wgs-current/score")
     ap.add_argument("--pg-score", default="work/pangenie/score")
-    ap.add_argument("--vg-vcf", default="work/wgs/HG002.vcf.gz")
+    ap.add_argument("--vg-vcf", default="work/wgs-current/HG002.vcf.gz")
     ap.add_argument("--out", default="/dev/stdout")
     args = ap.parse_args()
 

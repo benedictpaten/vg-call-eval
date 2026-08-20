@@ -186,7 +186,7 @@ def report(name: str, recs: list[dict], L: list[str]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--score", default="work/wgs-nested8/score")
+    ap.add_argument("--score", default="work/wgs-current/score")
     ap.add_argument("--baseline", default=None,
                     help="a second score dir to decompose the same way, for comparison")
     ap.add_argument("--pangenie", default="work/pangenie/score")

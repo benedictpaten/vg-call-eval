@@ -132,7 +132,7 @@ def comp_key(match_id: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--score", default="work/wgs-single/score")
+    ap.add_argument("--score", default="work/wgs-current/score")
     ap.add_argument("--pangenie", default="work/pangenie/score",
                     help="second call set to decompose the same way, so the false-positive excess "
                          "can be attributed to one population or the other; skipped if absent")

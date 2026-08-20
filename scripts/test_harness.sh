@@ -189,7 +189,7 @@ echo "== hand-written pages agree with the scored data =="
 # generator to put the numbers into, so the check runs the other way -- recompute them from the score
 # directory and assert the page still quotes them. Skipped when the scored arm is not on disk, since
 # the rest of this harness runs on stubs.
-if [ -f work/wgs-fixed/score/per-contig.json ] && [ -f docs/pangenie-comparison.md ]; then
+if [ -f work/wgs-current/score/per-contig.json ] && [ -f docs/pangenie-comparison.md ]; then
     if python3 scripts/wgs/check_comparison_page.py; then
         ok "pangenie-comparison.md quotes the current autosome F1s"
     else

@@ -1068,7 +1068,7 @@ the kind of claim worth checking rather than asserting, so chr20 was re-called w
 and compared: **116,945 records both ways, and the two bodies are identical as multisets once the tag
 is stripped.** The only difference is the order of records that share a position -- the emission
 buffer's sort does not tie-break beyond the position, and the barrier inserts nested records in a
-different sequence. (The results pages now quote `work/wgs-fixed`, called after the code review
+different sequence. (The results pages now quote `work/wgs-current`, called after the code review
 below, where the tag is absent from the start.)
 
 Every FILTER count on those pages is `PASS`: **all 5,037,872 records genome-wide carry no FILTER at

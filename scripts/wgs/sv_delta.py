@@ -140,7 +140,7 @@ def pct(a: int, b: int) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--vg", default="work/wgs/score")
+    ap.add_argument("--vg", default="work/wgs-current/score")
     ap.add_argument("--pg", default="work/pangenie/score")
     ap.add_argument("--out", default="docs/sv-delta.md")
     args = ap.parse_args()

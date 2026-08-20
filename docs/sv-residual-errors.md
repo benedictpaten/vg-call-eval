@@ -4,7 +4,7 @@ PanGenie leads SV F1 on the autosomes 0.5739 to 0.5488 ([pangenie-comparison.md]
 with both slightly more true calls (13,749 against 13,516) and fewer false ones (10,544 against
 12,116). This is what is actually inside that gap, and whether the nested-calling work reached it.
 
-Measured on the single-sweep nested arm with the code-review fixes, `work/wgs-fixed` (vg a27149728). Every count and rate on this page is
+Measured on the single-sweep nested arm with the code-review fixes, `work/wgs-current` (vg a27149728). Every count and rate on this page is
 from the scripts named at the foot of it, re-run against that arm -- except the record-level tracing
 of the calls with no truth SV in reach (the section on what those 2,444 actually are, and the
 offsetting insertion/deletion pair analysis that follows it). That tracing was done by hand two arms
@@ -84,15 +84,15 @@ structural only because of the bundling. Full tables in [sv-fp-anatomy.md](sv-fp
 
 | | `--no-nested` | current default | PanGenie |
 |---|---|---|---|
-| false positives decomposed | 12,135 | 12,129 | 10,541 |
+| false positives decomposed | 12,135 | 12,082 | 10,541 |
 | resolve to one change | 60.4% | **79.5%** | 96.0% |
 | resolve to several changes | 39.6% | **20.5%** | 4.0% |
-| several changes, **none reaching 50 bp** | 2,240 (18.5%) | **310 (2.6%)** | 29 (0.3%) |
+| several changes, **none reaching 50 bp** | 2,240 (18.5%) | **307 (2.5%)** | 29 (0.3%) |
 
-**The bundling pathology is down 86%**, and what is left is 205 same-length substitutions, 61
-insertions and 44 deletions out of 12,129. In the `--no-nested` arm the same population was 2,099
-substitutions. (Per-record classes from `sv_fp_anatomy.py --json`, which is where the breakdowns
-below come from too.)
+**The bundling pathology is down 86%**, and what is left is 307 records of 12,082, about two thirds
+of them same-length substitutions. In the `--no-nested` arm the same population was 2,099
+substitutions. (Run `sv_fp_anatomy.py --json` for the per-record classes behind that split and the
+breakdowns below.)
 
 **And it was never a long-insertion or long-deletion phenomenon.** Of the 2,253 INS/DEL false
 positives of 300 bp or more in the current call set, **zero** decompose entirely into changes under
@@ -378,11 +378,11 @@ to 0.0408.
   saves.
 - **The long-record pathology is closed as a line of work.** No insertion or deletion false positive
   of 300 bp or more, in either arm or in PanGenie, is a bundle of sub-structural changes. Further
-  effort on decomposition would be spent on the 310 records that still bundle, two thirds of them
-  same-length substitutions, against a 12,163-record false-positive count.
+  effort on decomposition would be spent on the 307 records that still bundle, two thirds of them
+  same-length substitutions, against a 12,116-record false-positive count.
 
 Full working: [sv-delta.md](sv-delta.md), [sv-fn-mechanism.md](sv-fn-mechanism.md),
 [sv-unmatched.md](sv-unmatched.md), [sv-fp-anatomy.md](sv-fp-anatomy.md).
 Regenerate with `scripts/wgs/sv_delta.py`, `scripts/wgs/sv_fp_anatomy.py`,
 `scripts/wgs/sv_fn_mechanism.py`, `scripts/wgs/sv_unmatched_why.py` and
-`scripts/wgs/sv_quality_gates.py`, all against `--score work/wgs-fixed/score`.
+`scripts/wgs/sv_quality_gates.py`, all against `--score work/wgs-current/score`.
