@@ -89,19 +89,20 @@ structural only because of the bundling. Full tables in [sv-fp-anatomy.md](sv-fp
 | resolve to several changes | 39.6% | **20.5%** | 4.0% |
 | several changes, **none reaching 50 bp** | 2,240 (18.5%) | **310 (2.6%)** | 29 (0.3%) |
 
-**The bundling pathology is down 86%**, and what is left is 206 same-length substitutions, 61
-insertions and 41 deletions out of 12,172. In the `--no-nested` arm the same population was 2,099
-substitutions.
+**The bundling pathology is down 86%**, and what is left is 205 same-length substitutions, 61
+insertions and 44 deletions out of 12,129. In the `--no-nested` arm the same population was 2,099
+substitutions. (Per-record classes from `sv_fp_anatomy.py --json`, which is where the breakdowns
+below come from too.)
 
-**And it was never a long-insertion or long-deletion phenomenon.** Of the 2,250 INS/DEL false
+**And it was never a long-insertion or long-deletion phenomenon.** Of the 2,253 INS/DEL false
 positives of 300 bp or more in the current call set, **zero** decompose entirely into changes under
 50 bp -- as do zero of the 2,035 in the `--no-nested` arm and zero of PanGenie's 1,267. A long
 insertion vg calls wrongly is a genuine long insertion in the wrong place or of the wrong length; it
 has never been a handful of SNPs wearing an insertion's clothes. That shape only ever appeared in
 same-length substitutions, which is exactly where symbolic collapsing was aimed.
 
-Long records *can* still carry more than one change -- 887 of those 2,250 do -- but the largest
-single change is a median **88%** of the record's length, so they are one real structural event with
+Long records *can* still carry more than one change -- 896 of those 2,253 do -- but the largest
+single change is a median **86%** of the record's length, so they are one real structural event with
 hitchhikers rather than a bundle of equals. PanGenie's bundled long records sit at 82% by the same
 measure, so this is a property of writing multi-kilobase alleles at all, not of this caller.
 
