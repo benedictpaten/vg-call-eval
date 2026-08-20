@@ -845,6 +845,7 @@ common agree to within six.
 | Indel F1 | 0.91952 | 0.91946 | 0.91941 |
 | SV >=50 bp F1 | 0.54854 | 0.54901 | 0.54861 |
 | peak RSS vs inline | 1.00 | -- | median 1.02, range 0.74-1.42 |
+| summed CPU, 24 contigs | 457.3 min | -- | **472.0 min (+3.2%)** |
 
 Accuracy is the wash it has been throughout -- fourth to fifth decimal, precision up and recall down,
 SV the one class ahead. The single-sweep arm sits within 0.00005 of the five-sweep arm everywhere,
@@ -852,6 +853,18 @@ which is the result to expect and therefore the useful check: identical likeliho
 settled genotypes, differing only in emission path, so a real gap would have meant a rendering bug.
 chr20 also runs *faster* than the inline arm, 173 s against 205, because the retracted records are
 work the inline arm did and then kept.
+
+**The genome-wide cost is +3.2% of CPU, and wall clock says otherwise for a reason that is not the
+caller.** Summed per-contig wall clock went 163.8 to 213.1 minutes, +30%, which would be a serious
+regression if it were real. It is not: six contigs got roughly one core in the later run where they
+had had three, and their CPU totals are within 6-15% of the inline arm's. Thread occupancy,
+`(user + sys) / real`, reads 1.09 for chr17 against 2.83 inline, 1.35 for chr22 against 3.06, and
+similarly for chr11, chr13, chr14 and chr16; the other eighteen contigs sit between 2.24 and 3.68 in
+both arms. Those six are exactly the ones whose wall clock roughly doubled. The machine was
+oversubscribed during that batch, and per-contig wall clock across two separately scheduled runs is
+not a comparable quantity. CPU time is, and it is +3.2% -- consistent with the +14.0% more chain
+visits being cheap ones, on windows already resident. Recorded in
+[wgs-performance.md](wgs-performance.md) so the next comparison starts from CPU.
 
 **Two measurements sized this before it was built.** An unconditional sweep must visit 57,401
 reference-crossed nested chains on chr20 against the 30,020 descent considers -- 1.91x the chains but

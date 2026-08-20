@@ -3,12 +3,31 @@
 `vg call --read-likelihood` on a 34-haplotype HPRC graph, 30x reads, on a 10-core laptop with
 32 GB. One contig per invocation, several contigs at once, packed under a memory budget.
 
-**Current: 24 contigs in 54.3 minutes**, against 144.4 minutes of summed per-contig time — a
-2.66x speedup. An earlier full run of the same scheduler took 60.9 minutes (2.37x). Nothing between
-them was a performance change, and the faster run had `vg`'s own test suite competing for cores for
-ten of its minutes, so treat the difference as run-to-run variation on a laptop and not as a gain:
-whole-genome wall clock here is reproducible to about ±10%, which is worth knowing before reading
-any single number as a measurement.
+**Whole-genome wall clock on this machine is not a measurement of the caller**, and the cleanest
+demonstration of that is the single-sweep nested arm against the inline one. Summed per-contig wall
+clock went 163.8 → 213.1 minutes, +30%. Summed CPU went 457.3 → 472.0 minutes, **+3.2%** — and that
+second number is the cost of the change.
+
+The gap is entirely six contigs that were starved of cores in the later run. Thread occupancy,
+`(user + sys) / real`, is the diagnostic:
+
+| contig | inline | single sweep | wall clock |
+|---|---|---|---|
+| chr17 | 2.83 | **1.09** | 4.5 → 12.6 min |
+| chr22 | 3.06 | **1.35** | 5.6 → 13.6 min |
+| chr11 | 2.94 | **1.46** | 5.5 → 11.8 min |
+| chr13 | 2.62 | **1.49** | 5.1 → 10.1 min |
+| chr14 | 2.65 | **1.49** | 7.7 → 15.3 min |
+| chr16 | 2.92 | **1.55** | 4.2 → 8.3 min |
+| the other 18 | 2.47–3.20 | 2.24–3.68 | within ±20% |
+
+A contig that got one core where it previously got three takes three times as long having done the
+same work, and its CPU total says so. Read wall clock as a measure of what else was running.
+
+Earlier full runs of the same scheduler took 54.3 and 60.9 minutes end to end against 144.4 minutes
+summed, a 2.66x and 2.37x packing speedup, with nothing between them but load — one had `vg`'s own
+test suite competing for cores for ten of its minutes. **Treat any single whole-genome wall clock as
+±10% at best, and prefer CPU time when comparing two builds.**
 
 ```bash
 python3 scripts/wgs/schedule_wgs.py --work work/wgs      # calls every contig
@@ -18,8 +37,15 @@ python3 scripts/wgs/bench_wgs.py --work work/wgs --out docs/wgs-results.md
 
 ## The mosaic, and why assembly is not `cat`
 
-The genome mosaic is **143,365 segments over 4,742,752 sites in 11.05 MB**, 3.46 MB gzipped, at 80.8
-bytes per segment. 99.82% of segments carry a GBWT position; 390 are fragment splits.
+The genome mosaic is **182,950 segments over 5,037,820 sites in 14.42 MB**, 4.42 MB gzipped, at 78.8
+bytes per segment.
+
+**91.87% of segments carry a GBWT position**, down from 99.82% before nested sites entered the
+mosaic, and the shortfall is one identifiable population rather than a degradation: of the 14,877
+segments without one, 13,676 are wildcard rows whose haplotype is `*` — no single panel haplotype
+is named, so there is no position to record — and most are one to three sites long. That is the
+phase-block fragmentation that nested ploidy-1 sites cause, which is tracked as its own problem and
+is not a property of the mosaic format.
 
 Concatenating the per-contig files needs `scripts/wgs/concat_mosaic.sh`, not `cat`, because two
 mosaic columns are relative to the graph that produced them:
