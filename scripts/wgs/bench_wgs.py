@@ -288,9 +288,12 @@ def main() -> None:
              "4-haplotype tier-2 graphs nested calling is flat to 0.0005 *down* on ALL F1, because a",
              "small panel enumerates few of the long collapsing ALTs it exists to break up while the",
              "extra-records cost still applies. Parent/child ploidy incoherence, which cost 0.15% of",
-             "records a FILTER in earlier arms, is gone by construction: a nested chain is genotyped",
-             "at the ploidy its parent's settled genotype implies, so the three coherence FILTERs are",
-             "now an invariant check that fires zero times genome-wide.",
+             "records a FILTER in earlier arms, is now structural rather than flagged: a nested chain",
+             "is genotyped at the ploidy its parent's settled genotype implies. The guarantee holds",
+             "wherever the parent's crossing mask can be computed, which is not everywhere -- where it",
+             "cannot, the chain keeps its sweep-time ploidy and the coherence FILTERs stay live to say",
+             "so. They fire on no record in this run, and a handful in some single-contig runs, so",
+             "treat a nonzero count as a pointer at those chains rather than as a regression.",
              "", "## Small variants (aardvark, GT)", ""]
 
     # JointIndel, not Indel: aardvark's plain Indel row is query-only (truth_total 0), so summing

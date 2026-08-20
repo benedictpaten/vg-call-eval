@@ -18,15 +18,15 @@ coordinate mismatch and not the caller. The calls remain in the VCF and the mosa
 **Compared against PanGenie on the same graph and reads**: see
 [pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on every
 small-variant class on both recall and precision (ALL F1 0.9703 against 0.9505) and PanGenie is
-ahead on structural variants (0.5739 against 0.5486). What is inside that SV gap, and whether
+ahead on structural variants (0.5739 against 0.5488). What is inside that SV gap, and whether
 nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).
 
-**The mosaic** this run also emits: 182,950 segments over 5,037,820 sites, 14 MB.
+**The mosaic** this run also emits: 180,858 segments over 5,037,872 sites, 14 MB.
 See wgs-performance.md for why assembling it is not `cat`.
 
 **Nested calling and phasing are the defaults** as of this run, which is why these
-numbers moved: SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5468,
-with 58,289 SNV false negatives recovered, at no runtime or memory cost. `--no-nested`
+numbers moved: SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5470,
+with 58,336 SNV false negatives recovered, at no runtime or memory cost. `--no-nested`
 and `--no-phased` restore the old behaviour. See
 [nested-calling-design.md](nested-calling-design.md).
 
@@ -34,45 +34,48 @@ and `--no-phased` restore the old behaviour. See
 4-haplotype tier-2 graphs nested calling is flat to 0.0005 *down* on ALL F1, because a
 small panel enumerates few of the long collapsing ALTs it exists to break up while the
 extra-records cost still applies. Parent/child ploidy incoherence, which cost 0.15% of
-records a FILTER in earlier arms, is gone by construction: a nested chain is genotyped
-at the ploidy its parent's settled genotype implies, so the three coherence FILTERs are
-now an invariant check that fires zero times genome-wide.
+records a FILTER in earlier arms, is now structural rather than flagged: a nested chain
+is genotyped at the ploidy its parent's settled genotype implies. The guarantee holds
+wherever the parent's crossing mask can be computed, which is not everywhere -- where it
+cannot, the chain keeps its sweep-time ploidy and the coherence FILTERs stay live to say
+so. They fire on no record in this run, and a handful in some single-contig runs, so
+treat a nonzero count as a pointer at those chains rather than as a regression.
 
 ## Small variants (aardvark, GT)
 
-- **ALL**: TP 4,110,836  FP 99,548  FN 155,983  recall 0.9634  precision 0.9764  **F1 0.9699**
-- **SNV**: TP 3,297,690  FP 23,714  FN 88,497  recall 0.9739  precision 0.9929  **F1 0.9833**
-- **Indel**: TP 813,146  FP 75,834  FN 67,486  recall 0.9234  precision 0.9147  **F1 0.9190**
+- **ALL**: TP 4,110,906  FP 99,341  FN 155,913  recall 0.9635  precision 0.9764  **F1 0.9699**
+- **SNV**: TP 3,297,737  FP 23,625  FN 88,450  recall 0.9739  precision 0.9929  **F1 0.9833**
+- **Indel**: TP 813,169  FP 75,716  FN 67,463  recall 0.9234  precision 0.9148  **F1 0.9191**
 
 ## Structural variants (truvari, >=50 bp)
 
-- TP 13,765  FP 12,467  FN 10,352  **F1 0.5468**
+- TP 13,756  FP 12,424  FN 10,361  **F1 0.5470**
 
 ## Per contig
 
 | contig | small F1 | SV F1 | notes |
 |---|---|---|---|
-| chr1 | 0.9700 | 0.5645 |  |
-| chr2 | 0.9665 | 0.5591 |  |
-| chr3 | 0.9744 | 0.5859 |  |
-| chr4 | 0.9745 | 0.5686 |  |
-| chr5 | 0.9739 | 0.5494 |  |
-| chr6 | 0.9750 | 0.5672 |  |
-| chr7 | 0.9707 | 0.5159 |  |
-| chr8 | 0.9742 | 0.5639 |  |
-| chr9 | 0.9724 | 0.5515 |  |
-| chr10 | 0.9624 | 0.4973 |  |
-| chr11 | 0.9712 | 0.5560 |  |
-| chr12 | 0.9723 | 0.5647 |  |
-| chr13 | 0.9761 | 0.5511 |  |
-| chr14 | 0.9726 | 0.5787 |  |
-| chr15 | 0.9598 | 0.5559 |  |
-| chr16 | 0.9581 | 0.4927 |  |
-| chr17 | 0.9666 | 0.5267 |  |
-| chr18 | 0.9736 | 0.5097 |  |
+| chr1 | 0.9700 | 0.5637 |  |
+| chr2 | 0.9665 | 0.5590 |  |
+| chr3 | 0.9744 | 0.5877 |  |
+| chr4 | 0.9745 | 0.5688 |  |
+| chr5 | 0.9739 | 0.5488 |  |
+| chr6 | 0.9750 | 0.5666 |  |
+| chr7 | 0.9707 | 0.5172 |  |
+| chr8 | 0.9742 | 0.5636 |  |
+| chr9 | 0.9725 | 0.5518 |  |
+| chr10 | 0.9624 | 0.4975 |  |
+| chr11 | 0.9713 | 0.5563 |  |
+| chr12 | 0.9724 | 0.5643 |  |
+| chr13 | 0.9761 | 0.5508 |  |
+| chr14 | 0.9726 | 0.5796 |  |
+| chr15 | 0.9598 | 0.5557 |  |
+| chr16 | 0.9581 | 0.4948 |  |
+| chr17 | 0.9667 | 0.5274 |  |
+| chr18 | 0.9737 | 0.5105 |  |
 | chr19 | 0.9524 | 0.5382 |  |
-| chr20 | 0.9699 | 0.5133 |  |
-| chr21 | 0.9733 | 0.5481 |  |
-| chr22 | 0.9675 | 0.5030 |  |
-| chrX | 0.9493 | 0.4601 |  |
+| chr20 | 0.9700 | 0.5140 |  |
+| chr21 | 0.9734 | 0.5467 |  |
+| chr22 | 0.9676 | 0.5051 |  |
+| chrX | 0.9494 | 0.4598 |  |
 | chrY | 0.0034 | - | excluded: reference mismatch with truth; truvari_error |

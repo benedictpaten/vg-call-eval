@@ -21,7 +21,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 W=${W:-work/wgs}
-OUT=${OUT:-work/wgs/HG002}
+# Derived from W by default, never fixed at work/wgs. Setting W alone used to redirect the inputs
+# while the output stayed on work/wgs -- so assembling any other arm silently overwrote the
+# --no-nested baseline's whole-genome VCF and mosaic with the other arm's data, in place, with a
+# success message naming the path it had just clobbered. Override OUT explicitly to split them.
+OUT=${OUT:-$W/HG002}
 GBZ=${GBZ:-data/hprc-v2.1-mc-chm13-eval.HG002.hap32.gbz}
 SAMPLE=${SAMPLE:-HG002}
 CONTIGS=${CONTIGS:-"chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY"}

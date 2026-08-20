@@ -1,13 +1,13 @@
 # Why vg misses the SVs PanGenie finds: no call, or an unmatched call?
 
-Over the 1,891 autosomal truth SVs that vg misses and PanGenie finds, asking what vg
+Over the 1,896 autosomal truth SVs that vg misses and PanGenie finds, asking what vg
 actually wrote within 100 bp of each.
 
 | what vg emitted at the locus | n | share |
 |---|---|---|
-| record of comparable size present | 878 | 46.4% |
-| record present but far too small | 742 | 39.2% |
-| no record within 100 bp | 260 | 13.7% |
+| record of comparable size present | 883 | 46.6% |
+| record present but far too small | 743 | 39.2% |
+| no record within 100 bp | 259 | 13.7% |
 | only a same-length substitution present | 11 | 0.6% |
 
 `comparable size` means a record whose largest allele-length change is at least half
@@ -19,9 +19,9 @@ an unmatched false positive in the same run.
 
 | size | no record | comparable record | same-length substitution only | too small |
 |---|---|---|---|---|
-| 50-100 | 74 | 490 | 1 | 243 |
-| 100-300 | 101 | 305 | 4 | 327 |
-| 300-700 | 42 | 55 | 4 | 100 |
+| 50-100 | 74 | 494 | 1 | 244 |
+| 100-300 | 100 | 306 | 4 | 328 |
+| 300-700 | 42 | 55 | 4 | 99 |
 | 700+ | 43 | 28 | 2 | 72 |
 
 ## Loci where the only nearby call is a same-length substitution

@@ -1062,17 +1062,19 @@ ploidy is no longer a discrepancy to report but an input the caller consumes and
 73,262 records genome-wide, all of them saying the same thing. Removed; `alt_ploidy_best` stays,
 because the barrier reads it.
 
-The whole-genome arm the results pages quote (`work/wgs-single`) was called *before* that removal, so
-its header still declares the tag. Removing an INFO field cannot change a genotype, but that is the
-kind of claim worth checking rather than asserting, so chr20 was re-called with the final binary and
-compared: **116,945 records both ways, and the two bodies are identical as multisets once the tag is
-stripped.** The only difference is the order of records that share a position -- the emission
-buffer's sort does not tie-break beyond the position, and the barrier now inserts nested records in
-a different sequence. So the arm on disk faithfully represents the code being pushed.
+`work/wgs-single`, the arm the results pages quoted at the time, was called *before* that removal,
+so its header still declares the tag. Removing an INFO field cannot change a genotype, but that is
+the kind of claim worth checking rather than asserting, so chr20 was re-called with the final binary
+and compared: **116,945 records both ways, and the two bodies are identical as multisets once the tag
+is stripped.** The only difference is the order of records that share a position -- the emission
+buffer's sort does not tie-break beyond the position, and the barrier inserts nested records in a
+different sequence. (The results pages now quote `work/wgs-fixed`, called after the code review
+below, where the tag is absent from the start.)
 
-Every FILTER count on those pages is now `PASS`: **all 5,037,820 records genome-wide carry no
-FILTER at all**, coherence or otherwise. The three nested coherence FILTERs remain in the header as
-a live invariant check, and firing zero times is what they are for.
+Every FILTER count on those pages is `PASS`: **all 5,037,872 records genome-wide carry no FILTER at
+all**, coherence or otherwise. The three nested coherence FILTERs remain in the header as a live
+invariant check, and firing zero times is what they are for -- though the review found the guarantee
+is narrower than "cannot happen": see below.
 
 The results pages were refreshed against this arm, and one class of staleness was fixed at the
 source rather than in the text. `bench_wgs.py` rewrites `docs/wgs-results.md` wholesale, so its
@@ -1082,6 +1084,73 @@ previous arm, and the diff looked clean because only the tables changed. Those f
 computed (`scripts/wgs/bench_wgs.py`), and the quality-gate and false-positive-population tables
 that had been hand-measured are now generated too (`scripts/wgs/sv_quality_gates.py`, whose ungated
 row is asserted against truvari's own F1 so a mis-accounting cannot pass silently).
+
+## What a code review of the barrier found, and what fixing it changed
+
+An extra-high-effort review of the whole branch produced fifteen findings. All but one of the
+correctness findings were in the deferred-descent barrier or in what it hands the linkage layer; the
+sweep path, which runs on every record, was sound. That is consistent with the whole-genome A/B being
+a wash throughout this work: the barrier touches hundreds of records a contig, not millions, so an
+error there hides inside F1 noise.
+
+The root cause was one habit. The barrier re-derived state that `emit_variant` had exact at emit
+time -- which line it had buffered, what position it had written, what its allele numbering was --
+and got each of them wrong in a different way. It identified the line to replace by re-hashing the
+ID column and counting GT separators, which mistook a phased haploid replacement (`1|.`) for a
+diploid line and discarded both copies; it registered the replacement before knowing the re-emit had
+buffered anything; it fed the collector a panel computed over the full candidate traversal list while
+the GLs beside it were in emitted-allele numbering; and it recorded gained records at the pre-flatten
+position, where no line is keyed. `emit_variant` now reports the `(contig, POS)` it wrote and where
+it buffered the line, and the barrier works from that handle.
+
+**The most consequential finding was the one the review ranked third.** A chain held back during the
+sweep skips `emit_variant` but still descends, so its children's crossing masks were computed by
+applying *another snarl's* traversal-to-allele map to this snarl's traversals. On chr20 the barrier
+had been acting on 761 chains; with the masks honest it acts on 182 and abstains on 381 it cannot
+compute a mask for. Roughly three-quarters of the barrier's revise-and-gain decisions had been driven
+by a foreign snarl's allele map.
+
+That has a consequence worth stating plainly, because it narrows a guarantee this document claimed.
+Where the mask is unknown the barrier cannot settle the ploidy, so the coherence FILTERs can fire
+after all: three records on chr20 now carry `nested_diploid` where the previous arm showed none.
+Those three were not coherent before -- a garbage mask made them *look* coherent. The honest
+statement is that parent/child ploidy is coherent by construction wherever the crossing mask is
+computable, and flagged where it is not, rather than coherent unconditionally.
+
+**Whole genome, 24 contigs, against the pre-fix arm:**
+
+| | pre-fix | with the review fixes |
+|---|---|---|
+| records | 5,037,820 | 5,037,872 |
+| ALL F1, autosomes | 0.97031 | **0.97034** |
+| SNV F1 | 0.98370 | **0.98372** |
+| Indel F1 | 0.91941 | **0.91948** |
+| SV >=50 bp F1 | 0.54861 | **0.54884** |
+| summed CPU, 24 contigs | 472.0 min | **459.9 min** |
+| mosaic wildcard segments | 13,676 | **12,813** |
+
+False positives fell in every class -- ALL 94,395 to 94,189, SNV 20,925 to 20,837, Indel 73,470 to
+73,352, SV 12,163 to 12,116 -- with false negatives flat. Every delta is inside noise, which is the
+expected result: these fixes correct the *bookkeeping* around a few hundred records per contig, and
+the accuracy claim is that nothing regressed rather than that anything improved.
+
+Two secondary results are worth keeping. Fixing the position and record keying (so a nested child no
+longer loses its phasing to a parent sharing its POS) cut the mosaic's wildcard-haplotype segments
+from 13,676 to 12,813 and lifted GBWT-position coverage from 91.87% to 92.28% -- a dent in the
+phase-block fragmentation problem, not a fix for it. And the per-thread `CachedGBWT` objects never
+evicted, so every decompressed GBWT record a contig touched stayed resident; bounding them to about
+one fetch window saves 260-340 MB on an isolated chr20 run and changes no call. Genome-wide in a
+packed run the memory picture is noisier (median per-contig peak RSS ratio 1.064), and per-contig
+peak RSS across two separately scheduled runs is not a clean measurement for the same reason wall
+clock is not.
+
+**What the review argued and the tests refuted.** It wanted `--read-likelihood` refused alongside
+`--top-down`, `-A`, and `--legacy`, on the grounds that the two descent mechanisms would both emit
+every nested site. `18_vg_call.t` deliberately exercises `--read-likelihood --top-down -Y` and
+`--read-likelihood -A` and asserts exactly two records, so the guard broke supported configurations
+and was withdrawn. What survived from that finding is real: the requires-`--read-likelihood` scan
+matched whole tokens only, so `--mosaic` set `--mosaic-out` and sailed past it, and `--no-phased` was
+missing from the list the help claimed it was on.
 
 ## Testing
 

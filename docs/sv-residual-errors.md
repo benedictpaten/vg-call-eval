@@ -1,14 +1,14 @@
 # The structural variants vg still gets wrong
 
-PanGenie leads SV F1 on the autosomes 0.5739 to 0.5486 ([pangenie-comparison.md](pangenie-comparison.md)),
-with both slightly more true calls (13,749 against 13,526) and fewer false ones (10,544 against
-12,163). This is what is actually inside that gap, and whether the nested-calling work reached it.
+PanGenie leads SV F1 on the autosomes 0.5739 to 0.5488 ([pangenie-comparison.md](pangenie-comparison.md)),
+with both slightly more true calls (13,749 against 13,516) and fewer false ones (10,544 against
+12,116). This is what is actually inside that gap, and whether the nested-calling work reached it.
 
-Measured on the single-sweep nested arm in `work/wgs-single`. Every count and rate on this page is
+Measured on the single-sweep nested arm with the code-review fixes, `work/wgs-fixed` (vg a27149728). Every count and rate on this page is
 from the scripts named at the foot of it, re-run against that arm -- except the record-level tracing
-of the calls with no truth SV in reach (the section on what those 2,456 actually are, and the
-offsetting insertion/deletion pair analysis that follows it). That tracing was done by hand on the
-preceding arm, whose population differed by 2 records out of 2,458, so its rates carry over; it has
+of the calls with no truth SV in reach (the section on what those 2,444 actually are, and the
+offsetting insertion/deletion pair analysis that follows it). That tracing was done by hand two arms
+ago, on a population of 2,458 that has since moved by 14 records, so its rates carry over; it has
 not been repeated. Where a figure comes from that tracing rather than from a re-run, it is the
 mechanism that is being asserted and not the third digit.
 
@@ -145,14 +145,14 @@ The first split that matters is whether truvari had any truth SV to compare the 
 
 | | vg call | PanGenie |
 |---|---|---|
-| no truth SV near enough to compare with | 2,456 (20.2%) | 1,416 (13.4%) |
-| compared against a nearby truth SV and rejected | 9,707 (79.8%) | 9,128 (86.6%) |
+| no truth SV near enough to compare with | 2,444 (20.2%) | 1,416 (13.4%) |
+| compared against a nearby truth SV and rejected | 9,672 (79.8%) | 9,128 (86.6%) |
 
-**64% of the entire false-positive excess is the first row** -- +1,040 of the +1,619. Taken apart
+**65% of the entire false-positive excess is the first row** -- +1,028 of the +1,572. Taken apart
 below, it is not one thing, and it is not mostly calls out of nowhere: at 71% of these loci the truth
 carries variation, just not variation truvari scores as structural.
 
-### What the 2,456 with nothing to compare against actually are
+### What the 2,444 with nothing to compare against actually are
 
 This is the population worth a mechanism rather than a rate, so each one was traced back to what the
 truth carries at that locus and what vg wrote there.
@@ -180,7 +180,7 @@ the *truth* indel's size, so nothing is conditioned on our own call, that is how
 (chr1, chr6 and chr20.) Called sizes track the truth well in the median -- if anything vg *under*-calls
 the largest -- so this is a tail, not a bias: about 10% of calls come out at twice the truth's size or
 more, slightly more often for insertions than deletions. It is enough. 12.6% of a 20-49 bp population
-that large is comparable to the whole 2,456.
+that large is comparable to the whole 2,444.
 
 ### Offsetting insertion/deletion pairs: two real errors, and a population that is mostly not
 
@@ -242,18 +242,18 @@ reads support. The depth model is already saying so; nothing acts on it.
 
 ### The near-misses are near
 
-Of the 9,707 compared and rejected: median sequence similarity to the truth variant is 0.75, and
+Of the 9,672 compared and rejected: median sequence similarity to the truth variant is 0.75, and
 
-- 5,443 clear truvari's 0.70 sequence bar
-- 3,891 clear its 0.70 size bar
-- **3,159 clear both and are scored false anyway** -- 1,570 because the truth variant they best match
-  was already taken by a different call, 784 carrying truvari's explicit `Multi` flag
-- 2,284 clear the sequence bar and fail on size, at a median size similarity of 0.62
+- 5,419 clear truvari's 0.70 sequence bar
+- 3,867 clear its 0.70 size bar
+- **3,140 clear both and are scored false anyway** -- 1,562 because the truth variant they best match
+  was already taken by a different call
+- 2,279 clear the sequence bar and fail on size, at a median size similarity of 0.62
 
 **That last group is not a vg problem.** PanGenie's equivalent share is *higher*: 3,573 of its false
-positives (33.9%) clear both bars, against vg's 3,159 (26.0%). Truvari matches one-to-one, so where
+positives (33.9%) clear both bars, against vg's 3,140 (25.9%). Truvari matches one-to-one, so where
 truth SVs cluster some good calls are scored false whatever the caller does, and this measures the
-metric rather than either tool. Reading vg's 26.0% on its own would have made it look like a defect.
+metric rather than either tool. Reading vg's 25.9% on its own would have made it look like a defect.
 
 This is an upper bound on the assignment artefact rather than an exact count: it reads truvari's
 annotation of each call's nearest candidate, not a re-run of its assignment.
@@ -263,24 +263,24 @@ annotation of each call's nearest candidate, not a re-run of its assignment.
 | | matched a truth SV | scored false |
 |---|---|---|
 | median GQ | 34 | 5 |
-| median GQN | 0.226 | 0.034 |
+| median GQN | 0.275 | 0.040 |
 | median DR | 0.81 | 0.42 |
-| DR < 0.75 | 44.4% | 81.0% |
-| heterozygous | 72.3% | 79.6% |
+| DR < 0.75 | 44.3% | 80.9% |
+| heterozygous | 72.3% | 79.7% |
 
 Both quality signals separate the populations. **Neither separates them enough to be worth using:
 no threshold on GQ, on the depth- and ploidy-invariant GQN, or on DR raises SV F1.**
 
 | gate | TP kept | FP kept | SV F1 |
 |---|---|---|---|
-| none | 13,302 | 12,163 | **0.5486** |
-| DR >= 0.3 | 11,873 | 8,468 | 0.5454 |
-| GQ >= 3 | 11,358 | 7,633 | 0.5384 |
-| DR >= 0.5 | 10,010 | 4,922 | 0.5235 |
-| GQN >= 0.02 | 10,487 | 6,943 | 0.5172 |
-| GQ >= 10 | 9,658 | 4,858 | 0.5105 |
-| GQN >= 0.05 | 9,335 | 5,284 | 0.4946 |
-| GQ >= 20 | 8,209 | 3,392 | 0.4695 |
+| none | 13,291 | 12,116 | **0.5488** |
+| DR >= 0.3 | 11,869 | 8,457 | 0.5454 |
+| GQ >= 3 | 11,349 | 7,594 | 0.5387 |
+| DR >= 0.5 | 10,009 | 4,916 | 0.5235 |
+| GQ >= 10 | 9,650 | 4,845 | 0.5104 |
+| GQN >= 0.02 | 9,788 | 5,962 | 0.5026 |
+| GQN >= 0.05 | 8,806 | 4,688 | 0.4801 |
+| GQ >= 20 | 8,207 | 3,385 | 0.4695 |
 
 Recall in that table is accounted on the truth side, as truvari scores it, so the ungated row
 reproduces truvari's own SV F1 exactly; the generator asserts that it does. Full working:
@@ -288,13 +288,13 @@ reproduces truvari's own SV F1 exactly; the generator asserts that it does. Full
 
 The reason is arithmetic, and it can be stated exactly. Removing a true call costs twice -- once in
 the numerator and once as a new false negative -- so a gate improves F1 only if it removes more than
-(TP + FP + FN) / TP = **2.65** false positives per true call it discards. Nothing available reaches
+(TP + FP + FN) / TP = **2.64** false positives per true call it discards. Nothing available reaches
 that. The closest is a depth-ratio gate restricted to the large insertions in the section above,
-where the signal is strongest: dropping calls of 2 kb or more with DR below 0.5 removes 344 false
-positives for 142 true ones, a ratio of 2.42, and still lands slightly *below* the ungated F1 at
-0.5483. Confidence filtering is a lever for precision-limited
+where the signal is strongest: dropping calls of 2 kb or more with DR below 0.5 removes 345 false
+positives for 142 true ones, a ratio of 2.43, and still lands slightly *below* the ungated F1 at
+0.5485. Confidence filtering is a lever for precision-limited
 call sets, and on SVs this one is recall-limited. **Zygosity is not a discriminator either** --
-79.6% of false positives are heterozygous against 72.3% of the calls that matched, a real
+79.7% of false positives are heterozygous against 72.3% of the calls that matched, a real
 difference in the wrong direction to act on: there is no gate that keeps homozygotes only.
 
 The two false-positive populations are not alike, and the difference points away from confidence as
@@ -302,7 +302,7 @@ the explanation:
 
 | | no truth SV nearby | compared and rejected |
 |---|---|---|
-| n | 2,456 | 9,707 |
+| n | 2,444 | 9,672 |
 | median GQ | 13 | 4 |
 | median DR | 0.46 | 0.41 |
 | heterozygous | 87.2% | 77.6% |
@@ -361,7 +361,7 @@ to 0.0408.
 - **The recall side is the binding constraint**, and it is no longer about records that were never
   written. 13.7% of the actionable misses have no record nearby, down from 46.7%; the rest have a
   record that is the wrong size or the wrong shape.
-- **The false-positive excess is concentrated in 2,456 calls with no truth SV within reach**, and it
+- **The false-positive excess is concentrated in 2,444 calls with no truth SV within reach**, and it
   is mostly a representation problem rather than an evidence one. At 71% of those loci the truth
   carries variation under 50 bp that vg has written as something larger; 221 are offsetting
   insertion/deletion pairs whose net effect on the haplotype is a few bases. Only 28.7% sit where the
@@ -385,4 +385,4 @@ Full working: [sv-delta.md](sv-delta.md), [sv-fn-mechanism.md](sv-fn-mechanism.m
 [sv-unmatched.md](sv-unmatched.md), [sv-fp-anatomy.md](sv-fp-anatomy.md).
 Regenerate with `scripts/wgs/sv_delta.py`, `scripts/wgs/sv_fp_anatomy.py`,
 `scripts/wgs/sv_fn_mechanism.py`, `scripts/wgs/sv_unmatched_why.py` and
-`scripts/wgs/sv_quality_gates.py`, all against `--score work/wgs-single/score`.
+`scripts/wgs/sv_quality_gates.py`, all against `--score work/wgs-fixed/score`.

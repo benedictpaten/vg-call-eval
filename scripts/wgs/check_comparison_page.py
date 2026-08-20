@@ -47,7 +47,7 @@ def sv(rows) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--score", default="work/wgs-single/score/per-contig.json")
+    ap.add_argument("--score", default="work/wgs-fixed/score/per-contig.json")
     ap.add_argument("--page", default="docs/pangenie-comparison.md")
     args = ap.parse_args()
 

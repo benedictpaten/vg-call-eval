@@ -6,7 +6,8 @@
 **Whole-genome wall clock on this machine is not a measurement of the caller**, and the cleanest
 demonstration of that is the single-sweep nested arm against the inline one. Summed per-contig wall
 clock went 163.8 → 213.1 minutes, +30%. Summed CPU went 457.3 → 472.0 minutes, **+3.2%** — and that
-second number is the cost of the change.
+second number is the cost of the change. (The review fixes then took summed CPU back down to 459.9
+minutes over the same 24 contigs, −2.6%, and the packed run end-to-end to 65.1 minutes.)
 
 The gap is entirely six contigs that were starved of cores in the later run. Thread occupancy,
 `(user + sys) / real`, is the diagnostic:
@@ -37,15 +38,18 @@ python3 scripts/wgs/bench_wgs.py --work work/wgs --out docs/wgs-results.md
 
 ## The mosaic, and why assembly is not `cat`
 
-The genome mosaic is **182,950 segments over 5,037,820 sites in 14.42 MB**, 4.42 MB gzipped, at 78.8
-bytes per segment.
+The genome mosaic is **180,858 segments over 5,037,872 sites in 14.27 MB**, at 78.9 bytes per
+segment.
 
-**91.87% of segments carry a GBWT position**, down from 99.82% before nested sites entered the
-mosaic, and the shortfall is one identifiable population rather than a degradation: of the 14,877
-segments without one, 13,676 are wildcard rows whose haplotype is `*` — no single panel haplotype
+**92.28% of segments carry a GBWT position**, down from 99.82% before nested sites entered the
+mosaic, and the shortfall is one identifiable population rather than a degradation: of the 13,960
+segments without one, 12,813 are wildcard rows whose haplotype is `*` — no single panel haplotype
 is named, so there is no position to record — and most are one to three sites long. That is the
 phase-block fragmentation that nested ploidy-1 sites cause, which is tracked as its own problem and
-is not a property of the mosaic format.
+is not a property of the mosaic format. Fixing the linkage layer's position and record keying (so a
+nested child no longer loses its phasing to a parent at the same POS) cut that population from
+13,676 to 12,813 and lifted coverage from 91.87%, which is a dent in the problem rather than a
+solution to it.
 
 Concatenating the per-contig files needs `scripts/wgs/concat_mosaic.sh`, not `cat`, because two
 mosaic columns are relative to the graph that produced them:
