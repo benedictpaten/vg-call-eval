@@ -593,6 +593,12 @@ nobody makes. It cannot be flagged — there is no record to flag — and it app
 | — still uncrossed by the final genotype | 2,324 | correctly skipped, before and after |
 | — **crossed by the final parent genotype** | **296** | 208 gaining one copy, 88 gaining two |
 
+The counters behind this table, and the retention sizing below, have since been removed from vg: they
+were built to decide whether the single-sweep design was affordable and where its recall was going,
+both of which the design settled. The barrier reports the same population directly now -- how many
+chains it revised, gained, and retracted -- so the figures here are the historical measurement rather
+than something a current run reproduces.
+
 **All 296 hang off a parent whose genotype linkage actually rewrote.** That matters because a set mask
 bit is not by itself evidence of a change: two traversals can flatten to the same VCF allele, and the
 reference traversal crosses every chain descent considers, so bit 0 is set at essentially all of them.
