@@ -84,10 +84,10 @@ structural only because of the bundling. Full tables in [sv-fp-anatomy.md](sv-fp
 
 | | `--no-nested` | current default | PanGenie |
 |---|---|---|---|
-| false positives decomposed | 12,135 | 12,172 | 10,541 |
-| resolve to one change | 60.4% | **79.7%** | 96.0% |
-| resolve to several changes | 39.6% | **20.3%** | 4.0% |
-| several changes, **none reaching 50 bp** | 2,240 (18.5%) | **308 (2.5%)** | 29 (0.3%) |
+| false positives decomposed | 12,135 | 12,129 | 10,541 |
+| resolve to one change | 60.4% | **79.5%** | 96.0% |
+| resolve to several changes | 39.6% | **20.5%** | 4.0% |
+| several changes, **none reaching 50 bp** | 2,240 (18.5%) | **310 (2.6%)** | 29 (0.3%) |
 
 **The bundling pathology is down 86%**, and what is left is 206 same-length substitutions, 61
 insertions and 41 deletions out of 12,172. In the `--no-nested` arm the same population was 2,099
@@ -105,7 +105,7 @@ single change is a median **88%** of the record's length, so they are one real s
 hitchhikers rather than a bundle of equals. PanGenie's bundled long records sit at 82% by the same
 measure, so this is a property of writing multi-kilobase alleles at all, not of this caller.
 
-The remaining 20.3%-versus-4.0% difference against PanGenie in multi-change records is mostly
+The remaining 20.5%-versus-4.0% difference against PanGenie in multi-change records is mostly
 representation: PanGenie's output is biallelic-split, so its alleles are simpler by construction.
 
 ### The inverse pathology exists, and is smaller
@@ -377,7 +377,7 @@ to 0.0408.
   saves.
 - **The long-record pathology is closed as a line of work.** No insertion or deletion false positive
   of 300 bp or more, in either arm or in PanGenie, is a bundle of sub-structural changes. Further
-  effort on decomposition would be spent on the 308 records that still bundle, two thirds of them
+  effort on decomposition would be spent on the 310 records that still bundle, two thirds of them
   same-length substitutions, against a 12,163-record false-positive count.
 
 Full working: [sv-delta.md](sv-delta.md), [sv-fn-mechanism.md](sv-fn-mechanism.md),

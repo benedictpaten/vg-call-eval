@@ -183,6 +183,20 @@ grep -q 'match_ids' scripts/wgs/sv_quality_gates.py \
     && ok "sv_quality_gates.py reads the truth side without the caller's FORMAT fields" \
     || bad "sv_quality_gates.py reads the truth side with a reader that will drop every record"
 
+echo "== hand-written pages agree with the scored data =="
+# pangenie-comparison.md is written by hand, so nothing regenerates its vg column and it has drifted
+# twice: once when the arm was recalled, once when this refresh moved Indel F1 by 0.0001. There is no
+# generator to put the numbers into, so the check runs the other way -- recompute them from the score
+# directory and assert the page still quotes them. Skipped when the scored arm is not on disk, since
+# the rest of this harness runs on stubs.
+if [ -f work/wgs-single/score/per-contig.json ] && [ -f docs/pangenie-comparison.md ]; then
+    if python3 scripts/wgs/check_comparison_page.py; then
+        ok "pangenie-comparison.md quotes the current autosome F1s"
+    else
+        bad "pangenie-comparison.md has drifted from work/wgs-single/score"
+    fi
+fi
+
 echo "== the memory model matches its fitted constants =="
 python3 - <<'PY' && ok "schedule_wgs.py memory model is the refitted one" || bad "memory model drifted from the doc"
 import re, sys, pathlib
