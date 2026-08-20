@@ -811,6 +811,78 @@ can then be called unchanged at render time, where reconstructing `AD`, `DP`, `G
 `GQN`, `GP` and `DR` from a compact form would have needed the parallel rendering path task #45 was
 dropped over.
 
+#### Stage 10: one read sweep, and the coherence guarantee kept
+
+Stage 9 established that post-linkage descent works and costs half again as much read I/O, and sized
+the way out. This is that redesign, and it holds both properties at once.
+
+**What makes it possible.** The expensive object is the per-read per-allele likelihood matrix, and it
+does not depend on ploidy -- while ploidy is the *only* thing an ancestor's genotype determines about
+a chain, because children are genotyped over their own full traversal set and never constrained to
+the parent's allele. So scoring every chain once, at both ploidies, answers every question the barrier
+can ask, at every depth, from one visit to the reads.
+
+Three phases. Descent runs inline in the single sweep the reads are resident for, and each nested
+chain keeps its genotyping rather than emitting immediately. Between generations the barrier asks what
+the parent's *settled* genotype implies: `respecify` moves a chain to the other ploidy before its own
+generation resolves, `retract` drops one the parent turns out not to carry, and a chain the settled
+parent reaches for the first time is rendered from what was kept. On chr20 that is 459 chains revised,
+302 reachable only under the settled parent, 190 retracted.
+
+That 302 is worth its own line. The five-sweep arm found **296** of the same population by an unrelated
+route -- post-hoc crossing masks against already-emitted records -- so two mechanisms with nothing in
+common agree to within six.
+
+**Whole genome, 24 contigs, against both prior arms:**
+
+| | inline | five-sweep | single sweep |
+|---|---|---|---|
+| coherence flags | 7,458 | 0 | **0** |
+| reads fetched | 607,088,639 | 903,322,552 | **609,856,118 (+0.5%)** |
+| records | 5,041,066 | 5,037,529 | 5,037,820 |
+| ALL F1, autosomes | 0.97034 | 0.97032 | 0.97031 |
+| SNV F1 | 0.98373 | 0.98371 | 0.98370 |
+| Indel F1 | 0.91952 | 0.91946 | 0.91941 |
+| SV >=50 bp F1 | 0.54854 | 0.54901 | 0.54861 |
+| peak RSS vs inline | 1.00 | -- | median 1.02, range 0.74-1.42 |
+
+Accuracy is the wash it has been throughout -- fourth to fifth decimal, precision up and recall down,
+SV the one class ahead. The single-sweep arm sits within 0.00005 of the five-sweep arm everywhere,
+which is the result to expect and therefore the useful check: identical likelihoods and identical
+settled genotypes, differing only in emission path, so a real gap would have meant a rendering bug.
+chr20 also runs *faster* than the inline arm, 173 s against 205, because the retracted records are
+work the inline arm did and then kept.
+
+**Two measurements sized this before it was built.** An unconditional sweep must visit 57,401
+reference-crossed nested chains on chr20 against the 30,020 descent considers -- 1.91x the chains but
+only +14.0% of chain visits, which is the unit of work. And retention costs 72.4 MB, of which 51.9 MB
+is traversals, measured with protobuf's own `SpaceUsedLong` rather than priced by hand.
+
+**What the retention is not.** The first estimate of it was arithmetic -- 48 bytes a visit against
+component counts -- and came to 87 MB while the byte total the design was justified on was wrong in
+both directions at once: too low per object, and counting only nested chains. The measured figure is
+smaller than the guess, and a later attempt to blame protobuf overhead for a 1.4 GB memory rise was
+wrong by twentyfold. The rise was a dropped `ploidy == 1` condition making every top-level site carry
+an alternate CallInfo it could never use; the retention counter could not see it because it counts
+nested chains only, so 72 MB of retention sat beside 1.4 GB of resident memory with no apparent
+contradiction. A counter covering part of a population is worse than none.
+
+**And what the design does not fix.** It was argued that choosing the allele list with the genotype
+would eliminate unused ALTs. Measured across all three arms they run 4,484 / 4,480 / 4,301 of about
+120,600 -- ~3.7% either way. Those are multi-allelic records whose GT names a subset of the ALTs, not a
+nested-calling artefact. The `NGT2="."` population that claim was generalised from is the narrow
+ploidy-switch slice, about 2% of the total. A ploidy revision can no longer strand an ALT; an ALT can
+still go unused.
+
+`INFO/NGT2` is retired with this. It reported what a nested haploid site would call at ploidy 2 for a
+caller that could not act on it -- the header said as much -- and the barrier now acts on it. The data
+behind it stays and is load-bearing.
+
+**`NestedIncoherence` and the three nested FILTERs stay**, though they now never fire. No nested FILTER
+appears anywhere in the whole genome, which is exactly their value: the detector for a coherence
+violation is armed and reports none. Retiring them would remove the only thing that would say if the
+guarantee ever broke.
+
 #### Instrumentation
 
 143 lines across `graph_caller.{cpp,hpp}` and `linkage_model.{cpp,hpp}`, reported under `--progress` and
