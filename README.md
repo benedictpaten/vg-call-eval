@@ -13,9 +13,17 @@ quantity it was to be fitted against cannot move. See [docs/tier2-parameters.md]
 
 ## Where the numbers are
 
+The whole genome first, since that is the configuration the caller ships in; the per-chromosome
+tier-2 pages below it are where parameters were fitted and mechanisms tested.
+
 | page | what it covers |
 |---|---|
-| [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | **start here** — the full six-arm accuracy tables per chromosome on the **34-haplotype** graph, small variants and SVs |
+| [docs/wgs-results.md](docs/wgs-results.md) | **start here** — HG002 against T2T-Q100 across all 24 contigs, on the 34-haplotype graph with nested calling, phasing and mosaic on. Regenerated wholesale by `scripts/wgs/bench_wgs.py`, prose figures included |
+| [docs/pangenie-comparison.md](docs/pangenie-comparison.md) | vg against PanGenie on the same graph and the same reads: vg ahead on every small-variant class, PanGenie ahead on SVs |
+| [docs/sv-residual-errors.md](docs/sv-residual-errors.md) | what is inside that SV gap, and whether nested calling reached it. Working pages: [sv-delta.md](docs/sv-delta.md), [sv-fp-anatomy.md](docs/sv-fp-anatomy.md), [sv-fn-mechanism.md](docs/sv-fn-mechanism.md), [sv-unmatched.md](docs/sv-unmatched.md), [sv-quality-gates.md](docs/sv-quality-gates.md) |
+| [docs/wgs-performance.md](docs/wgs-performance.md) | how to run all 24 contigs, what it costs, and why assembling the mosaic is not `cat` |
+| [docs/nested-calling-design.md](docs/nested-calling-design.md) | the nested-calling design, its stages, and the single-sweep redesign that made parent/child genotype incoherence impossible rather than flagged |
+| [docs/tier2-chr20-results.md](docs/tier2-chr20-results.md), [docs/tier2-chr6-results.md](docs/tier2-chr6-results.md) | the full six-arm accuracy tables per chromosome on the **34-haplotype** graph, small variants and SVs |
 | [docs/tier2-chr20-4hap-results.md](docs/tier2-chr20-4hap-results.md), [docs/tier2-chr6-4hap-results.md](docs/tier2-chr6-4hap-results.md) | the same tables on the 4-haplotype graph, kept as a thin-panel reference and as the home of the mismapping-clamp calibration history |
 | [docs/tier2-chr20-graph-comparison.md](docs/tier2-chr20-graph-comparison.md), [docs/tier2-chr6-graph-comparison.md](docs/tier2-chr6-graph-comparison.md) | the two graphs side by side, the same reads remapped |
 | [docs/tier2-quality-signals.md](docs/tier2-quality-signals.md) | how calls are *ranked*: `AD`, `BL`, `GQI`, the explained-share discount in `GQ`, the size-gated depth discount behind it, and the filters that turned out not to help |
