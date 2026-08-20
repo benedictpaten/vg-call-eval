@@ -88,6 +88,11 @@ def prepare_calls(calls: Path, out: Path, sample: str, half_missing: str = "keep
         the other haplotype has no sequence there, not the reference sequence -- but it is the only way
         to get these sites into a switch-error number, and they are the sites nested calling changes.
 
+    Either way, a haploid genotype carrying *no* strand -- a nested site the linkage layer could not
+    place, written bare -- is dropped and counted. It cannot stay, because whatshap refuses a file of
+    mixed ploidy, and it must not be padded, because padding picks a strand and the constant-strand
+    control already scores 74.5% on skew alone.
+
     Never the default. A measurement that quietly substitutes an allele is one nobody can check.
     """
     names = out.with_suffix(".sample.txt")
@@ -100,6 +105,7 @@ def prepare_calls(calls: Path, out: Path, sample: str, half_missing: str = "keep
                               capture_output=True, text=True, check=True).stdout
         lines = []
         rewritten = 0
+        dropped = 0
         for line in text.splitlines():
             if line.startswith("#"):
                 lines.append(line)
@@ -107,6 +113,16 @@ def prepare_calls(calls: Path, out: Path, sample: str, half_missing: str = "keep
             f = line.split("\t")
             if len(f) >= 10:
                 v = f[9].split(":")
+                if "|" not in v[0] and "/" not in v[0]:
+                    # A haploid genotype with no strand: a nested site the linkage layer could not
+                    # place, written bare rather than as `a|.`. Dropped, not padded. whatshap refuses
+                    # a file of mixed ploidy so it cannot stay, and padding it to `a|0` would put it
+                    # on strand 1 -- which is exactly the constant-convention control that scores
+                    # 74.5% on a one-sided truth subset by skew alone. A site with no strand has no
+                    # strand to be right or wrong about, so it leaves the measurement instead of
+                    # entering it with an invented answer.
+                    dropped += 1
+                    continue
                 if v[0].endswith("|."):
                     v[0] = v[0][:-1] + "0"
                     rewritten += 1
@@ -115,7 +131,8 @@ def prepare_calls(calls: Path, out: Path, sample: str, half_missing: str = "keep
                     rewritten += 1
                 f[9] = ":".join(v)
             lines.append("\t".join(f))
-        print(f"[phasing] rewrote {rewritten} half-missing genotypes to reference on the empty strand",
+        print(f"[phasing] rewrote {rewritten} half-missing genotypes to reference on the empty strand"
+              + (f"; dropped {dropped} haploid genotypes carrying no strand" if dropped else ""),
               flush=True)
         raw = out.with_suffix(".halfref.vcf")
         raw.write_text("\n".join(lines) + "\n")
