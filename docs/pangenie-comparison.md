@@ -16,9 +16,9 @@ Autosomes, summed counts, rates recomputed from them:
 |---|---|---|
 | ALL F1 | **0.9703** | 0.9505 |
 | SNV F1 | **0.9837** | 0.9722 |
-| SNV recall | **0.9742** | 0.9659 |
-| Indel F1 | **0.9195** | 0.8687 |
-| SV ≥50 bp F1 | 0.5485 | **0.5739** |
+| SNV recall | **0.9740** | 0.9659 |
+| Indel F1 | **0.9194** | 0.8687 |
+| SV ≥50 bp F1 | 0.5486 | **0.5739** |
 
 vg leads every small-variant class on both recall and precision; PanGenie leads structural variants
 on both, by 0.0254.
@@ -53,17 +53,17 @@ difference it exists to absorb; normalising by hand would have been the riskier 
 |  | vg call | | | | PanGenie | | | |
 |---|---|---|---|---|---|---|---|---|
 | | TP | FP | FN | **F1** | TP | FP | FN | **F1** |
-| ALL | 4,026,067 | 95,173 | 150,921 | **0.9703** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
-| SNV | 3,230,752 | 21,325 | 85,542 | **0.9837** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
-| Indel | 795,315 | 73,848 | 65,379 | **0.9195** | 757,328 | 125,606 | 103,366 | 0.8687 |
-| SV ≥50 bp | 13,540 | 12,206 | 10,081 | 0.5485 | 13,749 | 10,544 | 9,872 | **0.5739** |
+| ALL | 4,025,023 | 94,395 | 151,965 | **0.9703** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
+| SNV | 3,230,197 | 20,925 | 86,097 | **0.9837** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
+| Indel | 794,826 | 73,470 | 65,868 | **0.9194** | 757,328 | 125,606 | 103,366 | 0.8687 |
+| SV ≥50 bp | 13,526 | 12,163 | 10,095 | 0.5486 | 13,749 | 10,544 | 9,872 | **0.5739** |
 
 Recall and precision behind those:
 
 | | vg recall | vg precision | PanGenie recall | PanGenie precision |
 |---|---|---|---|---|
 | ALL | **0.9639** | **0.9769** | 0.9482 | 0.9529 |
-| SNV | **0.9742** | **0.9934** | 0.9659 | 0.9786 |
+| SNV | **0.9740** | **0.9936** | 0.9659 | 0.9786 |
 | Indel | **0.9240** | **0.9150** | 0.8799 | 0.8577 |
 
 **The result is a clean split by variant class.** vg leads every small-variant class on *both*
@@ -76,7 +76,7 @@ axes; PanGenie leads structural variants on both.
 - **Indels**: vg leads by 0.051 F1, the largest small-variant margin. PanGenie emits 125,606 indel
   false positives against 73,848.
 - **Structural variants**: PanGenie leads by 0.0254 F1, with slightly more true calls (13,749
-  against 13,540) and fewer false ones (10,544 against 12,206). It is the one class where one tool
+  against 13,526) and fewer false ones (10,544 against 12,163). It is the one class where one tool
   is better in both directions, and it should be taken at face value rather than explained away.
 
 ## chrX, reported apart
@@ -134,10 +134,10 @@ calls and fewer false ones. The numbers behind that, since one F1 hides which si
 
 | autosomal SVs ≥50 bp | vg call | PanGenie |
 |---|---|---|
-| TP | 13,540 | 13,749 |
-| FP | 12,206 | 10,544 |
-| FN | 10,081 | 9,872 |
-| F1 | 0.5485 | **0.5739** |
+| TP | 13,526 | 13,749 |
+| FP | 12,163 | 10,544 |
+| FN | 10,095 | 9,872 |
+| F1 | 0.5486 | **0.5739** |
 | F1 requiring the right genotype | 0.4805 | **0.5213** |
 | distinct truth SVs missed | 10,053 | 9,841 |
 | of those, missed by the other tool too | 8,172 | 8,172 |
@@ -151,9 +151,9 @@ Requiring a correct genotype widens the gap from 0.0254 to 0.0408, so part of it
 rather than detection. The recall floor is mostly shared: 8,172 truth SVs are missed by both, 69.7%
 of everything either tool misses, and 89.4% of those sit in a tandem repeat.
 
-Of vg's 12,206 false positives, 9,748 (79.9%) were compared against a real nearby truth SV and
-rejected on sequence or size similarity — they are near-misses, not inventions — and the 2,458 with
-no truth SV within reach account for 63% of the whole 1,662 false-positive excess. 80.8% are under
+Of vg's 12,163 false positives, 9,707 (79.8%) were compared against a real nearby truth SV and
+rejected on sequence or size similarity — they are near-misses, not inventions — and the 2,456 with
+no truth SV within reach account for 64% of the whole 1,619 false-positive excess. 80.2% are under
 300 bp. No threshold on GQ, GQN or DR raises SV F1, because false negatives already outnumber that
 excess six to one. Full anatomy, including what nested calling did and did not reach:
 [sv-residual-errors.md](sv-residual-errors.md).

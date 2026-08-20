@@ -1034,6 +1034,36 @@ records their `PS` and fragments nothing but is honest. Or expose the flag in th
 field or a `FILTER` -- so a consumer can tell the two apart, which keeps the phase set intact. The
 second is cheaper and strictly more informative; the first is what the rest of the caller would do.
 
+## Retiring INFO/NGT2, and what the docs rest on
+
+`INFO/NGT2` reported, for a nested site called at ploidy 1, the genotype its own reads would give at
+ploidy 2. It existed to expose the incoherence this design removes: under single-sweep calling a
+nested chain is genotyped at the ploidy its parent's settled genotype implies, so the alternative
+ploidy is no longer a discrepancy to report but an input the caller consumes and discards. It was on
+73,262 records genome-wide, all of them saying the same thing. Removed; `alt_ploidy_best` stays,
+because the barrier reads it.
+
+The whole-genome arm the results pages quote (`work/wgs-single`) was called *before* that removal, so
+its header still declares the tag. Removing an INFO field cannot change a genotype, but that is the
+kind of claim worth checking rather than asserting, so chr20 was re-called with the final binary and
+compared: **116,945 records both ways, and the two bodies are identical as multisets once the tag is
+stripped.** The only difference is the order of records that share a position -- the emission
+buffer's sort does not tie-break beyond the position, and the barrier now inserts nested records in
+a different sequence. So the arm on disk faithfully represents the code being pushed.
+
+Every FILTER count on those pages is now `PASS`: **all 5,037,820 records genome-wide carry no
+FILTER at all**, coherence or otherwise. The three nested coherence FILTERs remain in the header as
+a live invariant check, and firing zero times is what they are for.
+
+The results pages were refreshed against this arm, and one class of staleness was fixed at the
+source rather than in the text. `bench_wgs.py` rewrites `docs/wgs-results.md` wholesale, so its
+prose lives in the generator -- but the *numbers* inside that prose were typed in, and had gone
+stale silently: the tables moved with each rescore while the sentences above them kept quoting the
+previous arm, and the diff looked clean because only the tables changed. Those figures are now
+computed (`scripts/wgs/bench_wgs.py`), and the quality-gate and false-positive-population tables
+that had been hand-measured are now generated too (`scripts/wgs/sv_quality_gates.py`, whose ungated
+row is asserted against truvari's own F1 so a mis-accounting cannot pass silently).
+
 ## Testing
 
 Unit tests accompany each stage as described. Beyond those:

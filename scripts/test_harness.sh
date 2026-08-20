@@ -166,6 +166,23 @@ if [ -f docs/wgs-results.md ]; then
     check "every link in wgs-results.md comes from the generator" "$missing" "0"
 fi
 
+echo "== measurement scripts fail loudly rather than reporting zero =="
+# bcftools query with a FORMAT field the file does not carry emits a short line, and a reader that
+# skips short lines then reports an empty population as a real measurement. It happened twice in
+# one afternoon in sv_quality_gates.py: the truth-side VCF has none of the caller's FORMAT fields,
+# so the truth population read as zero and the gate sweep understated recall; then the other tool's
+# VCF read as zero and the excess decomposition compared 12,163 against nothing and printed it.
+# Both now raise. These assert the guards are still there, because a silent zero looks like data.
+grep -q 'raise SystemExit' scripts/wgs/sv_quality_gates.py \
+    && ok "sv_quality_gates.py raises rather than reporting an empty population" \
+    || bad "sv_quality_gates.py lost its empty-population guards"
+grep -q "does not reproduce truvari" scripts/wgs/sv_quality_gates.py \
+    && ok "sv_quality_gates.py checks its ungated row against truvari's own F1" \
+    || bad "sv_quality_gates.py no longer validates its accounting"
+grep -q 'match_ids' scripts/wgs/sv_quality_gates.py \
+    && ok "sv_quality_gates.py reads the truth side without the caller's FORMAT fields" \
+    || bad "sv_quality_gates.py reads the truth side with a reader that will drop every record"
+
 echo "== the memory model matches its fitted constants =="
 python3 - <<'PY' && ok "schedule_wgs.py memory model is the refitted one" || bad "memory model drifted from the doc"
 import re, sys, pathlib

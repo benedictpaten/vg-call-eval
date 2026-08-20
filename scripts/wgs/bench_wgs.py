@@ -160,6 +160,9 @@ def main() -> None:
     # Excluded by name rather than dropped by a filter, so the exclusion is visible in the output
     # instead of being a silent hole in a genome-wide number.
     p.add_argument("--unscoreable", nargs="*", default=["chrY"])
+    p.add_argument("--baseline-score", default="work/wgs/score",
+                   help="score dir of the --no-nested arm the prose compares against; the "
+                        "comparison sentence is dropped if it is absent")
     args = p.parse_args()
 
     work = Path(args.work)
@@ -174,6 +177,86 @@ def main() -> None:
 
     # Genome-wide totals from summed counts. Averaging per-contig F1s would weight chr21 like
     # chr1; summing the counts is the only aggregation that means anything.
+
+    # Figures quoted in the prose below, computed rather than typed in. They were hand-written once
+    # and went stale silently: re-scoring a new arm rewrites every table in this file while the
+    # sentences above them keep quoting the arm before it, and the diff looks clean because only
+    # the tables moved. Anything asserted in prose is derived here.
+    def sub(contigs, vtype):
+        tp = fp = fn = 0
+        for r in results:
+            if r["contig"] not in contigs:
+                continue
+            row = pick(r.get("aardvark"), "GT", vtype)
+            if row:
+                tp += int(row.get("truth_tp", 0) or 0)
+                fp += int(row.get("query_fp", 0) or 0)
+                fn += int(row.get("truth_fn", 0) or 0)
+        return tp, fp, fn
+
+    def sub_sv(rows, contigs):
+        tp = fp = fn = 0
+        for r in rows:
+            if r["contig"] not in contigs:
+                continue
+            t = r.get("truvari") or {}
+            tp += int(t.get("TP-base", 0) or 0)
+            fp += int(t.get("FP", 0) or 0)
+            fn += int(t.get("FN", 0) or 0)
+        return tp, fp, fn
+
+    scored = [r["contig"] for r in results if r.get("scoreable", True)]
+    autos = [c for c in scored if c in AUTOSOMES]
+    auto_all = f1(*sub(autos, "ALL"))
+    auto_sv = f1(*sub_sv(results, autos))
+    cur_all, cur_snv = f1(*sub(scored, "ALL")), f1(*sub(scored, "Snv"))
+    cur_sv = f1(*sub_sv(results, scored))
+    cur_snv_fn = sub(scored, "Snv")[2]
+
+    # The --no-nested arm this run is compared against: a fixed historical call set, read from its
+    # own score directory rather than re-derived. If it is not on disk the comparison sentence is
+    # dropped rather than guessed at.
+    base_json = Path(args.baseline_score) / "per-contig.json"
+    base_rows = json.loads(base_json.read_text()) if base_json.exists() else None
+
+    def base_small(vtype):
+        tp = fp = fn = 0
+        for r in base_rows:
+            if r["contig"] not in scored:
+                continue
+            row = pick(r.get("aardvark"), "GT", vtype)
+            if row:
+                tp += int(row.get("truth_tp", 0) or 0)
+                fp += int(row.get("query_fp", 0) or 0)
+                fn += int(row.get("truth_fn", 0) or 0)
+        return f1(tp, fp, fn), fn
+
+    moved = []
+    if base_rows:
+        b_snv, b_snv_fn = base_small("Snv")
+        b_all, _ = base_small("ALL")
+        b_sv = f1(*sub_sv(base_rows, scored))
+        moved = ["**Nested calling and phasing are the defaults** as of this run, which is why these",
+                 f"numbers moved: SNV F1 {b_snv:.4f} -> {cur_snv:.4f}, ALL F1 {b_all:.4f} -> "
+                 f"{cur_all:.4f}, SV F1 {b_sv:.4f} -> {cur_sv:.4f},",
+                 f"with {b_snv_fn - cur_snv_fn:,} SNV false negatives recovered, at no runtime or "
+                 "memory cost. `--no-nested`",
+                 "and `--no-phased` restore the old behaviour. See",
+                 "[nested-calling-design.md](nested-calling-design.md).", ""]
+
+    # Mosaic size straight off the artefact, and the site count from the VCF index rather than a
+    # full read of 300 MB of gzip.
+    mosaic = []
+    mos = work / "HG002.mosaic.tsv"
+    if mos.exists():
+        segs = sum(1 for l in mos.open() if not l.startswith("#"))
+        n = subprocess.run(["bcftools", "index", "-n", str(work / "HG002.vcf.gz")],
+                           capture_output=True, text=True).stdout.strip()
+        over = f" over {int(n):,} sites" if n.isdigit() else ""
+        mosaic = [f"**The mosaic** this run also emits: {segs:,} segments{over}, "
+                  f"{mos.stat().st_size / 1e6:.0f} MB.",
+                  "See wgs-performance.md for why assembling it is not `cat`.", ""]
+
     lines = ["# Whole-genome results: HG002 against T2T-Q100", "",
              "Called per contig on the 34-haplotype HPRC graph, `--read-likelihood` with panel",
              "enumeration, phasing and mosaic on. chrY haploid; chrX haploid outside the",
@@ -196,26 +279,18 @@ def main() -> None:
              "",
              "**Compared against PanGenie on the same graph and reads**: see",
              "[pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on every",
-             "small-variant class on both recall and precision (ALL F1 0.9703 against 0.9505) and PanGenie is",
-             "ahead on structural variants (0.5739 against 0.5485). What is inside that SV gap, and whether",
+             f"small-variant class on both recall and precision (ALL F1 {auto_all:.4f} against 0.9505) and PanGenie is",
+             f"ahead on structural variants (0.5739 against {auto_sv:.4f}). What is inside that SV gap, and whether",
              "nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).",
              "",
-             "**The mosaic** this run also emits: 182,328 segments over 5,041,066 sites, 14 MB.",
-             "See wgs-performance.md for why assembling it is not `cat`.",
-             "",
-             "**Nested calling and phasing are the defaults** as of this run, which is why these",
-             "numbers moved: SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5467,",
-             "with 59,413 SNV false negatives recovered, at no runtime or memory cost. `--no-nested`",
-             "and `--no-phased` restore the old behaviour. See",
-             "[nested-calling-design.md](nested-calling-design.md).",
-             "",
-             "**Two caveats that belong with these numbers.** The gain is a rich-panel effect: on the",
+             ] + mosaic + moved + [
+             "**One caveat that belongs with these numbers.** The gain is a rich-panel effect: on the",
              "4-haplotype tier-2 graphs nested calling is flat to 0.0005 *down* on ALL F1, because a",
              "small panel enumerates few of the long collapsing ALTs it exists to break up while the",
-             "extra-records cost still applies. And 0.15% of records carry a ploidy-coherence FILTER",
-             "(`nested_diploid` 2,458, `nested_unreachable` 5,000, `nested_haploid` 0), meaning the",
-             "child's ploidy and its parent's final genotype disagree; those calls are flagged rather",
-             "than corrected.",
+             "extra-records cost still applies. Parent/child ploidy incoherence, which cost 0.15% of",
+             "records a FILTER in earlier arms, is gone by construction: a nested chain is genotyped",
+             "at the ploidy its parent's settled genotype implies, so the three coherence FILTERs are",
+             "now an invariant check that fires zero times genome-wide.",
              "", "## Small variants (aardvark, GT)", ""]
 
     # JointIndel, not Indel: aardvark's plain Indel row is query-only (truth_total 0), so summing
