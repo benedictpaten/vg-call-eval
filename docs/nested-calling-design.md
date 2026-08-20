@@ -736,6 +736,81 @@ run** -- 117,047 records with identical content and an identical mosaic -- which
 protects the shared write path. Re-verified with the final binary after every edit: 0 differing records
 and 0 differing mosaic lines.
 
+#### Stage 9: post-linkage descent costs half again as much read I/O, and why
+
+Stage 8 shipped the coherence guarantee and the whole-genome run confirmed it holds. It also
+confirmed the price, and the price is disqualifying:
+
+| genome-wide, 24 contigs | inline | post-linkage descent |
+|---|---|---|
+| coherence flags | 7,458 | **0** |
+| records | 5,041,066 | 5,037,529 |
+| ALL F1 (autosomes) | 0.97034 | 0.97032 |
+| SNV F1 | 0.98373 | 0.98371 |
+| Indel F1 | 0.91952 | 0.91946 |
+| SV >=50 bp F1 | 0.54854 | **0.54901** |
+| **reads fetched** | **607,088,639** | **903,322,552 (+48.8%)** |
+| gbz-base subprocess spawns | 58,229 | 78,823 (+35.4%) |
+
+Every class shows the same signature -- precision up, recall down -- and lands in the fifth decimal
+except SV, which gains in the fourth. **The accuracy case is a wash, so the change rests entirely on
+the coherence guarantee, and at +48.8% read I/O it does not rest.** On a four-haplotype panel the
+sign even flips: chr20-4hap ALL F1 0.950239 -> 0.950177, the same rich-panel asymmetry nested calling
+itself showed when it shipped.
+
+The cost is locality, not work. Deferred descent makes *fewer* child calls than inline (14,804
+against 27,400 on chr20) but makes them in separate contig-wide passes -- a median of 1 + 4 sweeps,
+up to 1 + 6 -- and every window each pass touches re-spawns `gbz-base` against a 22 GB database. The
+cache hit rate stays at 99% throughout, so nothing thrashes; there are simply five sweeps where there
+was one. Isolated that costs 7% (chr20 205.2 s -> 219.5 s); under the three-way packing the scheduler
+uses it costs about 2x (chr20 205 s -> 416 s), because three processes each do five sweeps against one
+database.
+
+**The fix is to stop re-reading rather than to read less**, and what makes it possible is that the
+expensive object -- the per-read per-allele likelihood matrix -- does not depend on ploidy, while
+ploidy is the *only* thing an ancestor's genotype determines about a chain. Children are genotyped
+over their own full traversal set and never constrained to the parent's allele, which is the
+`--top-down` lesson, so scoring every chain once at both ploidies answers every question the barrier
+can ask, at every depth. Two measurements sized that redesign before any of it was built.
+
+**How many chains an unconditional sweep must visit**, counted from `vg snarls` on chr20 plus the
+reference path's 2,031,992 nodes. The reconstruction validates exactly against the caller: 165,408
+top-level snarls, the number the log reports.
+
+| reference-crossed chains, chr20 | |
+|---|---|
+| top level | 165,408 |
+| nested, depths 1-6 | 40,922 / 12,986 / 2,857 / 609 / 25 / 2 |
+| **nested total** | **57,401** |
+
+Descent considers 30,020 of those today -- 27,400 descended plus 2,620 skipped for want of a crossing
+allele -- so 27,381 sit in subtrees it prunes, and an unconditional sweep visits 1.91x the nested
+chains. That sounds disqualifying and is not: chain *visits* are the unit of work, and those go
+195,428 -> 222,809, **+14.0%**, or at most +29 s at chr20's measured 1.049 ms per visit. Against a
+five-sweep penalty of 14.5 s isolated and 211 s scheduled.
+
+The count also produced a sharper rule than "everything the reference crosses". A chain can only be
+reached by a genotype the barrier can settle on, and the barrier chooses among the parent's *candidate
+traversals* -- a bounded set, typically two to four, already in hand. So descend into a child iff any
+parent candidate crosses it: exact, and it prunes far harder than reference-crossing, which admits
+every chain the reference passes through whether or not the sample's alleles could go there.
+
+**What retaining a chain to the barrier costs**, measured by sizing the actual objects rather than
+pricing them -- `LinkageCollector::bytes()` exists because that same argument was once arithmetic
+there too. chr20, every nested chain descent makes: 27,404 chains, 65,409 traversals, 746,269 visits,
+211,167 genotype likelihoods, **87.0 MB**, or 3.18 kB a chain. At the ceiling of all 57,401 chains
+that is 182 MB on chr20 and roughly 550 MB on chr1 -- 5% and 8.6% of their peaks. Affordable, so the
+fallback of retaining only for children of movable parents is not needed.
+
+Two things that fell out of the measuring rather than the design. The per-chain figure is 3.18 kB and
+not the 2.52 kB the first run reported, because the first reporting placement printed at the end of
+the calling sweep, before the deferred passes had run, and so counted 11,166 chains of 27,404 -- an
+understatement of 2.3x in the number the whole design rests on. And retaining the `CallInfo` itself
+turns out to remove the obstacle that got the earlier re-genotyping attempt abandoned: `emit_variant`
+can then be called unchanged at render time, where reconstructing `AD`, `DP`, `GL`, `GQ`, `GQI`,
+`GQN`, `GP` and `DR` from a compact form would have needed the parallel rendering path task #45 was
+dropped over.
+
 #### Instrumentation
 
 143 lines across `graph_caller.{cpp,hpp}` and `linkage_model.{cpp,hpp}`, reported under `--progress` and
