@@ -282,6 +282,80 @@ have no phased parent at all, and 7 are the both-strands case whose GT cannot sa
 the second needs a ploidy-2 answer retained for every chain, which is a genotyping decision rather
 than a phasing one.
 
+## Every incoherence class is zero, and they were all one bug
+
+Stage 3 left four residual classes and this closes all of them. They turned out to be one mistake
+wearing four hats: **the existence of a buffered VCF line was standing in for whether the linkage
+layer needed updating.** Harmless while only line-bearing sites entered the layer; wrong from the
+moment stage 2 let collapsed sites in.
+
+| chr20 | stage 3 | fixed |
+|---|---|---|
+| carried on both parent strands | 440 | **0** |
+| carried on neither | 0 | **0** |
+| no phased parent | 19 | **0** |
+| bare haploid (strandless) GTs | 18 | **0** |
+| records with no phase at all | 75 | **0** |
+| nested sites placed on exactly one strand | 5,433 of 5,892 | **6,716 of 6,716** |
+| records | 117,097 | 116,965 |
+
+So a mosaic path exists for each strand through every nested snarl, which is what the exercise was
+for. And accuracy rises in every class against both stage 3 and the pre-refactor baseline:
+
+| chr20, aardvark GT | baseline | stage 3 | fixed |
+|---|---|---|---|
+| ALL | 0.96996 | 0.97040 | **0.97048** |
+| SNV | 0.98424 | 0.98433 | **0.98436** |
+| JointIndel | 0.91642 | 0.91816 | **0.91840** |
+| Insertion | 0.90783 | 0.90829 | **0.90843** |
+| Deletion | 0.92945 | 0.93241 | **0.93266** |
+| SV (truvari >=50 bp) | 0.51768 | 0.51838 | **0.51875** |
+
+ALL goes to 91,154/2,008/3,537 TP/FP/FN against a baseline 91,138/2,093/3,553 -- better on all three
+axes at once, so the 132 records cascading retraction drops were false positives.
+
+### The four causes
+
+1. **440 "carried on both parent strands".** The barrier *did* reach these, *did* compute
+   `copies == 2`, *did* find the retained ploidy-2 answer and *did* re-render with it -- then threw
+   the result away, because that answer collapses to the reference, so no line was buffered and
+   `last_emitted.buffer_thread < 0 || !wrote` returned before `respecify`. **The theory recorded in
+   the stage-3 section above -- that no ploidy-2 answer had been retained -- was wrong**, and was
+   disproved by reproducing the class on a fixture where adding `--genotype-snarls`, whose only
+   relevant effect is to force a line to be wanted, revised both chains correctly off
+   `alt_ploidy_info`.
+2. **19 "no phased parent".** Retraction never cascaded: dropping a chain left its descendants
+   emitted and pointing at an entry that no longer existed. This also explains the class's shape --
+   zero at generation 1, because a generation-1 child's parent is top level and never a pending
+   record, so it could never be the thing retracted.
+3. **75 records with no phase.** Two independent bugs in `respecify`: it never updated
+   `Entry::emitted`, and it never updated `Entry::position` -- while re-emitting at a different
+   ploidy changes the emitted allele set, and `flatten_common_allele_ends` advances POS by the prefix
+   every allele shares. The patch indices are keyed on (contig, POS), so those patches were not
+   declined, they were never looked up.
+4. **A hole stage 2 opened**: the `copies == 0` retraction was conditional on a line existing, so a
+   line-less chain the settled parent does not carry stayed in the layer at a contradicted ploidy.
+
+### What this says about the design
+
+The user's premise -- "the parent's traversals are always fully decided before the child is
+genotyped" -- is **not** what the code does, and every one of these bugs lived in the gap. Children
+are genotyped *and emitted* during the read sweep from the parent's pre-linkage genotype; the barrier
+only retro-fits, re-deriving `copies` and repairing what disagrees. Selecting between two precomputed
+answers is sound (the ploidy-2 answer really is always there), but the *retro-fit* has to be
+complete, and four separate places assumed a line was the unit of repair.
+
+The structural alternative -- retain every nested chain, emit nothing until the ploidy is settled,
+and `record()` once at the settled ploidy with no `respecify` at all -- would make all four
+impossible by construction rather than fixed one at a time, and would delete `respecify`,
+`blank_buffered_line`, the tombstone branch in `write_variants`, and the buffer handles on both
+`PendingRecord` and `EmittedAlleles`. It costs no extra read passes, since the `CallInfo` is already
+retained. That is the version worth building if this area is touched again.
+
+Counters now split by whether a line exists: a figure mixing records with entries that were never
+records cannot be read as a defect count, which is how 440 sites looked like a coherence
+disagreement when 433 of them had no line at all.
+
 ## Risks
 
 * **A settled pair with no VCF allele.** In traversal space the Viterbi can reach a traversal the
