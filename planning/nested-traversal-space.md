@@ -176,6 +176,63 @@ chain is reachable on one strand, the nested site is called at ploidy 1, and it 
 assertions were rewritten to the correct behaviour. This is the "emitted-site genotypes may move"
 risk below arriving as intended rather than as damage.
 
+## Stage 2 result
+
+Implemented: `record()` no longer runs inside the `add_variant` branch, so every genotyped snarl
+enters the layer and `emitted` says whether there is a line to patch. `PhaseCall` carries the same
+flag, so an unemitted parent is phased -- its children read their strand off it -- without entering
+anything that counts or patches records. That last part is load-bearing: the mosaic's site counts are
+index arithmetic over the vector it is handed, so a collapsed site inside a run would inflate it and
+break the invariant that the mosaic accounts for exactly the emitted records. It gets a filtered
+vector.
+
+The gate asked for strandless haploid records to fall from 292 toward zero. They do:
+
+| chr20 | baseline | stage 1 | stage 2 |
+|---|---|---|---|
+| bare haploid (strandless) GTs | 292 | 298 | **18** |
+| nested haploid records *with* a strand | 1,650 | 2,155 | **2,509** |
+| nested sites with no phased parent | 289 | 288 | **19** |
+| records with a strand the panel does not explain | 463 | 511 | **341** |
+| collapsed sites phased with no line | — | — | 101,864 |
+| linkage sites / arena | 117,148 / 14.11 MB | 117,210 / 15.77 MB | 219,246 / 29.04 MB |
+| wall / peak RSS | 168 s / 3.91 GB | 169 s / 3.18 GB | 205 s / 3.05 GB |
+
+And accuracy improves in every class, over stage 1 *and* over baseline -- which also retires the
+precision worry stage 1 raised, since false positives now land below where they started:
+
+| chr20, aardvark GT | baseline | stage 1 | stage 2 | vs baseline |
+|---|---|---|---|---|
+| ALL | 0.96996 | 0.96982 | **0.97041** | +0.00046 |
+| SNV | 0.98424 | 0.98428 | **0.98434** | +0.00010 |
+| JointIndel | 0.91642 | 0.91571 | **0.91816** | +0.00174 |
+| Insertion | 0.90783 | 0.90640 | **0.90829** | +0.00046 |
+| Deletion | 0.92945 | 0.92956 | **0.93241** | +0.00296 |
+| SV (truvari >=50 bp) | 0.51768 | 0.51301 | **0.51903** | +0.00135 |
+
+ALL false positives: 2,093 baseline, 2,130 stage 1, **2,014** stage 2.
+
+**The mosaic wildcard half of the gate needs its metric corrected rather than reported as missed.**
+Raw wildcard segments went 437 -> 588 -> 616 and wildcard *sites* 2,402 -> 2,964 -> 2,868, so the
+count rose against baseline. The cause is not worse phasing: 859 more records gained a strand than at
+baseline, and a nested haploid record written `1|.` puts a `*` on its empty strand, because the
+mosaic spells "no sequence on this haplotype here" and "the panel does not name a haplotype here"
+with the same character. The count that means only the second thing fell below baseline, 463 -> 341.
+Task #43 should not use the raw wildcard count as its metric; the two cases need distinguishing in
+the mosaic format first.
+
+**Two costs, both real.** The arena is 29.04 MB against 15.77 MB and the linkage pass 42.8 s against
+18.8 s, because the site count nearly doubled -- 219,246 against 117,210, the difference being every
+snarl that collapses to the reference. Wall clock is +22%; peak RSS did not move. Whether recording
+*every* collapsed snarl is necessary, or only those with children, is the obvious lever if this
+becomes a problem at whole-genome scale.
+
+**A coherence class came back, and it is stage 3's to remove.** "Diploid under the settled parent"
+was 0 in stage 1 and is 440 here. Nothing regressed: recording collapsed parents means far more
+children now *have* a checkable parent (3,969 nested sites in the first generation against 765), so a
+disagreement that was previously invisible is now counted. Deriving ploidy and strand from one
+computation is what makes it unrepresentable.
+
 ## Risks
 
 * **A settled pair with no VCF allele.** In traversal space the Viterbi can reach a traversal the
