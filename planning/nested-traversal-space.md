@@ -139,9 +139,13 @@ slightly more, so the F1s move a little and mostly down:
 ALL goes 91,138/2,093/3,553 to 91,148/2,130/3,543 TP/FP/FN: ten more true calls bought with
 thirty-seven more false ones. That is the "genotypes may move" risk landing as a small, *directional*
 cost rather than as noise, and it is the one thing here to re-check genome-wide rather than accept
-from one contig. Two residual classes are also worth naming rather than burying: 550 settled
-genotypes name a traversal with no ALT and keep their called genotype, and 426 records are phased on
-the line's alleles instead of the model's. Both are the same underlying fact -- the model can prefer
+from one contig. Two residual classes are also worth naming rather than burying: settled genotypes
+that name a traversal with no ALT and keep their called genotype, and records phased on the line's
+alleles instead of the model's. **The figures first recorded here -- 550 and 426, and later 509 and
+1,781 -- were all wrong**, because the report was inside a block guarded on the generation having
+nested sites while the counters are also incremented from the diploid chain sweep, which runs
+regardless. The true chr20 figures are 1,472 and 5,015, a 2.9x and 2.8x undercount. See the section
+on what those sites turned out to be. Both are the same underlying fact -- the model can prefer
 an allele the emitter did not write -- and stage 2 is where that stops being invisible.
 
 The mask population is gone because a mask over *candidate traversals* does not need the parent to
@@ -355,6 +359,53 @@ retained. That is the version worth building if this area is touched again.
 Counters now split by whether a line exists: a figure mixing records with entries that were never
 records cannot be read as a defect count, which is how 440 sites looked like a coherence
 disagreement when 433 of them had no line at all.
+
+## What the unrenderable genotypes are, measured
+
+The class where the model settles on a traversal the record has no ALT for was carried for three
+stages as a curiosity with a reported figure of a few hundred. Both halves of that were wrong.
+
+**The count was undercounted 2.9x by a reporting bug.** `++unrenderable` is incremented from the
+diploid chain sweep as well as the nested one, but the report sat inside
+`if (phasing_out != nullptr && !deferred_nested.empty())`, so every pass without nested sites
+incremented and never printed. chr20's true figure is **1,472 events at 1,465 distinct positions**,
+against a reported 507. The phase-fallback counter was undercounted the same way, 5,015 against 1,781.
+
+**And they are not a curiosity.** Every one is a genotype change the layer wanted and could not
+apply -- the `best == before` test comes first, so a site only reaches the render attempt if the
+model disagreed with the call. Joining the dumped positions against aardvark's per-record verdict:
+
+| group | judged | FP rate |
+|---|---|---|
+| the model wanted to move it and **could not** | 545 | **61.7%** |
+| the model wanted to move it and **did** | 1,003 | 11.0% |
+| every judged record | 90,908 | 1.8% |
+
+The unmatched comparison is confounded, since the layer only touches low-confidence sites, so the
+control is GQ-matched: **336 false positives observed against 79.3 expected at matched confidence,
+a 4.24x enrichment**, consistent across every GQ bin (63.5% against 20.7% at GQ<1, 64.0% against
+14.3% at GQ<20). **455 of chr20's 2,008 false positives -- 22.7% -- sit at these 1,465 positions.**
+Mostly indels (1,144), then SVs (263), few SNVs (122).
+
+So the earlier speculation that the frequency prior was overruling the reads, and that dropping the
+change was therefore a feature, is **not supported**: where the layer can act it lands at 11% FP,
+and where it cannot the surviving call is wrong 62% of the time.
+
+### Which fix, and why the obvious one does not reach it
+
+**1,362 of the 1,465 are top-level diploid sites, not nested chains.** Adding the ALT at render time
+needs the retained `CallInfo`, which exists only for nested chains, so it covers 103 of them. The
+option that reaches the bulk is to widen the ALT list *at emission*: emit an allele for every
+panel-carried traversal, not only the called ones, so every choice the layer can make is renderable
+by construction. The data is already there at that point -- the genotyper scores every candidate
+traversal, which is exactly why `AD` does not sum to `DP`. The costs are a larger VCF and the return
+of records carrying an ALT no genotype names, which is the `INFO/NGT2` problem the single-sweep
+design removed.
+
+Two limits on the measurement, both real. Only 545 of the 1,465 sites fall inside the benchmark
+confident regions, so 63% are unjudged and not at random. And "FP" says the emitted call is wrong; it
+does not prove the model's preferred allele is right, only that the status quo is bad. The 11% figure
+where the layer can act is the best available evidence that its preferences are good.
 
 ## Risks
 
