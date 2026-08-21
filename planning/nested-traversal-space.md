@@ -108,12 +108,88 @@ Because the disagreement becomes unrepresentable rather than merely rare:
    This design is what makes it possible — the parent's per-strand traversal is exactly what a path
    needs and exactly what is not recorded today.
 
+## Stage 1 result
+
+Implemented and gated on chr20 against `a27149728`. Two structural results arrived before any
+accuracy number and stand on their own:
+
+| chr20 | baseline | stage 1 |
+|---|---|---|
+| crossing masks the sweep could not compute | 381 | **0** |
+| coherence disagreements | 3 | **0** |
+| arena | 14.11 MB | 15.77 MB (+11.7%) |
+| records | 116,958 | 117,048 |
+| genotypes changed | 8,855 | 7,742 |
+| bare haploid (strandless) GTs | 292 | 298 |
+| records left unphased | 0 | 6 |
+| wall / peak RSS | 168 s / 3.91 GB | 169 s / 3.18 GB |
+
+Accuracy holds, which is what the gate asked. Recall rises in every class and precision falls by
+slightly more, so the F1s move a little and mostly down:
+
+| chr20, aardvark GT | baseline | stage 1 | delta |
+|---|---|---|---|
+| ALL | 0.96996 | 0.96982 | −0.00014 |
+| SNV | 0.98424 | 0.98428 | +0.00004 |
+| JointIndel | 0.91642 | 0.91571 | −0.00072 |
+| Insertion | 0.90783 | 0.90640 | −0.00143 |
+| Deletion | 0.92945 | 0.92956 | +0.00012 |
+| SV (truvari ≥50 bp) | 0.51768 | 0.51301 | −0.00467 |
+
+ALL goes 91,138/2,093/3,553 to 91,148/2,130/3,543 TP/FP/FN: ten more true calls bought with
+thirty-seven more false ones. That is the "genotypes may move" risk landing as a small, *directional*
+cost rather than as noise, and it is the one thing here to re-check genome-wide rather than accept
+from one contig. Two residual classes are also worth naming rather than burying: 550 settled
+genotypes name a traversal with no ALT and keep their called genotype, and 426 records are phased on
+the line's alleles instead of the model's. Both are the same underlying fact -- the model can prefer
+an allele the emitter did not write -- and stage 2 is where that stops being invisible.
+
+The mask population is gone because a mask over *candidate traversals* does not need the parent to
+have emitted anything — which also closed task #67 without it being worked on. Every coherence
+bucket reads zero with no special-casing, which is the precondition stage 3 needs.
+
+**The gate found a real defect, and the way it surfaced is worth recording.** Small-variant scoring
+returned all zeros: aardvark aborted in region generation on 48 chr20 records whose GT named an
+allele the record had no ALT for (`.|2` on a record with one ALT). The cause was the haploid nested
+regenotyping path, which built its `Change` — and, through `nested_regenotyped`, its `PhaseCall` —
+straight out of compact indices with no render step. It was the one site of four that stage 1 missed,
+and nothing typed it: a compact index is a plausible small integer.
+
+Three things came out of it, all kept:
+
+* the render at that site, so all four sites now go through `vcf_allele_of`;
+* a guard in `apply_linkage_change`/`apply_phasing` that declines any patch naming an allele past the
+  ALT list, with declines counted and reported by reason rather than silently dropped;
+* `render_phase_pair`, because declining a *phase* patch costs the record its strand and its phase
+  set. When the settled pair has no ALT the phase now names the pair the line actually carries. That
+  invariant — a phased GT is always a permutation of the line's own — is what `apply_phasing` has
+  always checked, and stage 1 had started violating it on 1,627 chr20 records.
+
+The regression test is one awk line and belongs in the suite permanently: **no GT may name an allele
+index beyond its record's ALT list.**
+
+**Stage 1 also fixed a mis-call the test suite had pinned.** `18_vg_call.t`'s nested haploid fixture
+asserted the parent came out homozygous for a chain-spanning deletion, with a comment conceding the
+call was wrong and only pinned because it was what the code did. In traversal space the parent comes
+out heterozygous, which is right — the reads are from one deleted and one crossing haplotype — so the
+chain is reachable on one strand, the nested site is called at ploidy 1, and it names its strand. The
+assertions were rewritten to the correct behaviour. This is the "emitted-site genotypes may move"
+risk below arriving as intended rather than as damage.
+
 ## Risks
 
 * **A settled pair with no VCF allele.** In traversal space the Viterbi can reach a traversal the
   emitted record has no ALT for — impossible today, because the space *was* the emitted alleles. The
   patch cannot add an ALT, so such a change is skipped and counted rather than applied. This is new
   behaviour and needs the count reported, not hidden.
+* **Every write into a VCF allele field is a place the refactor can be incomplete.** Stage 1 renders
+  compact → VCF at each of the four `Change`/`PhaseCall` construction sites, and missing one is not a
+  compile error and not a test failure: it writes a plausible small integer into a GT. Stage 1 did
+  miss one — the haploid nested regenotyping path, which wrote compact indices into both the genotype
+  patch and, via `nested_regenotyped`, the phase patch. Audit by grepping for assignments to
+  `allele_i`/`allele_j`/`allele_first`/`allele_second` and checking each one passes through
+  `vcf_allele_of`. The invariant that catches it downstream is cheap and belongs in the test suite:
+  **no GT may name an allele index beyond its record's ALT list.**
 * **Emitted-site genotypes may move**, because the model now sees panel-carried traversals that
   collapsing previously merged. That is the point, but it makes stage 1 a real A/B rather than a
   refactor.
