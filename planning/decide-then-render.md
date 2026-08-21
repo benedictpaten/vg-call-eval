@@ -1,0 +1,510 @@
+# Decide-then-render, haplotype-frame linkage, and parent conditioning
+
+Successor to `nested-traversal-space.md`, which is implemented and validated on chr20 through
+`4371c9b67`. That plan moved the linkage layer into the genotyper's own allele space; this one moves
+the *ordering* of the pipeline to match, so that a genotype is decided before a record is rendered
+and linkage runs along a haplotype rather than along the reference.
+
+Designed by three independent passes under different framings (risk-first, value-first,
+minimal-diff), each scored by separate feasibility, gate-quality and completeness reviewers, then
+synthesised. The reviewers scored feasibility 5/10 across all three first drafts, and the corrections
+that produced are in the section below — several planning premises turned out to be contradicted by
+the code, including two of my own.
+
+
+Working branch `read-likelihood-genotyping`, base `4371c9b67`. Precedent for format and tone: `planning/nested-traversal-space.md`.
+
+## What is wrong now
+
+Three things, in the order the target model puts them.
+
+**Records are rendered before the genotype is decided.** `emit_variant` writes the line during the parallel read sweep from the pre-linkage genotype, and linkage afterwards patches the text it finds by `(contig, POS)`. On chr20 that costs, all [V]: 1,465 sites settle on a traversal the record has no ALT for, so the change is dropped — their false-positive rate is 61.7% against 11.0% where the layer *can* act, a 4.24x enrichment over GQ-matched records, and 455 of the contig's 2,008 false positives sit there. 1,362 of the 1,465 are top-level, whose render inputs are not retained, so "add the ALT at render time" reaches only 103 of them. 4,490 records reach a final genotype of 0/0 and there is no mechanism to retract a top-level line. `is_symbolically_reference` is evaluated at `src/graph_caller.cpp:2098` against the pre-linkage genotype and never revisited; the comparison itself is correct and recursive, only its timing is wrong. The recall mirror — a site whose pre-linkage genotype collapsed to reference, which linkage then settles on a non-reference genotype — produces no line and is not counted; nested chains have a re-render path (511 gained on chr20) and top-level sites have none, so for them it is architecturally forced [A].
+
+**Linkage is a chain along a haplotype, and the code runs it in the reference frame.** Sites are sorted by reference POS (`src/linkage_model.cpp:2103-2109`) and the transition gap is a reference-POS difference (six sites: `:353, :489, :728, :853, :935, :1046`, all verified this session). Nested sites are held out of the diploid runs entirely (`src/linkage_model.cpp:1557-1571`, verified) and re-pooled by `(contig, strand)`, so a nested site links against same-depth sites under unrelated parents [A], and 12,516 chr20 children are skipped outright for having no reference path through them.
+
+**The parent's genotype conditions nothing.** It selects the ploidy, the strand-group key, and whether the entry exists. The child's posterior is bit-for-bit identical for any two parent genotypes implying one copy on the same strand [A]. Target step 3 is the one part of the model the code does not implement at all.
+
+Against that, four commits (`c6ed1ed3d..4371c9b67`) are pushed and chr20-validated: every genotyped snarl now reaches the linkage layer, ploidy and strand are derived once from which parent traversal carries the chain, and four incoherence classes that all came from treating "no VCF line was written" as "nothing to record" are closed. chr20 sits at ALL F1 0.97048 against a pre-refactor 0.96996, FP 2,008 against 2,093, every nested site on exactly one strand (6,716 of 6,716), no bare haploid GTs, no unphased records. None of the four is validated beyond chr20.
+
+## Corrections to the backlog, verified this session
+
+Six planning premises are contradicted by the code. Each changes a stage, so they are recorded before the stages rather than inside them.
+
+**The retention instrumentation does not exist.** `git status` is clean apart from submodules; `grep -n "RETAIN\|retained_bytes\|would_retain\|TEMPORARY" src/graph_caller.cpp src/graph_caller.hpp` returns nothing. `src/graph_caller.cpp:30-53` is the descent-depth histogram (`g_descent_skipped_no_ref`, `g_descent_skipped_no_copy`), and `:2286-2330` is the `linkage_collector->record` call. The only retention meter in the tree is `LinkageCollector::bytes()`, reported at `src/graph_caller.cpp:699`. Stage 6 writes the sizing from scratch; it is not free.
+
+**Retaining "the allele strings plus a bit" cannot render a record.** Every FORMAT field comes from `snarl_caller.update_vcf_info` (`src/graph_caller.cpp:2207` → `src/read_likelihood_caller.cpp:345-536`), which maps emitted alleles back to matrix columns by *structural comparison of `SnarlTraversal` objects* (`:390-399`), enumerates GL over the emitted allele count and looks each entry up in `info->genotype_lls` keyed by the sorted matrix-column multiset (`:444-452`), and derives QUAL by renormalising the all-reference posterior over that same map (`:508-520`). AD is `Number=R` over the emitted alleles. Rebuild the ALT list and every one of those has to be re-derived from the CallInfo. The minimum retention is the CallInfo plus the traversals plus the snarl — which is exactly what `PendingRecord` already holds (`src/graph_caller.hpp`, fields verified: `snarl, ref_path_name, ref_offset, travs, ref_trav_idx, genotype, ploidy, call_info, record_key, parent_record_key, parent_crossing, crossing_known, parent_trav, generation, dropped, emitted, buffer_thread, buffer_index`) and what the barrier already consumes at `src/graph_caller.cpp:3992`. There is no cheaper route; the design question is only whether that retention fits, not what to retain.
+
+**`apply_linkage_change` is not only patch machinery.** `src/graph_caller.cpp:977-1030` recomputes GQ as the phred-scaled complement of the posterior, applies the `explained_share` discount, caps at GQI (the comment records that the discount alone does not make `GQ <= GQI` hold), rewrites GQN, and re-labels the `lowconf` FILTER that was set from the pre-linkage GQN. `test/t/18_vg_call.t:207-208` already asserts `GQ <= GQI`. A render pass fed the settled genotype must reproduce all of that or the deletion silently reverts post-linkage quality to per-site quality.
+
+**`-1` in `haplotype_allele` is the escape state, not exclusion.** `src/linkage_model.cpp:139-155`: `ai < 0` gives `marginal[ai] * escape`, and both negative gives `overall * escape * escape`. Setting a non-carrying row to `-1` makes it a free wildcard at escape cost — a *weaker* constraint, not a restriction. The hard-constraint mechanism already in the tree is emission zeroing (`src/linkage_model.cpp:648`, `emissions[t][a * m + b] = 0.0`). Parent conditioning must use that.
+
+**The `by_key` staleness is live, and the depth-2 strand story is not settled.** `src/linkage_model.cpp:1900-1908` is an 8-sweep loop whose own comment says it exists "so a nested site whose parent is itself nested finds its parent already placed". Inside it, `by_key[pc.record_key] = ParentPhase{... pc.trav_first, pc.trav_second ...}` (~`:1984`) executes *before* the block that assigns those fields (~`:1990-2006`), and `PhaseCall::trav_first`/`trav_second` default to `-1` (`src/linkage_model.hpp:422-423`). Separately, `linkage_phased` accumulates across generations (comment at `src/graph_caller.cpp:617-619`), so `by_key` is also seeded at `:1862-1866` with *correct* values from earlier generations. Consequence: a depth-2 site reading the seeded entry gets `parent.trav_first == parent.trav_second` (a nested parent has ploidy 1) and matches the first branch, so strand 0 always; a depth-2 site whose parent's in-loop insert has already overwritten that entry reads `-1`, matches nothing, and becomes *strandless*. Which one fires depends on the order of entries within `pending`, which derives from insertion order in the parallel sweep. So the measured 1,447/1,116 skew (ratio 1.30) may be a mixture of two mechanisms and may itself be run-dependent. Stage 3 measures the split before it fixes anything. `ParentPhase` is also a plain aggregate with no default member initialisers, so adding a field and updating only one of the two construction sites compiles clean and value-initialises the other to 0 — reproducing exactly the bug being fixed.
+
+**The Poisson depth divisor is self-cancelling as written, so the "2x" is not supported.** `src/allele_likelihood.cpp:940-942` sets `depth_rate = local_read_rate(ranges) / effective_ploidy` where `effective_ploidy` is the site's ploidy, and `expected_reads` (`:53-61`) sums one term *per copy in the genotype*. So a diploid site expects `(local/2) × 2 = local × (len + L - 1)` and a nested haploid site expects `(local/1) × 1 = the same`. The copy count appears once in each place and cancels; today `DR` should read ≈1.0 at both classes, and changing the divisor to the region ploidy would *create* a 2x gap at nested sites (`DR` → ≈2.0), not close one. Also: `params.depth_ploidy` is assigned nowhere in `src/` (only the default `= 2` at `src/allele_likelihood.hpp:626` and two reads), so the header's claim that `-d`/`--ploidy-regex` feed it is already false. And `depth_weight` defaults to `0.1` (`src/subcommand/call_main.cpp:355`, plumbed at `:1503`), so the term is **on by default** and any change here moves default output. Stage 16 is therefore a measurement, and the code change is conditional on its sign.
+
+Three smaller ones. The mosaic already declares a version (`src/graph_caller.cpp:1102`, `#mosaic-version 2`), asserted by `test/t/18_vg_call.t:467,480,487`. The VCF already uses `.` for "the strand that carries nothing" (`doc/read-likelihood-genotyping.md:553-557`, which also records why `*` was rejected there), so spelling the mosaic's empty strand `.` is consistent rather than novel. `LinkageModel` never reads `Site::ploidy`: model selection is `chain_ploidy = entries[indices.front()].ploidy` at `src/linkage_model.cpp:1600`, consumed at `:1644` and `:1729`, and the header at `:176` says "A whole chain shares one ploidy". Folding a ploidy-1 site into a diploid chain is a modelling change, not plumbing.
+
+Finally, two circulating chr20 record counts conflict — 105,251 and 116,965 — and no gate should be written against either until one run settles it. Stage 1 reports it.
+
+---
+
+## Measured while planning, and two corrections to the brief
+
+**Retention was priced before the plan was written, and the answer brackets rather than settles it.**
+Temporary instrumentation summed the bytes a `PendingRecord` would hold for every snarl reaching
+`emit_variant` on chr20, with nothing retained: **219,607 snarls, 296.6 MB, ~1,350 B each.** The
+snarl count matches the 219,593 recorded linkage sites, which is the cross-check stage 7 asks for.
+Two caveats, both load-bearing:
+
+* The nested/top-level split from that run is **wrong** and must not be quoted. The test was
+  `nested_context.active || current_generation > 0`, and `nested_context.active` is set only for
+  `copies == 1` chains, so ploidy-2 nested chains were counted as top-level (192,207 reported against
+  a true 165,408). Only the total is sound.
+* It disagrees with the older 3.18 kB/chain anchor by 1.8x, because the two use different sizing
+  models — 32 B per visit and 48 B per map node here, something heavier there. On chr20 the two give
+  297 MB and ~620 MB. Projected to the largest contig at ~3.4x, 1.0 GB against 2.1 GB.
+
+So the decision band in stage 7 (retain unconditionally / retain-and-release / abandon) is narrower
+than the disagreement between the two estimates, which is exactly the case stage 7's own caveat says
+estimates cannot settle. **Stage 7 stands, but its purpose is narrowed to arbitrating the two sizing
+models against `LinkageCollector::bytes()`; the real answer is stage 8's measured peak RSS.**
+
+**The denominator is packing density, not a per-contig ceiling.** `docs/wgs-performance.md:75-78`
+gives the per-contig worst case as 6.1 GB (chr3), and line 4 gives the machine as 32 GB with several
+contigs packed at once under a budget. Adding ~1–2 GB per contig therefore costs *concurrency*, and
+so wall clock, rather than making any contig infeasible. The "24 GB budget" figure the plan text uses
+below is not documented anywhere and should be read as the 32 GB machine under `--budget-gb`.
+
+**Two backlog items in the brief were wrong, and the plan's corrections section is right to reject
+them.** Both were passed to the plan as `[A]` and are now verified refuted:
+
+* *Restricting the child's panel rows by setting them to `-1`* would **loosen** the model, not
+  restrict it. `src/linkage_model.cpp:139-155` gives a `-1` row `marginal[ai] * escape` — a free
+  wildcard at escape cost. The hard-constraint mechanism already in the tree is emission zeroing
+  (`src/linkage_model.cpp:648`). Stage 19 must use that, and any description of parent conditioning
+  as "restrict the panel rows" is misleading about what the code would do.
+* *The Poisson depth term does not miscalibrate by 2x with handed-down ploidy.*
+  `src/allele_likelihood.cpp:942` sets `depth_rate = local_read_rate / effective_ploidy`, and
+  `expected_reads` (`:53-61`) sums one term **per allele in the genotype** before multiplying. The
+  division and the summation cancel. Stage 20 keeps its measure-first shape, but the defect it was
+  written to chase is not there as described.
+
+---
+
+# Phase I — instruments and small fixes (chr20-gated)
+
+## 1. Byte-reproducible record order
+
+**Goal.** Make two runs of one binary produce identical bytes. Six later gates are "output must not move", and that gate is not evaluable today: 72 chr20 record pairs sharing a position swap between runs [V].
+
+**Changes.** `src/graph_caller.cpp:768-772`: the `std::sort` comparator over `all_variants` returns on `(contig, position)` only and `std::sort` is not stable, so records sharing a POS come out in per-thread-buffer concatenation order. `add_variant` files under `make_pair(make_pair(var.sequenceName, var.position), dest)` (`:597`). Extend the buffer key to `(contig, position, id)` and order on all three; `out_variant.id = print_snarl(snarl, false)` (`:2175`) is intrinsic to the site. Two consequential edits the key change forces: `linkage_changes.find(v.first)` and `linkage_phasings.find(v.first)` (`:815`, `:828`) are keyed `pair<string,size_t>` and must follow. Extract the comparator to a non-static, header-declared function so it is linkable from a unit test.
+
+Order does not affect which record a patch lands on: `write_variants` already re-hashes the ID column per line and matches by `record_key` (`:790-800`), lazily and explicitly because "several records can share a `(contig, position)`, and every patch below must land on its own record".
+
+**Scope limit.** `out_variant.id` is `print_snarl` only on the FlowCaller path. `VCFGenotyper` sets it from the input VCF (`:3120`), commonly `.`, so this stage does not make `vg call -v` or `vg deconstruct` reproducible. Say so in the commit rather than claiming the general property.
+
+**Gate.** Baseline `4371c9b67`. (i) Two chr20 runs, same flags, `-t 8`: `cmp` on the VCF returns 0, and separately on the mosaic. (ii) `grep -v '^#' | sort | md5` identical to `4371c9b67`'s — order moved, content did not. (iii) Duplicate `(contig, POS, ID)` triples counted and reported as 0; without this the key looks total while it is not, and stages 8, 9 and 12 inherit an unproven premise. (iv) Report the chr20 emitted-record count, to settle 105,251 vs 116,965. (v) `vg test` (830) and `test/t/18_vg_call.t` (302) pass.
+
+**Tests.** Unit test on the extracted comparator: it must be a strict weak ordering that separates two records with equal `(contig, position)` and different IDs, and sorting every permutation of a small vector must yield one order. This fails today for the right reason — the current comparator returns false in both directions, so output is a function of input permutation. `src/unittest/` has no `graph_caller.cpp` (verified: only `allele_likelihood.cpp`, `allele_likelihood_scoring.cpp`, `linkage_model.cpp`), so this stage creates it. **Do not add a fourth TAP determinism test:** `test/t/18_vg_call.t:370, 374, 402` already assert thread-count independence and already pass, which is direct evidence the in-tree fixtures do not produce ties. Record that in the commit; the chr20 `cmp` is the gate.
+
+**Output moves:** yes (order only). **Reversibility:** one comparator plus two map key types; clean revert.
+
+## 2. The mosaic stops asserting things it cannot support
+
+**Goal.** Two defects that make the strand gates in stage 3 and the phasing gates in phase II unmeasurable. The mosaic spells "no sequence on this haplotype here" and "the panel cannot name a haplotype here" with one character, which is why #43's metric is unusable — raw wildcard segments rose 437 → 616 across the refactor while the count that means only the second thing fell 463 → 239. And a nested site's panel haplotype is copied from the parent and never checked against the child's own settled allele, so the mosaic can name a haplotype that demonstrably does not carry it. That second item is the one backlog bug no candidate plan scheduled.
+
+**Changes.** (a) `src/graph_caller.cpp:1171-1173` writes `*\t*` under the single condition `hap == LinkageModel::WILDCARD`, so the two meanings are indistinguishable *at the writer*. They are set apart upstream — the deliberate empty strand of a nested haploid site carries `pc.nested_strand >= 0` (`src/linkage_model.cpp:1975-1982`), an unexplained strand does not — so the discriminator must be carried to the writer on `PhaseCall`. Emit `.` for the empty strand (matching the VCF's existing meaning, `doc/read-likelihood-genotyping.md:553-557`) and keep `*` for panel-unexplained. Bump `#mosaic-version` from 2 to 3 (`src/graph_caller.cpp:1102`) and update the header note at `:1114` and the column table at `doc/read-likelihood-genotyping.md:433`. Note the `gbwt_node` columns already use `.` for unresolvable (`:435`), so a consumer splitting on column index is safe and one grepping for `.` across columns is not.
+
+(b) After step three moves a nested site's genotype (`src/linkage_model.cpp:2151-2185` updates traversals and alleles but not `hap_first`/`hap_second`), validate: if the haplotype named on a strand does not carry the settled compact allele in `hap_arena`, drop that strand to WILDCARD and count it. Propagate `PhaseCall::order_arbitrary` from parent to child, which today is set only in the diploid chain path.
+
+**Gate.** Baseline stage 1. (i) The split reconciles against an independently produced number: the two new counts must sum to today's single wildcard count, and the panel-unexplained half must equal the separately reported figure (239 on chr20). Disagreement means one of the two code paths is wrong. Report both counts and the sum; do not gate on equality between *sites* and *records*, which are different populations — normalise to segments before comparing. (ii) The new counter "nested sites whose inherited haplotype does not carry the settled allele" is measured (unknown today, predicted > 0) and the panel-unexplained count then **rises by exactly that number**. Gate on the exact rise, not on the count falling: this stage deliberately claims less than before. (iii) VCF byte-identical to stage 1 — the mosaic is a separate file and no VCF field is touched. (iv) Harness consumers updated in the same change: `scripts/wgs/concat_mosaic.sh`, `scripts/wgs/mosaic_vcf_agree.py`, `scripts/wgs/nested_strand_check.py`, `scripts/tier2/mosaic_switches.py`, `scripts/tier2/phasing_benchmark.py`, each asserting the version.
+
+**Tests.** Unit: a nested site whose parent's chosen haplotype carries allele A with the child settling on B — assert the emitted hap is WILDCARD and the counter increments. Fails today: the hap is asserted regardless. TAP on the nested fixture: both characters appear where both cases exist. Fails today because `.` never appears. `test/t/18_vg_call.t:480` (`version == 2`) and `:487` (exact header key set) must be updated in the same commit — they are the tests that prove the format changed.
+
+**Output moves:** mosaic yes, VCF no. **Reversibility:** two commits; (a) is the format change with external consumers, keep it separate from (b).
+
+## 3. Strand below depth 1: attribute first, then fix
+
+**Goal.** Fix the depth ≥ 2 strand defect and the two mechanisms behind it. Roughly 166 chr20 records carry the wrong haplotype [V], and where the parent sits on strand 1 the child inherits `hap_first = WILDCARD` while the VCF asserts `a|.` — the two outputs contradict each other for the same record. The stage is split because, per the corrections above, the mechanism is not settled.
+
+**Changes, in order.**
+
+3a, instrumentation only, no behaviour. Report, per depth ≥ 2 site: whether its parent's `by_key` entry came from the accumulated seed (`src/linkage_model.cpp:1862-1866`) or from an in-loop insert; the resulting strand (0, 1, or none); and the sweep index at which it was placed. This partitions the population between "always strand 0" and "strandless", and it tells us whether the 1,447/1,116 skew is stable across two runs. If the strandless class is large, the headline claim "depth ≥ 2 strand is always reported as 0" is wrong and both later gates need re-derivation before the fix lands.
+
+3b, the fixes. (i) Move the in-loop `by_key` insert (~`src/linkage_model.cpp:1984`) below the block that assigns `pc.trav_first`/`pc.trav_second` (~`:1990-2006`). (ii) Add `int8_t nested_strand` and `bool order_arbitrary` to `ParentPhase` (`src/linkage_model.cpp:1843-1859`) and populate them **at both construction sites** — `:1862-1866` and the moved in-loop insert. The struct is a plain aggregate; a partial update value-initialises to 0 and silently reproduces the strand-0 skew, so the compiler will not catch this and a reviewer must. (iii) In the strand derivation (`:1946-1952`), when the parent's own `ploidy == 1` and its `nested_strand >= 0`, take the parent's strand rather than running the identity match, and take the hap from whichever slot is not the wildcard.
+
+3c, separately: `VCFOutputCaller::resolve_linkage()` (`src/graph_caller.cpp:601-604`) calls `resolve_linkage_generation(0, true)` and entries above generation 0 are skipped (`src/linkage_model.cpp:1512`), so any path reaching `write_variants` without `run_deferred_descent` drops every nested site from linkage, phasing and the mosaic. Loop generations there, re-reading `max_generation()` each pass and passing `last` only on the final one, as `run_deferred_descent` already does (`:3788`, `:4092`). **The fix is in `resolve_linkage()`, not `LinkageCollector::resolve()`** — that method (`src/linkage_model.hpp:478`) is called only from `src/unittest/linkage_model.cpp:362, 380, 399, 400, 421, 422`, so looping it changes test behaviour and leaves the shipped hole open.
+
+**Gate.** Baseline stage 2, all chr20. (i) Records at depth ≥ 2 with `nested_strand == 1` rise from the 3a figure (predicted 0) to non-zero. (ii) A floor so that "place nothing" cannot pass: nested sites placed on exactly one strand must not fall below 6,716 of 6,716, and the placed/unplaced split at depth ≥ 2 must be reported against 3a's. (iii) Zero records where the VCF names an allele on a strand while the mosaic gives that record `*` on both strands — measurable only because stage 2 split the character, and using `scripts/wgs/nested_strand_check.py`, which walks per-strand wildcard intervals; **not** `mosaic_vcf_agree.py`, whose own docstring says it checks arity and phase-set correspondence. (iv) The half-called split: report it, but do not gate on the asserted 1.00 ± 0.10 band. On n ≈ 2,563 a binomial null gives σ ≈ 25, i.e. ±0.04, and the strand-0/strand-1 asymmetry can also come from the Viterbi's own ordering convention and `order_arbitrary`; a band derived from 3a's measurement, or a report, is honest and 1.10 is not. (v) Accuracy A/B: ALL F1 within 0.0005 of 0.97048, FP not above 2,060. Flipping which side of `a|.` an allele sits on does not change an unordered genotype — but it *does* change which `by_strand` group the site joins and therefore which haploid chain links it (`src/linkage_model.cpp:2011`), so a larger move means the regrouping is doing more than relabelling, and that is the finding. (vi) chr20 phase-block count reported either side (22 today).
+
+**Tests.** Unit, extending the existing case at `src/unittest/linkage_model.cpp:523`: a diploid parent, a nested child placed on strand 1, a grandchild off that child; assert the grandchild's `nested_strand == 1` and its hap is not WILDCARD. Fails today two ways — the identity match cannot return 1 when `trav_first == trav_second`, and the strand-1 inheritance sets `hap_first = WILDCARD`. Unit: a parent and child resolving in one pass; assert the child takes the parent's strand. Fails today — the parent's in-loop entry carries `-1/-1`, no branch matches, and the site lands in `unplaced_no_strand`. Unit for 3c: `resolve_linkage_generation` over a two-generation entry set produces a PhaseCall for both generations; fails today at the `:1512` filter. The collector is free of graph types, so none of these needs a fixture graph.
+
+**Output moves:** yes (3b, 3c may). **Reversibility:** four commits (3a instrumentation, then i/ii/iii together since they share a struct, then 3c). 3a is discarded after 3b lands.
+
+## 4. Ploidy provenance
+
+**Goal.** Three ways a site's copy number can be wrong with no visible symptom. A nested record called at ploidy 2 inside a haploid `--ploidy-bed` interval is a well-formed diploid GT; chr20 exercises no ploidy region at all, so only chrX can show it.
+
+**Changes.** The mechanism is not the one the backlog names. `child_ploidy` already caps at the parent's ploidy (`src/graph_caller.cpp:4643`), so a child cannot exceed its parent through the normal path. The route to a diploid GT in a haploid interior is `call_snarl_internal(..., copies >= 1 ? copies : 2)` at `:4696`: a retained chain (`copies == 0`) is handed a hard-coded 2. (a) Replace that literal with the region's ploidy. (b) `src/graph_caller.cpp:4366-4367` prefers `ploidy_override` over `ploidy_at` unconditionally; the override is a copy count *within* the region's ploidy, so compose as `min(ploidy_override, ploidy_at(...))`. (c) `ploidy_at` (`src/graph_caller.cpp:568`, declared `src/graph_caller.hpp:166`) reads `interval_start` only, so a snarl straddling a BED boundary takes one edge's answer; take the minimum over the snarl's reference interval, on the ground that over-calling a haploid region invents a haplotype. This is a signature change across the four `ploidy_at` call sites (`:3365`, `:4366`, and two more), not two one-liners.
+
+(d) The >64-traversal hole: `child_crossing_mask` returns unknown for a parent with more than 64 candidate traversals, and that parent plus its whole subtree keeps the pre-linkage ploidy, reported as `crossing_unknown` (`src/graph_caller.cpp:3900`, `:4144-4146`). **Measure first.** If chr20's count is small, the correct action is to drop those subtrees and count the drop, which is conservative and visible; building a wider mask for a rare population is the wrong trade. Stage 11 deletes the mask entirely, so this stage should not widen it.
+
+**Gate.** Baseline stage 3. chrX with `scripts/wgs/chrX.par.bed`. (i) Records inside the haploid interior carrying a diploid GT: measure first; if the pre-change count is 0 the gate passes 0 → 0 and the change is not validated — say so rather than claiming it. If non-zero, it must reach 0. (ii) Snarls straddling a PAR boundary: report the count and assert each takes the haploid answer. (iii) Records inside the PAR carrying a haploid GT stay at 0 — this must not make the PAR haploid. (iv) chr20 byte-identical to stage 3: chr20 has no ploidy regions, so `ploidy_at` returns the fallback and `min` is the identity; any movement means (c) changed the fallback path. (v) chrX phase-block N50 reported, expected to change only at PAR boundaries — a ploidy change cuts a chain (`src/linkage_model.cpp:1553-1571`). (vi) `crossing_unknown` measured on chr20 and chrX and reported; not gated to 0 here.
+
+**Tests.** Unit on `ploidy_at`: a snarl interval spanning a 1↔2 boundary returns 1, in both directions of travel — the value is that it pins both, since one direction passes by luck today. TAP with a `--ploidy-bed` marking a haploid region containing a nested fixture: no diploid GT inside it at any depth; fails today via the `:4696` literal. **`test/t/18_vg_call.t:235-236`** (`OUT_WINDOW_HAP == 0`, "`--ploidy-bed` leaves calls outside the window at the `-d` ploidy") is *contradicted* by a min-over-interval rule: a snarl starting outside the window but overlapping it becomes haploid. That assertion must be re-baselined in this commit, and the commit message must say which behaviour changed and why.
+
+**Output moves:** yes on chrX, no on chr20. **Reversibility:** three commits; keep (c) last and re-run the chr20 no-op check after each. `min` is not trisomy support — ploidy is clamped to {1,2} in the collector (`src/linkage_model.cpp:1216`, `:1348`) and the model's state is an ordered pair; say so in the commit.
+
+## 5. `-L` GL fold, made layout-aware
+
+**Goal.** `merge_similar_alleles` folds GL with an i-major index against a caller that writes it colexicographically, so merged three-allele records get two of six GL entries transposed. Off by default, and when on, the failure is invisible.
+
+**Changes.** `src/graph_caller.cpp:1827`: `gl_index = i*n - i(i-1)/2 + (j-i)` is i-major, and the comment nearby asserts `PoissonSupportSnarlCaller` is the only GL writer. It is not: `ReadLikelihoodSnarlCaller::update_vcf_info` writes GL in `AlleleReadLikelihoods::enumerate_genotypes` order (`src/read_likelihood_caller.cpp:444-452`), which `src/allele_likelihood.cpp:236-249` documents as colexicographic and notes differs from the Poisson caller. At n=3 the two disagree at indices 2 and 3 — `(1,1)` against `(0,2)`. But `src/snarl_caller.cpp:872-915` really is i-major and is still live, so **indexing unconditionally through `enumerate_genotypes` would corrupt merged Poisson records.** The fold must be layout-aware. `merge_similar_alleles(graph, site_traversals, site_genotype, sample_name, out_variant)` has no `snarl_caller` argument and `out_variant` does not name the writer, so the layout has to be passed in from the call site at `src/graph_caller.cpp:2226`, or the two writers unified first (a separate commit).
+
+The second `-L` defect — `trav_to_allele` built at `:2078-2118` before `merge_similar_alleles` renumbers at `:2226`, so every merged record's patch is declined — is **not** fixed here. Phase II deletes patching, and the defect goes with it. Fixing it now is work thrown away.
+
+**Gate.** Baseline stage 4. (i) Measure first: the count of merged records violating `test/t/18_vg_call.t:202`'s GT-indexes-max-GL invariant on a chr20 `-L` run. The fold is a max-marginal over collapsed classes, so a transposed read need not violate the argmax — if the pre-change count is 0 the chr20 gate is vacuous and the unit test is the only evidence. Say so. (ii) The same invariant on a `-L` run with `PoissonSupportSnarlCaller` must not regress — this is a gate condition, not a note in the risk section, because it is the way this change breaks something. (iii) Default (no `-L`) chr20 byte-identical to stage 4.
+
+**Tests.** Unit on the fold: a three-allele colexicographic GL with distinguishable values and a merge of allele 2 into 1, asserting the folded vector, constructed so the transposition changes the *answer* and not merely a label. This requires extracting the fold — `merge_similar_alleles` is behind `protected:` in `src/graph_caller.hpp` — so the extraction is part of this stage, not a footnote. Fails today, exactly, because indices 2 and 3 are read transposed. Second unit case at the Poisson layout, asserting the fold is unchanged there.
+
+**Output moves:** `-L` only. **Reversibility:** two commits (extraction, then the layout fix), both behind a default-off flag.
+
+---
+
+# 6. Whole-genome run 1
+
+**Goal.** Validate the four pushed commits and stages 1–5 in one run. Nothing is validated past chr20 since `a27149728`, and the pushed work nearly doubled the linkage site count (117,210 → 219,246) and grew the arena 15.8 → 29.0 MB with chr20 wall +22% and the linkage pass 18.8 → 41.1 s. chrX with `--ploidy-bed`, chrY's haploid chains, and the acrocentric and centromeric contigs exist only at genome scale. This run also establishes the baseline every later comparison uses.
+
+**Changes.** None. `scripts/wgs/schedule_wgs.py` to run, `scripts/wgs/bench_wgs.py` to score (aardvark `JointIndel` row, not `Indel`; plus truvari).
+
+**Gate.** Against the stored `a27149728` figures in `docs/wgs-results.md`: autosomal ALL F1 not below 0.9699, SNV not below 0.9833, SV not below 0.5470 by more than 0.0020 — and additionally not below the level chr20 established for the four pushed commits, so a run that loses the measured +0.0005 fails rather than passing on the pre-refactor floor. Rates recomputed from summed TP/FP/FN, never averaged per contig. Per-contig peak RSS at matched thread count, warm page cache, ≥3 repeats, against the 0.7 GB noise floor and the 24 GB budget; summed CPU (not wall) within 10% of the stored 459.9 minutes. chr20's contribution must reproduce stage 5's chr20 figures **exactly** — after stage 1, identical code has no run-to-run noise, so "within harness noise" is the wrong tolerance.
+
+Four structural invariants added to `bench_wgs.py` as hard assertions, each confirmed able to fail by running it against a pre-`4371c9b67` VCF where all four were violated (292, 75, 440, and 5,433-of-5,892 respectively): no nested record with a bare haploid GT; no record with no phase; no nested site on both or neither parent strand; no GT naming an allele index beyond its record's ALT list. The mosaic-accounting invariant is stated as **entries** versus **emitted records**, not "the mosaic accounts for exactly the emitted record count" — stages 9 and 13 make the latter false by design.
+
+Also refit the scheduler's memory model (`peak GB ≈ 2.25 + 11.2e-6 × emitted_records`, `docs/wgs-performance.md:87`) and record the residual. It currently predicts 6.21 GB for chr1's 353,741 records against a measured 5.7 GB — a 0.5 GB residual, half the tolerance stage 6 wants to apply to it.
+
+**Output moves:** no. **If it fails:** the failing subsystem is identified before phase II is written, which is why the run is here. Bisect on chr6 (2.7x chr20, ~10 min) rather than spending another genome.
+
+---
+
+# Phase II — decide-then-render
+
+## 7. Price the retention
+
+**Goal.** Answer the memory objection in the `LinkageCollector` header with a number, per contig, before writing the design around it.
+
+**Changes.** New instrumentation (it does not exist — see corrections). For every snarl reaching `emit_variant`, accumulate the bytes a `PendingRecord` would hold, split by nested versus top-level and **keyed by contig**, reported under `--progress`. Report three subtotals, because they price three different decisions: top-level with both ploidies' `genotype_lls`; top-level with only the primary ploidy, since a top-level snarl's ploidy comes from the contig or the BED and the barrier never revises it, so the second answer is dead weight there and stage 8 will not retain it; and the nested figure, as a self-check.
+
+**Denominator.** `vg call` runs one contig per process (`scripts/wgs/schedule_wgs.py`), and `docs/wgs-performance.md:74-78` states it: "peak memory scales with the contig rather than the genome ... per contig the worst case measured is 6.1 GB (chr3)". The decision quantity is therefore retention on the largest contig — chr1 at 353,741 records, measured 5.7 GB, roughly 3.4x chr20 — **not** a genome-summed figure no process ever holds.
+
+**Gate.** One chr20 `--progress` run, output byte-identical to stage 5's. It must print the three subtotals and the top-level snarl count (expected ~165,408). Self-check: the nested figure must reproduce the already-measured 3.18 kB/chain and 87 MB for 27,404 chains within 10%, and the total must be consistent with `LinkageCollector::bytes()` at `src/graph_caller.cpp:699`. If it does not, the sizing model is wrong and no other figure from it may be trusted. Cross-check against the measured chain figure before trusting the estimate at all: 165,408 top-level snarls at 3.18 kB is ~0.53 GB on chr20 and ~1.8 GB projected to chr1, so the "1 kB per snarl / 165 MB" arithmetic in circulation is optimistic by roughly 3x.
+
+**Decision rule, fixed before the number is seen, and per-contig.** Retain unconditionally if the projected chr1 delta keeps chr1 under 7.0 GB against a 24 GB budget with the refitted model from stage 6. Between 7.0 and 12 GB, retain but release each top-level chain's record as its generation resolves, and stage 8's gate becomes the released-early peak. Above 12 GB, retention is dead and phase II is rewritten around widening the ALT list at emission — which loses the recall mirror and the POS/REF/ALT renormalisation for top-level sites permanently, and that loss must be written into the design note rather than left implicit. The threshold is the maintainer's to set (open decision 1); what matters is that it is set first.
+
+**Gate can fail:** if the estimate and `bytes()` disagree by more than 2x, neither can forecast chr1 and stage 8 must be run purely as a measurement — its byte-identical gate makes that safe.
+
+**Tests.** None; this stage produces a number and a decision. It is not committed to the branch.
+
+## 8. Retain the render inputs at top level, change nothing else
+
+**Goal.** Land the whole memory cost as one commit whose gate is that output must not move, isolating the one risk a reviewer cannot check by reading.
+
+**Changes.** The top-level emit is the first branch (`src/graph_caller.cpp:4486-4496`); the nested branch is the `else if (ploidy_override >= 0)` at `:4498`, and only it stages a `PendingRecord` (`:4536-4558`). Stage one for every snarl that reaches genotyping, in all three emit branches (`:4489`, `:4521`, `:4571`), and have `run_deferred_descent` ignore generation 0. Keep `set_want_alt_ploidy` off for top-level snarls. `pending_records` is sized per thread only inside `set_defer_nested_descent` (`:3760-3768`), so sizing must become unconditional, and the render queue must be a **second container**: `run_deferred_descent` moves `pending_records` out and clears it (`:3792-3797`), and `children_of` would otherwise bucket every top-level record under `parent_record_key == 0`.
+
+`PendingRecord::travs` is held by value and the record is stored only after descent finishes with it (`:4702-4707`); the top-level branch has no descent loop reading `travs` afterwards, so the move is safe, but use the same staging discipline in both branches so they read alike. The use-after-move that cost 2,494 chr20 records (`906812957`) lived exactly here.
+
+**Gate.** chr20 byte-identical to stage 7's (`cmp` = 0) — nothing reads the new records. Retained top-level count equals the top-level snarl count. Peak RSS at matched threads, warm cache, ≥3 repeats, against stage 7's, inside the band stage 7's rule accepted; report the arena figure too. If RSS exceeds `a27149728`'s chr20 peak of 3.91 GB, stop: stage 7's projection was wrong, and the route decision reopens here rather than three commits later.
+
+**Tests.** TAP: `pending_record_count` under `--progress` is non-zero for a run with no nesting at all; fails today (0 for a graph with no child snarls). Confirm the count is not vacuous by deliberately skipping one per-thread queue in a scratch build and checking the assertion fires.
+
+**Output moves:** no. **Reversibility:** one commit; the byte-identical gate means reverting cannot change output either.
+
+## 9. Render after linkage resolves, from the same genotype
+
+**Goal.** Move the emission point without moving the decision, so the largest code motion in the plan has a near-byte-identical gate and the behaviour change (stage 10) is a one-argument diff.
+
+**Changes, and they are inseparable.**
+
+(a) **`record()` must move out of `emit_variant`.** This is the point every candidate plan got wrong. `emit_variant` calls `linkage_collector->record(...)` at `src/graph_caller.cpp:2290`, guarded by `suppress_linkage_record`, which the barrier sets around its own emit (`:3991-3995`) precisely so the barrier calls `respecify` instead. If `record()` stays inside `emit_variant` and `emit_variant` moves to a post-sweep pass, the barrier resolves an empty collector and every nested revision, retraction and gain disappears. Move `record()` to the genotyping site. Its two arguments that came from the variant are both derivable there: `record_key` is `std::hash<string>{}(print_snarl(snarl, false))`, already computed that way at `:4545`, and `position` becomes `get_ref_position`.
+
+(b) The position source therefore changes from the post-flatten `out_variant.position` to the pre-flatten reference position. Under patching, the post-flatten value was the `(contig, POS)` key the patch had to find; with no patch key, position reverts to what the model uses it for — ordering (`src/linkage_model.cpp:1540-1546`, `:2103-2109`) and the six transition gaps. `flatten_common_allele_ends` advances POS by the prefix every allele shares, typically 0 for a SNV and 1 for an indel.
+
+(c) Suppress the sweep's emit for records that have a retained `PendingRecord`, and add a pass after `resolve_linkage` that walks them in generation order and calls `emit_variant` with `pr.genotype` — the same pre-linkage genotype. Parallelise it over the queue; the buffers are already per thread, and a serial render of six figures' worth of records is a new cost with no benefit.
+
+(d) `PendingRecord` has no field for `nested_context.active`, which `record()` reads (`:2323`). Add one. Missing it is not a compile error — it writes a plausible small value, which is the failure mode the previous refactor hit at its stage 1.
+
+**Scope.** `emit_variant` has six callers, verified: `:3379` (`VCFGenotyper`/`vg call -v`), `:3992` (barrier), `:4489`/`:4521`/`:4571` (`FlowCaller`), `:5155` (`NestedFlowCaller`, `-A`). `VCFGenotyper` and `NestedFlowCaller` have no `LinkageCollector`, and `NestedFlowCaller` passes a genotype-dependent `trav_to_flat_string` (`:5142-5152`), so its allele strings are not a function of the traversal alone. **Those two paths keep sweep emission.** State it in the commit.
+
+**Gate.** Baseline stage 8. Not byte-identity — position now comes from a different source, and pretending otherwise produces a gate that will be waived. Total genotype differences below 50, **and every differing position must be one whose flatten prefix is non-zero** — dump the prefix per site and check, do not assume. ALL F1 equal to 0.97048 to four decimals; record count equal to stage 8's; patch declines equal to stage 8's, since the same patches are being applied by a different key. Above 50 differences, the motion is not faithful and the cause must be found before stage 10.
+
+**Risk and the audit that addresses it.** A render subtly different from the emitter it replaces produces a plausible VCF. Grep every construction of `out_variant.samples[...]["GT"]` and every consumer of `Change::allele_i/allele_j` and `PhaseCall::allele_first/allele_second`, and check each goes through one application point. Second: `last_emitted` is thread-local and read immediately after the emit that filled it (`:4649-4665`) to build children's crossing masks. Moving the emit out of the sweep breaks that; until stage 11 deletes the masks, the sweep must compute the mask from `travs` directly, which `child_crossing_mask` already accepts. Third: `record()` moving to the genotyping site changes the collector's `entries` insertion order from sweep order to genotyping order. Genotype resolution is order-insensitive (chains sort on position then `record_key`), but the nested strand pass iterates `entries` in insertion order and reads `by_key` built during the same walk — the very interaction stage 3 fixed. This is the most likely way this stage fails, and stage 3 landing first is what makes it detectable.
+
+**Tests.** TAP, permanent: no GT names an allele index beyond its record's ALT list — one `awk` line. Confirm it discriminates by planting a synthetic violation, or by pointing at the 48-record failure the previous refactor produced at this exact stage. TAP: `FORMAT/PS` is present on every record carrying a phased GT; confirm it fails by removing the phase application. Unit test on the render function against a hand-built site with a stored expected line, so a future change has something to fail against.
+
+**Output moves:** yes, bounded. **Reversibility:** large but self-contained; keep stage 8 in place across any revert so the retention measurement is not lost.
+
+## 10. Render from the settled genotype
+
+**Goal.** The behaviour change the phase exists for. Six defects stop being representable rather than being fixed one at a time.
+
+**Changes.** Hand the render pass the settled pair instead of `pr.genotype`. The collector stores it as compact indices `Entry::final_i`/`final_j`; add an accessor decoding them to traversals through `trav_arena`, since a compact index means nothing outside the collector. Everything downstream then follows because the ALT list at `src/graph_caller.cpp:2084-2118` is built by iterating the genotype it is given: no settled traversal is unrenderable; `is_symbolically_reference` (`:2098`) and `wants_line` (`:2267`) are evaluated on the settled pair, so a settled-reference site writes nothing and a settled-non-reference collapsed site writes a line for the first time; QUAL (`src/read_likelihood_caller.cpp:508-536`) is a pure function of the genotype passed in and is computed from the settled one; POS/REF/ALT and the arity of AD/GL/GQI are normalised against the settled allele set.
+
+**And the part no candidate plan scheduled:** the render must reproduce `apply_linkage_change`'s post-linkage quality arithmetic — posterior-derived GQ, the `explained_share` discount, the cap at GQI, the GQN rewrite, and the `lowconf` FILTER re-labelling (`src/graph_caller.cpp:977-1030`). Without it, quality silently reverts to per-site quality on every changed record.
+
+`LinkageCollector::Change` loses `called_i`/`called_j` (they existed to verify a patch landed on the right record) and `Entry::allele_offset`, `allele_arena`, `traversal_to_allele`, `vcf_allele_of`, `render_phase_pair` lose their only consumer — with them goes the whole `phase_fallback` population (5,015 chr20 records phased on the line's alleles rather than the model's).
+
+**Gate.** Baseline stage 9, structural first because a wrong answer cannot fake these. (i) `unrenderable` 1,472 events at 1,465 positions → 0, and the counter deleted (`src/linkage_model.cpp:1707`, `:2167`). (ii) Records with a final GT of 0/0 or 0|0: 4,490 → 0 without `-a`. (iii) No record with GT 0/0 and QUAL > 0. (iv) Records gained because the settled genotype is non-reference where the called one was not: measured for the first time; report it, do not net it against the losses. (v) No GT past the ALT list. (vi) `GQ <= GQI` on every record — `test/t/18_vg_call.t:207-208` already asserts this and it is the check that the GQ arithmetic was carried over; confirm it fails by omitting the `explained_share` discount, which the code comment says leaves ~5% of records violating it. (vii) GL length is `na(na+1)/2` and GT is the argmax of GL (`test/t/18_vg_call.t:196`, `:202`) — both become hard constraints on the render once the ALT list is rebuilt.
+
+Then accuracy, with the prediction stated in advance and the arithmetic shown: 336 of the 545 *judged* unrenderable sites are false positives and the layer lands at 11% where it can act, so acting on all of them should remove ≈275. **FP must fall from 2,008 to at most 1,800; below 1,900 is the abandon threshold.** ALL F1 at least 0.9710; FN not above 3,537. If FP does not fall, the 4.24x GQ-matched enrichment did not mean what it was read to mean, and that is the most important negative result this plan can produce — record it rather than tuning around it. Note the gate's own weakness: only 545 of the 1,465 fall in confident regions, so 63% of the population is unjudged and not at random. Diagnostic if it fails: FP rate at the 545 judged positions specifically. If that falls from 61.7% toward 11% while total FP rises, the cost is in the previously-unjudged population and the honest response is to report it and stop.
+
+Do **not** gate on "QUAL == 0 iff GT is all-reference": `src/read_likelihood_caller.cpp:508-520` leaves QUAL at 0 whenever `have_ref` is false, on legitimate non-reference calls, independent of linkage.
+
+**Tests.** Unit: for a site whose posterior argmax differs from the called pair, the settled-traversal accessor returns the argmax's traversals; fails today because no such accessor exists. TAP: a fixture where linkage moves a site onto a traversal the pre-linkage record had no ALT for; assert the emitted record carries that ALT. Fails on stage 9 by construction — that is the 1,465 population. TAP: a fixture whose pre-linkage genotype collapses to reference and whose settled genotype does not; assert a record exists. Fails on stage 9: no record is ever created. TAP: no record carries GT 0/0 without `-a`; confirm it fails against stage 9's output, where it is violated 4,490 times, and rebuild the fixture if it does not.
+
+**Existing tests this breaks, all of which must be re-baselined in this commit:** `test/t/18_vg_call.t:120-121` (0/0 counts with `-a` versus `-v`), `:279` (non-0/0 count in a cyclic graph is 3), `:295` (non-0/0 counts match across GBWT enumeration), `:1259` (0/0 produces no non-ref), `:131-132` (GT comparison across two modes).
+
+**Output moves:** yes, substantially. **Reversibility:** one argument. Revert restores stage 9 exactly, which is the whole reason stage 9 exists.
+
+## 11. Delete the patch machinery
+
+**Goal.** Remove the path decide-then-render replaces, so the two cannot drift.
+
+**Changes.** Delete `apply_linkage_change` (`src/graph_caller.cpp:852`+, ~210 lines, minus the GQ arithmetic stage 10 moved), `apply_phasing` (`:1270`+, moving its PS and phased-separator rendering into the render rather than dropping it), `blank_buffered_line` (`:3805-3813`), the tombstone branch in `write_variants` (`:781-790`), the `(contig, POS)` patch indices and their upsert loops, `change_declined`/`phase_declined` and their report (`:845-850`), `EmittedAlleles` (whose `num_alleles` is already write-only), the buffer handles on `PendingRecord`, and `child_crossing_mask` plus `NestedContext::parent_crossing`, `PendingRecord::parent_crossing`/`crossing_known`, `Entry::parent_crossing` (8 bytes a site) and the `crossing_unknown` counter — at decide time the parent's settled traversal is in hand and `crossings_of_child(travs[settled], child)` answers directly, with no 64-bit ceiling, so the >64-traversal hole closes here.
+
+**Two things this stage must not do.** (a) `LinkageCollector::respecify` (`src/linkage_model.hpp:506-521`, `src/linkage_model.cpp:1319-1360`) is **not** patch machinery. It replaces an entry's likelihoods and ploidy — rebuilding the compact allele space and the GL vector at the parent-implied ploidy — and its header says "This is what makes the coherence guarantee structural rather than reported." Only its `(contig, position)` arguments belong to patching. Keep the ploidy/GL respecification under a name that says what it does; deleting it re-introduces the 440-record "both parent strands" class that `90d2bdce3` closed. Its four unit tests (`src/unittest/linkage_model.cpp:81-106` helper, `:432`, `:954`, `:979`) survive with it.
+
+(b) **There is a live configuration that still needs the patch path.** `nested_calling` can be false (`src/subcommand/call_main.cpp:1735`, `:1744`, `:1835`) while the collector is armed by `linkage_weight > 0.0` alone (`:1848`), and `set_defer_nested_descent(true)` is reached only under `nested_calling` with a `FlowCaller` (`:1976-1980`). In that configuration nothing is retained, the render pass is empty, and `resolve_linkage()` inside `write_variants` plus `apply_linkage_change` is the only mechanism. Either make retention conditional on the collector being armed rather than on nesting — which contradicts stage 8's stated gating and must be decided there, not here — or scope this deletion to what only the deferred path used. **Resolve this before stage 9 is written** (open decision 3); it is load-bearing for the whole phase.
+
+**Gate.** chr20 byte-identical to stage 10's. A deletion that changes output means something deleted was still live. `git diff --stat` net negative by at least 350 lines with fewer than 30 added. `vg test` (830) and `test/t/18_vg_call.t` (302) pass with no test deleted except the ones this stage names. Retracted-chain count identical to stage 10's: the mask and the direct crossing test must agree everywhere the mask was computable, so dump and compare per record rather than trusting totals — a disagreement is a defect in one of them. `crossing_unknown` reported non-zero on stage 10 and the mechanism gone here; report the count of newly-settled subtrees separately, because parents above 64 traversals now get their ploidy settled and their subtrees move, which means this stage is not purely mechanical after all.
+
+**Tests.** No new tests for deleted code. Unit: derive a child's copies from a parent with 100 candidate traversals where the carrying one is index 80; fails on stage 10, where the mask returns 0 with `known == false`. And the four output-level invariants that replace backlog #66's nine barrier regression tests — written as invariants precisely because this stage deletes most of the paths those fixes lived in: no bare haploid GT, no unphased record, no nested site on both or neither parent strand, every nested site on exactly one strand. Confirm each fails against `a27149728`'s output, where all four are violated.
+
+**Output moves:** no for the deletions, yes for the >64 subtrees. **Reversibility:** split into two commits — the pure deletions, then the mask replacement — so a regression can be attributed.
+
+## 12. Documentation for phase II
+
+**Changes.** `doc/read-likelihood-genotyping.md:564-565` still documents the three deleted `nested_*` FILTERs and how to interpret them (verified stale today, before any of this work). Rewrite that section around decide-then-render: the genotype is settled before the record exists, so there is nothing to flag. Also stale and not in any candidate plan's scope: `:210-211` ("linkage re-decides genotypes afterwards" — the architecture stage 10 inverts), `:370` (the merge header asserting DP/QUAL/GQ/FILTER are computed over the pre-merge allele set), `:389-435` and `:433` (mosaic format and column table, changed by stage 2), `:646` and `:779` (GQN blanking and `lowconf` clearing, whose owner moved in stage 10). In the eval repo: `docs/nested-calling-design.md` (eleven `nested_*` references including two results tables), `docs/coverage.md:233` (`apply_linkage_change`), `planning/nested-traversal-space.md:275`. Mark superseded rather than deleting, per that repo's convention.
+
+**Gate.** No `nested_diploid`/`nested_haploid`/`nested_unreachable`/`respecify`/`apply_linkage_change` string survives outside a section marked as history — grep. Every source line cited in the rewritten sections resolves in the tree at this head, checked by a script in the eval repo so it can be re-run; confirm it fails by running it against `4371c9b67`, where `:564-565` cites FILTERs the source no longer emits. The four eval documents quoting pre-refactor whole-genome figures are **not** regenerated here — they need run 2, and updating them from chr20 would be worse than leaving them stale.
+
+---
+
+# Phase III — haplotype-frame linkage
+
+Read the code comment at `src/linkage_model.cpp:1548-1556` before starting this phase. It records that letting nested sites into the diploid runs took chr20 from 22 phase blocks to 9,460 and N50 from 248 Mb to 1.08 Mb, "and the switch rate only looked flat because short blocks make switch error cheap". Unifying depths is exactly that move. Every gate below carries a phase-block condition for that reason, and phase III is the part of this plan most likely to be reverted.
+
+## 13. Per-strand transition, called with one value
+
+**Goal.** Land the arithmetic generalisation with both strands given the same value, so it is reviewable against a byte-identical gate before any distance changes.
+
+**Changes.** `src/linkage_model.cpp:161-183` (`transition_apply`) takes one scalar `rho` and forms `stay*stay*in[a][b] + stay*jump*(row[a]+col[b]) + jump*jump*total`, applied symmetrically to the ordered pair; `viterbi_step` (`:234-300`) derives one `S`/`J` pair for both slots. Generalise to `(rho_a, rho_b)`: `stay_a*stay_b*in[a][b] + stay_a*jump_b*row[a] + jump_a*stay_b*col[b] + jump_a*jump_b*total`, same O(m²). `viterbi_step` is the harder half because the leave-one-out maxima (`Top2`, `:180-210`) are already per-axis, so the change is confined to how the four candidate terms are scored. Route all six `switch_probability` call sites (`:353`, `:489`, `:728`, `:853`, `:935`, `:1046`) through the pair form, passing the same value twice; the last three are the haploid path and are equally affected.
+
+**Gate, stated once so it cannot be read two ways.** With `rho_a == rho_b` the new expressions reduce algebraically to the old ones, but the existing grouping `stay * jump * (row[a] + col[b])` **cannot** be preserved once the two coefficients differ — it must split into two differently-coefficiented terms, which is a guaranteed re-association. So byte-identity is not achievable and claiming it produces a gate that gets waived. The gate is: at most 5 differing genotypes on chr20, each individually characterised as a near-tie whose two candidates differ by less than 1e-9 in log space; more than 5, or any difference not of that form, means the algebra and not the rounding. Plus: `vg test` passes with all 28 existing `[linkage_model]` cases unmodified — they are the real gate here.
+
+**Tests.** Unit: `transition_apply` with `(rho, rho)` against a test-local reference implementation of the old single-rho form on a random state vector, asserting agreement to 1e-12 rather than bit-identity. Confirm the test discriminates by perturbing one term's factorisation. Unit: with `rho_a = 0` and `rho_b = 1`, the result equals the closed form (first strand unchanged, second uniform); fails today because the function cannot express two rhos, so the test does not compile.
+
+**Output moves:** marginally. **Reversibility:** two functions, mechanical.
+
+## 14. Record haplotype-frame coordinates, consume nothing, and decide whether the frame matters
+
+**Goal.** Supply the distance the frame needs, and give the phase an off-ramp before its riskiest stage.
+
+**Changes.** At descent (`src/graph_caller.cpp:4693-4740`) the parent's `travs` and the child's snarl are both in hand, so the bp offset of the child's start along each carrying parent traversal and the child's own span are computable there — per traversal, because a diploid parent's two traversals give two offsets. `Entry` holds no lengths (verified: position, contig, arena offsets, `num_alleles`, `called_i/j`, ploidy, generation, `retracted`, `final_i/j`, `emitted`, `nested`, `parent_record_key`, `parent_crossing`, `parent_trav`, `explained_share`, `record_key`, `start_node`, `end_node`), so this is a new parameter on `record()` — already a 17-argument function called from the parallel hot path — plus three fields. For a top-level site the offset is the reference position and the span is the snarl's reference length, so the frame is uniform at every depth. Compute the offsets in `graph_caller.cpp` and hand them in as plain integers: `LinkageCollector` is deliberately free of graph types, and losing that property makes the unit tests unwritable without a fixture graph.
+
+Then instrument, inert: for every adjacent site pair on chr20, the reference-POS gap, the haplotype-frame distance, the ratio distribution, how many adjacent pairs reorder under the haplotype frame, how many reorder under the consensus rule (children visited, then bp length, then start node id) when a diploid parent's two traversals disagree about child order, and the distribution of `|offset_first − offset_second|`. Also: how many of the 12,516 no-reference-path children become orderable.
+
+**Gate.** chr20 byte-identical to stage 13's — nothing reads the new fields. Invariants, each printed and each able to fail: every nested entry's offset lies inside its parent's span; a parent's children's spans do not exceed the parent's span on the carrying traversal. Do **not** gate "zero entries with no computable offset": the retained population (`copies == 0`, `g_descent_skipped_no_copy`, ~296 on chr20) is descended into and has `carrying_trav = -1` because that is set only under `copies == 1` (`src/graph_caller.cpp:4664-4677`), so there is no called parent traversal to measure along. Count them instead. Arena growth ~12 bytes a site, ~2.6 MB on chr20's 219,246 sites, reported by `bytes()`, netted against stage 11's 8-byte-a-site saving. CPU (not wall) within +3% of stage 13: summing node lengths along a traversal is graph work inside the parallel sweep, and if it is expensive it shows as a regression with no output change.
+
+**The off-ramp, stated before the measurement.** If fewer than 1% of adjacent pairs reorder and 99% of gap ratios sit inside 1.05, the frame change buys nothing measurable and stage 15's distance half is dropped — the value of phase III is then entirely in the pooling fixes and stage 16. Only stating this first makes it takeable.
+
+**Tests.** Unit: a parent spanning 1,000 bp with two children at offsets 100 and 600 on one traversal and 100 and 400 on the other; assert both offsets round-trip and the disagreement is reported. Fails today: `record()` has no such parameters. Unit: a child whose offset exceeds its parent's span is rejected and counted, not stored; confirm by passing one deliberately.
+
+**Output moves:** no. **Reversibility:** additive.
+
+## 15. One chain per haplotype, at every depth, with per-strand distances
+
+**Goal.** Dissolve nesting as a separate linkage stage. This is the agreed design and the largest change in the plan.
+
+**Changes.** Four things, and the plan is honest that the third is not plumbing.
+
+(a) Fix the pooling defects first and gate them alone, because they do not depend on the frame: `by_strand` is keyed `(contig, strand)` (`src/linkage_model.cpp:1884`, filled `~:2011`), so a nested site links against same-depth sites under unrelated parents, and on a multi-chain contig two unrelated chains' strand 0 become one haploid chain. Key on `(phase_set, strand)`, which is on the parent's `PhaseCall` and is exactly the unit within which phase is comparable. And `if (idxs.size() < 2) continue;` (`~:2101-2103`) drops small groups entirely — not cosmetic, because `freq_prior` defaults to 5.0 (`src/subcommand/call_main.cpp:353`) and acts on a chain of one, so skipping changes the genotype. The diploid path already fixed this same defect for singleton chains and its comment records 258 chr20 sites going missing from the mosaic.
+
+(b) Replace the reference-POS order with traversal order under the consensus rule, and the single gap with the per-strand distances from stage 14 through stage 13's pair form.
+
+(c) **Fold nested sites into the parent's chain — and this requires a modelling change, not a sort-key change.** Nested entries are held out of `chainable` before runs are built (`src/linkage_model.cpp:1557-1571`, verified), so reordering alone is a no-op: there is nothing in the chains to reorder. Once folded, a chain mixes ploidy 1 and ploidy 2 sites, and `chain_ploidy = entries[indices.front()].ploidy` (`:1600`) selects the model for the whole chain at `:1644` and `:1729`. `Site::ploidy` exists but **`LinkageModel` never reads it** (verified), and `posteriors()` indexes `genotype_index(ai,bi)` against buffers sized n(n+1)/2 while a ploidy-1 `Site`'s `genotype_ln_likelihood` has only `num_alleles` entries — an out-of-bounds read. So this needs a real single-copy emission under the two-haplotype latent state, specified before it is written. Budget it as its own commit and its own review.
+
+(d) Reconsider the chain-cutting rule (`:1553-1571`) only for the *nested* case: a nested ploidy-1 site is no longer a ploidy change inside a chain once there is one chain per haplotype. A *regional* ploidy change must still cut — across chrX's PAR boundary there is no haplotype correspondence to carry.
+
+**Gate.** Baseline stage 14, structural before any F1, because a wrong consensus order or a wrong per-strand distance produces a well-formed VCF with slightly worse genotypes. (i) Phase blocks: chr20 autosomal count at 22 and N50 at 248 Mb. Say explicitly how these remain the same measurement after the hold-out is deleted — if "block" changes meaning, the gate compares two different quantities and must be re-derived from stage 14's run instead. (ii) Nested sites placed on exactly one strand: 6,716 of 6,716, re-measured on stage 14's output rather than assumed from `4371c9b67`, because stages 3, 4 and 10 all move that population. (iii) Determinism: two runs byte-identical (stage 1's instrument), and the consensus order independent of which parent traversal is enumerated first — assert by permuting the traversal list in a unit test. If the tiebreak is not total the sort is unstable and stage 1's gain is lost. (iv) Group counts before and after for (a); sites linked across a phase-set boundary → 0; nested sites in groups of one, and the genotype changes at those sites, counted — a non-zero count proves (a) was not cosmetic. (v) **Switch error** on chr20 against `docs/tier2-phasing.md`'s recorded 2.30% (34-haplotype) and 3.43% (4-haplotype), via `scripts/tier2/mosaic_switches.py`. This is the one number that can fall while every other gate here passes, and no candidate plan gated it. (vi) Accuracy on chr20 **and chr6**: ALL F1 not below stage 14's; JointIndel up by at least 0.0005 against 0.91840, since that is where the emission is flat and the panel has something to add. If JointIndel does not move, the frame change bought nothing measurable and (b) should be reverted rather than kept on principle. (vii) chrX for (a)'s two-unrelated-chains case, which chr20 cannot exercise. (viii) CPU and per-contig peak RSS against the 24 GB budget — one chain per haplotype per contig at every depth makes every site at every depth resident at once.
+
+**Tests.** Unit: two nested sites on strand 0 with different parent phase sets do not influence each other's posterior; fails today (one chain, mutual influence). Unit: a single-site group receives a posterior differing from its raw likelihood when `freq_prior > 0`; fails today (skipped, so posterior equals likelihood exactly). Unit: a diploid parent whose two traversals visit children in opposite orders produces one deterministic sequence, unchanged under input permutation; fails today (no consensus rule). Unit: two strands with different deletion content across the same pair of sites receive different switch probabilities; fails today because the gap is a reference-POS difference identical for both strands, so the test asserts an inequality that cannot hold. Unit: a diploid chain with a nested ploidy-1 site in the middle is linked to both neighbours with phase continuous across it; fails today (the site is in `by_strand`, not the chain).
+
+**Existing tests this invalidates:** `src/unittest/linkage_model.cpp:403` ("The collector sorts by reference position, not arrival order") and `:597` ("The phasing comes back in reference order even with nested sites in it") both encode the premise this stage changes. Re-baseline both here and say what replaces them.
+
+**Output moves:** yes. **Reversibility:** four commits in the order (a), (b), (c), (d); tag stage 14 as the fallback. (c) is the one that is not cheap to revert.
+
+## 16. Children with no reference path
+
+**Goal.** 12,516 chr20 children are skipped for having no reference path, so REF and POS are undefined for them. In the haplotype frame they are orderable and linkable; only *rendering* needs a reference POS.
+
+**Changes.** `src/graph_caller.cpp:4638` increments `g_descent_skipped_no_ref` and `continue`s. Descend instead, genotype, record with `emitted = false`, and render nothing. Stage 14's frame coordinate is defined for them — it is an offset along the parent's traversal, not a reference position — which is why this cannot precede stage 14. Their children inherit a strand from them as from any other nested parent. These sites have never been through `emit_variant`, which indexes `called_traversals[ref_trav_idx]` unchecked; the barrier guards this at `:3945-3958` and the render path needs the same guard, where for these sites the guard is the normal case rather than the exception.
+
+**Gate.** Baseline stage 15. (i) No record is emitted for a no-reference-path site. Do **not** gate "the record count must not change by a single line": after stage 10, `wants_line` is a function of the settled genotype, and adding 12,516 sites to the chains changes the settled genotype of emitted neighbours. Gate instead on a bounded and reported neighbour-flip count, with the flips themselves attributable to a changed settled genotype. (ii) `g_descent_skipped_no_ref` 12,516 → 0, and the counter renamed rather than left describing a population that no longer exists. (iii) Linkage sites rise by ≈12,516 and `bytes()` by the corresponding arena. (iv) **Read I/O at +0%** — these chains are inside the parent's window and their reads are already resident, and the maintainer's constraint is exactly this. Measure fetched-read count, not wall time. (v) CPU within a stated bound for genotyping 12,516 extra chains. (vi) ALL F1 not below stage 15's; descendants of these children that *do* have a reference path gain a strand, count reported and greater than 0. A fall means 12,516 sites' worth of noise on one contig, which is a finding.
+
+**Tests.** Unit: an entry with `emitted = false` and no reference position enters the chain, is phased, and produces no `Change`. The collector already supports unemitted entries, so confirm the test fails by asserting the *count* of such entries after a descent, which is 0 on stage 15. TAP: a chain reachable only from a non-reference allele; assert its children carry a strand. Fails on stage 15, where the chain is never visited.
+
+**Output moves:** no new records, but neighbours may flip. **Reversibility:** one `continue` restored.
+
+## 17. The copy-number cap
+
+**Goal.** A chain one traversal crosses twice — tandem duplication, cycle — is counted as one copy and its second copy is never scored.
+
+**Changes and the representation question that gates them.** `child_ploidy` caps at 1 with a `--progress` warning (`src/graph_caller.cpp:3744-3752`, verified), and ploidy is clamped to {1,2} at `src/linkage_model.cpp:1216` and `:1348`. Lifting the cap collides with four representations no candidate plan named: `Entry` stores exactly two settled alleles (`final_i`, `final_j`); `Site::genotype_ln_likelihood` is defined only for ploidy 1 (allele-indexed) and ploidy 2 (triangular, `n_gt = k*(k+1)/2`); `PhaseCall` has exactly two strands; and `LinkageModel`'s state is an ordered pair of *panel haplotypes*, so two copies on one haplotype has no representation at all — the same objection that rules out three copies. Further, `nested_context.active = (copies == 1)` (`src/graph_caller.cpp:4677`) and `carrying_trav` is set only under `copies == 1` (`:4664-4669`), so at `copies == 2` the child stops being a nested site and loses its strand and parent linkage. And two copies of one snarl print the same ID, so `(contig, POS, ID)` stops being total — stage 1 regresses undetectably — and two entries collide on one `record_key`, which is the sole identity for `has_entry`, `retract`, `set_parent_trav` and the `by_key` map, all first-match lookups.
+
+**So: measure before designing.** Stage 14 reports how many chr20 crossings are currently capped. If it is small — say under 100 sites — the correct outcome is to keep the cap, convert the warning into a counted and reported class, and record the measurement. That is an honest end for this stage and it costs nothing to discover. If it is substantial, the smaller build is linkage-and-mosaic only: score and phase both copies, emit one record, and defer the two-records-at-one-POS representation to the same later change as `--nested-pseudo-ref`. Which of the two gets built is open decision 6.
+
+**Gate.** Conditional on the measurement. If built: capped count → 0; sites rise by exactly the previously-capped count; a copy index added to both the sort key and the `record_key`, with stage 1's determinism gate re-run; total copies above 2 refused and counted rather than clamped; accuracy reported at the affected positions specifically, since a few hundred sites are invisible in a contig F1. Two-sided: a large accuracy move on a rare population is a bug, not a result. Also check identifiability before the accuracy number — both copies of a tandem duplication share sequence, so if their likelihoods are identical by construction, the honest outcome is copy number 2 without phasing the copies apart, said plainly.
+
+**Tests.** Unit: a traversal visiting a child twice reports 2; fails today (reports 1, sets `capped`). Unit: total copies of 3 is refused, not clamped; fails today (silently clamped). `test/t/18_vg_call.t:279` is a cyclic-graph fixture and is affected by both this stage and stage 10.
+
+**Output moves:** yes, if built. **Reversibility:** the cap is one line.
+
+---
+
+# Phase IV — parent conditioning and the depth term
+
+## 18. Measure whether conditioning has anything to remove
+
+**Goal.** Before choosing a factor, find out whether restricting the child's panel to haplotypes carrying the parent's settled traversal removes any rows.
+
+**Changes.** Read-only, over data already resident: per nested site, how many panel haplotypes carry the child chain (non-negative entries in the parent's and child's `hap_arena` rows) against how many of those also take the parent's settled traversal, which is `Entry::final_i`/`final_j` decoded through `trav_arena`. One thing the plan must not pretend is free: there is no `record_key` → entry index, and `has_entry`, `retract` and `set_parent_trav` are linear scans over `entries` under a mutex. Finding each nested site's parent entry needs that map — trivial to add, but it is work.
+
+**Gate.** chr20 byte-identical to stage 17's. Decision rule fixed before the number is seen: if the median panel-row count falls by less than 10% under the restriction, the conditioning is a no-op on this panel and stage 19 is not built — record the measurement and stop. Above 25%, build it. In between, report and let the maintainer decide. Also report the count of nested sites where the restriction leaves fewer than 2 rows, and the distribution of conditioned carrier counts, not just the mean: `freq_prior` is an exponent over multiplicity (default 5.0), and the header records that at 4-haplotype panel sizes the prior is inert because multiplicity barely varies. Conditioning can push a 34-haplotype site into that regime. Run the same measurement on a 4-haplotype chr20 graph in the same pass — it is cheap and it prevents building a rich-panel-only feature without knowing it.
+
+**Tests.** None; this stage produces a number.
+
+## 19. Condition the child's panel on the parent's settled traversal
+
+**Goal.** Make the parent's genotype enter the child's model. Of the three candidate factors: rescoring the child's reads under the parent's sequence is excluded by the reads constraint; pinning the child's latent haplotype to the parent's strand is delivered by stage 15 putting the child in the parent's chain on the parent's strand, so it is not separate work; that leaves restricting the state space, which is also the only candidate that makes `freq_prior` conditional.
+
+**Changes, and the mechanism is not the obvious one.** Do **not** set `haplotype_allele[h] = -1` for non-carriers: `-1` is the escape state (`src/linkage_model.cpp:145-155`, verified — `marginal[ai] * escape`, and `overall * escape * escape` when both are negative), so that makes a non-carrier a free wildcard rather than removing it. It is a *weaker* constraint than the status quo. Use emission zeroing, on the model of the constraint path already in the tree at `src/linkage_model.cpp:648` (`emissions[t][a*m+b] = 0.0`). Then the multiplicity that `freq_prior` exponentiates is computed over the surviving rows, which is the point.
+
+**Gate.** Baseline stage 18. (i) The falsification: two parent genotypes both implying one copy on the same strand but with disjoint carrier sets must give the child *different* posteriors. Today they are bit-identical, so the test fails by construction before and is the cleanest demonstration that step 3 was actually done. **But it is not sufficient alone** — it is satisfied by any conditioning, including one that decodes the wrong parent traversal, since `final_i`/`final_j` are compact indices that must go through `trav_arena`. So add: a unit test pinning the surviving rows to the specific traversal the parent settled on, and a counter for child sites whose surviving rows are inconsistent with the parent's settled traversal, which must read 0. (ii) Nested sites whose conditioned panel is emptied fall back to the unconditioned panel plus the wildcard, **not** to an all-wildcard panel — an all-wildcard panel destroys the frequency prior and presents as a precision gain while wrecking recall, which is the failure mode the `escape` header warns about. If the emptied count exceeds 10% of nested sites, the restriction is too aggressive and the weaker fallback must be measured before the stage is judged. (iii) Report the fraction of posterior mass on the wildcard at nested sites before and after: `escape` (default 1e-2) was tuned against unconditioned panels, and zeroing rows effectively changes it. (iv) Accuracy at **nested positions specifically**, on chr20 and chr6: FP falls, FN does not rise, ALL F1 does not fall; the overall figure is dominated by top-level sites this cannot touch. State a floor from stage 18's measured reduction rather than asserting one now. A fall means conditioning on the parent over-restricts the child, which is a real possible answer for the one stage in this plan with no structural defect behind it — nothing is broken here, the model is merely less informed than the target says. The accuracy gate should be allowed to kill it.
+
+**Tests.** The falsification and the traversal-identity test above. Second: where every panel haplotype takes the parent's settled traversal, the conditioned result is bit-identical to the unconditioned one. Third: a site whose conditioned panel is empty produces the same posterior as the unconditioned site; confirm by removing the fallback and observing the posterior collapse onto the wildcard.
+
+**Output moves:** yes. **Reversibility:** one masking step at one call site.
+
+## 20. The Poisson depth divisor — measurement first
+
+**Goal.** Settle whether the depth term's per-haplotype rate is wrong at nested single-copy sites. Per the corrections above, the arithmetic does not support the "2x" claim as stated, and `depth_weight` defaults to 0.1, so anything done here moves default output.
+
+**Changes, stage 20a: measurement only, no code change.** `DR` is set unconditionally (`src/read_likelihood_caller.cpp:273`) and emitted as a FORMAT field (`:377-381`) whether or not the term is armed, so the baseline is free. Dump the `DR` distribution on chr20, split by site class: top-level diploid, nested ploidy-1, chrY, non-PAR chrX. The prediction from reading the code is that nested ploidy-1 and top-level diploid both centre near 1.0, because `depth_rate = local_read_rate / effective_ploidy` (`src/allele_likelihood.cpp:940-942`) and `expected_reads` sums one term per copy (`:53-61`), so the copy count cancels. If that is what the data shows, **the diagnosis is wrong and no code change is made** — record the measurement and close the item. If nested ploidy-1 sites centre near 0.5, the copy count is being applied twice somewhere the reading missed and 20b proceeds.
+
+**Changes, stage 20b, conditional.** If it proceeds: the divisor becomes the region's ploidy rather than the site's copy number. This is not one argument. `AlleleLikelihoodCalculator::compute` (`src/allele_likelihood.hpp:640-642`) is a pure virtual reached only through the `SnarlCaller::genotype` virtual (`src/read_likelihood_caller.cpp:83`), which has three implementations, plus `src/unittest/allele_likelihood_scoring.cpp`. And `params.depth_ploidy` is assigned nowhere in `src/`, so it cannot serve as the channel without being wired first. `scale_depth_rate` (`src/read_likelihood_caller.cpp:321`, `:335`) exists solely to rescale the rate for the alternate ploidy; under the new convention it is deleted, not re-conventioned — and note that the both-ploidies scoring at `:310-336` itself survives, since the read-likelihood matrix does not depend on ploidy and scoring each chain once at both ploidies while its reads are resident is exact.
+
+**Gate for 20b.** Default flags, not a tier-2 arm — the term is on by default. Median `DR` at nested ploidy-1 sites moves at least halfway to 1.0 from 20a's measured value. chrY byte-identical: there region ploidy equals site ploidy, so nothing may change, and this catches botched plumbing. Called-traversal length distribution at nested haploid records reported either side. chr20 ALL F1 not below stage 19's, with JointIndel and Deletion moving in the predicted direction by more than the 0.0002 noise level; if recall falls, the sign is opposite to the mechanism claimed and the change is reverted, not tuned. Count and report every site where the region ploidy is not knowable at `compute` time and a fallback is taken — a silent fallback to the site ploidy reproduces the bug for exactly the sites that matter. `--depth-quality` (off by default) consumes `DR` too, so A/B both.
+
+**Tests.** Unit in `src/unittest/allele_likelihood.cpp`: at region ploidy 2 and site ploidy 1, `depth_rate == window_rate / 2`; fails today (`window_rate / 1`). Second case at region ploidy 1, site ploidy 1, asserting no change — there to pin chrY, not to catch the bug. Third: `expected_reads` for a one-allele genotype is half that for a two-allele genotype of the same allele at the same rate, pinning that the ploidy appears exactly once.
+
+**Output moves:** 20a no, 20b yes on default output. **Reversibility:** 20a nothing; 20b one signature change plus a deletion, with the deletion as its own commit.
+
+---
+
+# 21. Whole-genome run 2, and the results pages
+
+**Goal.** One genome-scale A/B for phases II–IV against run 1, and the regenerated results pages the eval repo's stale documents need.
+
+**Changes.** No caller code. Regenerate `docs/wgs-results.md`, `docs/wgs-performance.md`, `docs/sv-residual-errors.md` and the whole-genome figures in `docs/nested-calling-design.md` from run artefacts. Also unscheduled by every candidate plan and stale by this point: `planning/vg-call-linkage-hmm.md` (the design document for the reference-frame linkage model stage 15 replaces — the single most stale artefact this work produces), `docs/tier2-depth-term.md` (stage 20), `docs/tier2-phasing.md` and `docs/tier2-parameters.md` (stages 15 and 19 change the state space `escape` and `freq_prior` act on), `docs/sv-fp-anatomy.md` (stage 10 removes ~275 FPs). Rewrite `doc/read-likelihood-genotyping.md`'s linkage sections for the post-stage-15 architecture — there is no separate nested linkage stage to describe any more — including `:221` (Li-Stephens over reference distance) and `:756` (a chain is a maximal run of one ploidy).
+
+**Gate.** Against run 1, at matched thread count, warm cache, ≥3 repeats for RSS, CPU not wall, rates recomputed from summed counts. Autosomal ALL F1 above run 1's; SNV not below; SV not below by more than 0.0020. Per-contig peak RSS not above run 1's by more than stage 7's measured retention plus the 0.7 GB noise floor — stage 7's number is what makes this a gate rather than a hope — and the memory model refitted if its worst residual exceeds 1 GB. Every structural invariant from run 1 still zero, genome wide, with the mosaic invariant in its entries-versus-emitted form. chr20's contribution reproduces stages 19/20's chr20 figures exactly. The citation-resolution script from stage 12 run over the regenerated documents, so a stale line number cannot ship. Every new regression test demonstrated to fail against a named earlier commit, with that commit recorded beside the test; a test whose failing baseline cannot be named does not go in.
+
+**Output moves:** no.
+
+---
+
+# Whole-genome runs: where, and how many
+
+**Two, at stages 6 and 21.** There are exactly two questions worth a genome. Does what is already pushed hold at scale — four commits, chr20-only since `a27149728`, with the linkage site count nearly doubled and chrX/chrY/acrocentric contigs unexercised. And does the finished work hold at scale. Anything between those answers a question chr20, chr6 and chrX answer more cheaply.
+
+Run 1 sits **between** the small fixes and phase II, not after phase II, for a specific reason: phase II is the largest change in the plan, and discovering a scale defect in already-pushed code while a much larger change sits on top of it makes the two indistinguishable. It sits after stages 1–5 rather than before because stages 2, 3, 4 and 5 all move output and a run before them would be re-run.
+
+**A third run is conditional, not optional-by-default.** It is required if run 2 fails on a contig chr20 cannot represent — chrX's mixed ploidy through stages 4 and 15, chr1's scale through stage 8's retention — *and* the fix is confined to a single stage, so the re-run is a re-validation rather than a new question. It is not justified if chr20, chr6 and chrX all agree in direction and magnitude with a mechanism that explains the sign for every stage from 13 on. Phase III deliberately does not get its own genome run: it is the phase most likely to be revised, and chr20 + chr6 + chrX + chrY covers the multi-chain and pure-haploid cases chr20 cannot.
+
+---
+
+# Open decisions
+
+**1. Retention threshold, and in what unit.** Stage 7 measures per-contig retention and projects chr1. The proposal is: retain unconditionally under 7.0 GB projected chr1 peak against the 24 GB budget, retain-and-release between 7.0 and 12 GB, abandon above 12. Retain-and-release is a different stage 8 (a lifetime that ends at generation resolution rather than at write time), and abandoning means widening the ALT list at emission, which permanently loses the recall mirror and the POS/REF/ALT renormalisation for top-level sites. The tradeoff is memory headroom on the largest contig against those two capabilities. The measured anchor is 3.18 kB per nested chain, giving ~0.53 GB on chr20's 165,408 top-level snarls and ~1.8 GB projected to chr1 before the alt-ploidy saving — but the projection depends on chr1's snarl count scaling with its record count, which is unverified. Only the maintainer can set the band, and it must be set before stage 7 runs.
+
+**2. Which factor carries parent conditioning.** The plan builds state-space restriction (stage 19) and argues it is the only candidate that makes `freq_prior` conditional, with pinning delivered free by stage 15 and read-rescoring excluded by the reads constraint. The alternative reading is that pinning is the whole of step 3 and stage 19 should not be built. Stage 18 is designed to be neutral between them — it measures how many panel rows the restriction removes, which is informative either way — so the decision can wait for that number. The tradeoff: state-space restriction is the stronger intervention and the one that can over-restrict; pinning is weaker, safer, and possibly already done.
+
+**3. Does retention follow nesting or the collector?** `nested_calling` can be false while the collector is armed by `linkage_weight > 0.0` alone, and stage 8 as written gates retention on `defer_nested_descent`. In that configuration nothing is retained, the render pass is empty, and `apply_linkage_change` is the only mechanism — so stage 11 cannot delete it. Option A: gate retention on the collector being armed, so decide-then-render covers every linkage-active configuration and stage 11 deletes cleanly, at the cost of retaining on runs that never nest. Option B: keep retention gated on nesting and scope stage 11 to delete only what the deferred path used, leaving two decision paths in the tree. This must be answered before stage 9 is written, not at stage 11.
+
+**4. What QUAL should be once the record is built after the decision.** Today it is a declared function of the pre-linkage genotype and is never patched, which is why 4,490 hom-ref records carry non-zero QUAL. Computing it once forces a choice between the posterior-derived quality and the per-site likelihood ratio, and stage 10 cannot inherit an answer because there is no consistent answer to inherit. Related: today's GQ is capped at GQI on measured grounds (+0.003 AUC, 1–2% fewer surviving false calls). Stage 10 keeps the cap so the change is one thing at a time; whether the cap is still the right operation once the quality is computed rather than patched is a separate measurement.
+
+**5. Should a settled-reference site still emit a line?** Stage 10 stops emitting ~4,490 chr20 records. That is right on the target model's own terms — whether a genotype implies a VCF record is answered by whether the symbolic alleles differ from the reference — but it changes record counts on every contig, and every downstream comparison in the eval repo is calibrated against them. `--genotype-snarls` exists to force lines for sites that do not want them. Is that a sufficient answer, or is a separate flag wanted? Confirm before stage 10 is written.
+
+**6. Stage 17: build it, build the smaller version, or defer?** The three options are: full two-copy representation, which needs a copy index in the sort key and the `record_key` and a decision about two records at one POS; linkage-and-mosaic only, which scores and phases both copies and emits one record, strictly better than today and defers the representation question; or keep the cap and convert the warning to a counted class. Stage 14's capped-crossing count decides whether the question is worth answering at all. Related and separate: if the two copies of a tandem duplication are not distinguishable by the read matrix, calling the locus at copy number 2 without phasing the copies apart is the honest outcome — but that changes what the output means and needs sanctioning before it is built.
+
+**7. The mosaic format change (stage 2) breaks any consumer outside this harness.** Five in-repo consumers are known and updatable. The version bump from 2 to 3 is the migration path, and someone has to own the possibility of an external consumer that reads `.` as an unknown token.
+
+**8. Is stage 15's phase-block figure a hard gate or a reported cost?** Letting nested sites into the runs once took chr20 from 22 blocks to 9,460 and N50 from 248 Mb to 1.08 Mb. If the haplotype-frame design costs a small factor rather than two orders of magnitude, whether that is acceptable against the accuracy it buys is a judgement this plan cannot make.
+
+---
+
+# Deliberately deferred
+
+**Per-generation re-reading of the reads.** Excluded by agreement; the arm that cost +48.8% read I/O does not come back. Every stage preserves scoring each chain once at both ploidies while its reads are resident (`src/read_likelihood_caller.cpp:310-336`), including stage 10, where the ploidy choice becomes a single selection at render time, and stage 16, which is gated at +0% read I/O for this reason. This is also why read-rescoring is ruled out as a conditioning factor in stage 19 rather than evaluated.
+
+**`--nested-pseudo-ref`.** Stage 16 admits the 12,516 no-reference-path children into linkage, phasing and the mosaic and emits nothing for them. Giving them a REF and POS is a representation problem entangled with stage 17's two-copies-at-one-position question; both belong in one later change about representation.
+
+**Widening the ALT list at emission.** The fallback if stage 7's measurement rejects retention. Stage 7 measures its cost so the choice rests on two numbers, but it is not planned as work, and if it becomes necessary phase II is rewritten and the lost capabilities go into the design note rather than being left as an implicit gap.
+
+**Backlog #51, the 2.3x offsetting indel-pair enrichment.** Untouched. Nothing here bears on the mechanism, and folding it in would add an accuracy question to stages that already have one.
+
+**Backlog #43 proper, phase-block fragmentation.** Stage 2 fixes its metric — that is the point of doing stage 2 and stopping. The investigation needs the corrected metric to exist first.
+
+**Backlog #68, whether `--top-down`/`-A` double-descends at scale.** Cheap to check with the descent-depth histogram already in the tree, but on a path this plan does not otherwise touch, and `--top-down` is documented as measuring worse than the default on every axis including recall.
+
+**Per-haplotype mosaic output tracing a path per strand.** Unblocked by the completed work and nearly free after stage 15 — one chain per haplotype per contig *is* a path per strand. It is a new output format with its own consumers and belongs after this work, not inside it.
+
+**Re-fitting `weight`, `freq_prior`, `scale` and `escape`.** Every one is a default with a recorded measurement behind it, and stages 15 and 19 change the state space they act on: a conditioned panel has less multiplicity for a `freq_prior` exponent of 5, and haplotype-frame distances change what `scale`'s 10 kb means. Re-fitting is a legitimate follow-up; a stage that changes both the model and its parameters has no interpretable gate. If stage 15's accuracy gate fails, a `scale` sweep is the first response — a harness parameter sweep, not a code change, and not pre-committed to.
+
+**Total copies above 2.** Stage 17 at most lifts the cap from 1 to 2 and refuses 3, because the model's state is an ordered pair of panel haplotypes. Making a third copy representable is a rewrite of the state space.
+
+**Backlog #66's nine barrier regression tests, as tests of the barrier.** Stage 11 deletes most of the paths those fixes were made in, so tests written against them are work against machinery that is going. They are replaced by four output-level invariants that hold across the deletion and are confirmed to fail against `a27149728`.
+
+---
+
+# Where this plan is guessing
+
+Marked [A] where a stage depends on a claim that is agent-reported or inferred rather than measured, with what to check and when.
+
+**Before stage 3.** [A] That the 1,447/1,116 half-called skew is caused by the depth-2 strand mechanism at all. Two mechanisms are live (see corrections) and which fires depends on entry order in the parallel sweep, so the skew may be a mixture and may be run-dependent. Stage 3a exists to attribute it; if the strandless class dominates, gates (i), (ii) and (iv) all need re-derivation before 3b lands. [A] That ~166 chr20 records carry the wrong haplotype — this follows from the ratio, so it inherits the same uncertainty.
+
+**Before stage 4.** [A] That any records inside a haploid `--ploidy-bed` interior currently carry a diploid GT. The mechanism is identified (`copies >= 1 ? copies : 2`), but the population is unmeasured; the gate has a measure-first abort for this reason. [A] That `crossing_unknown` is large enough to be worth acting on rather than dropping.
+
+**Before stage 5.** [A] That any merged `-L` record currently violates the GT-indexes-max-GL invariant. The index transposition is verified; whether it changes the fold's *answer* on real data is not, because the fold is a max-marginal over collapsed classes.
+
+**Before stage 7.** [A] That chr1's top-level snarl count scales with its record count, which is how chr20's per-snarl figure gets projected to chr1. If snarl density differs, the projection is wrong in an unknown direction. [A] The sizing model itself — a `PendingRecord` shell size and a per-map-node cost are estimates, fine for a 10x decision and not for a 1.5x one. If the routes land within 1.5x, stage 8's measured peak RSS is the answer and stage 7's estimate is not.
+
+**Before stage 9.** [A] That the flatten prefix is small at every site class, which is what bounds the position change to "a handful of near-ties". A site class where the shared prefix is large would move more, and the gate is written to catch that (every difference must sit at a non-zero prefix) rather than to assume it. [A] That no other thread-local read inside `emit_variant` and its callees changes when the emit moves. The audit is specified; a stale read that happens to equal the correct value on chr20 would pass the gate and fail elsewhere.
+
+**Before stage 10.** [A] That the layer's preferences at the 1,465 unrenderable positions are good — the 11% figure is measured on sites where the layer *could* act, which are not the same sites, and 63% of the 1,465 are unjudged and not at random. The FP floor and the judged-subset diagnostic exist because this could fail while the change is still right. [A] That the recall-mirror population is non-trivial at top level; the nested analogue is 511 and the top-level figure has never been measured, so no magnitude is predicted.
+
+**Before stage 11.** [A] That the direct `crossings_of_child` test agrees with the mask everywhere the mask was computable. The per-record comparison in the gate is what checks it; disagreement means `travs` was moved out from under one of them, the class of bug `906812957` fixed.
+
+**Before stage 14.** [A] That the haplotype frame differs from the reference frame enough to matter. This is the whole premise of stage 15's distance half and it has never been measured; the off-ramp is stated first so it can be taken. [A] That computing traversal offsets at descent is cheap enough for the parallel sweep — gated at +3% CPU, unmeasured.
+
+**Before stage 15.** [A] That folding nested sites into the parent's chain does not reproduce the 22 → 9,460 block collapse the code comment records. The mechanism differs (one chain per haplotype rather than a ploidy change mid-chain), but the comment is a measured warning about exactly this move. [A] That `Site::ploidy` becoming load-bearing is a bounded change — the out-of-bounds indexing is verified, the size of the emission work to fix it is not. [A] That the consensus order (children visited, bp length, start node id) is the right *biological* order. It is total and deterministic, which is what the forward pass needs; a wrong order costs transition distances rather than correctness, which is the one comfort, and the plan proceeds on it without evidence.
+
+**Before stage 16.** [A] That these chains' reads are already resident so admitting them adds no read I/O. The gate measures fetched-read count at +0% rather than assuming it.
+
+**Before stage 17.** [A] That chr20 has any capped crossings at all. Stage 14 reports it and the stage may honestly end in "not on this data".
+
+**Before stage 19.** [A] That restricting the panel improves anything. This is the one stage with no structural defect behind it: nothing is broken, the model is merely less informed than the target says. Stage 18's decision rule can kill it before it is built, and stage 19's accuracy gate can kill it after.
+
+**Before stage 20.** [A] That `observed_reads` at a nested single-copy site counts reads from one haplotype rather than from the window's full pile. This is the pivot the whole item turns on, and the code reading says the copy count already cancels between divisor and sum — which means today's `DR` should read ≈1.0 at both site classes and the "2x miscalibration" is unsupported as stated. Stage 20a measures it, and the honest outcome may be that no code change is made.
+
+**Throughout.** [A] The chr20 emitted-record count: 105,251 and 116,965 are both in circulation. Stage 1 reports it and no later gate should quote either figure until then. [A] Every standing baseline used as an absolute constant — 22 phase blocks, N50 248 Mb, 6,716 of 6,716 on one strand, 2,767 mosaic wildcards, 239 panel-unexplained, 511 nested gained — was measured at `4371c9b67`, and stages 3, 4, 10, 15 and 16 all move the populations they count. Each gate that uses one must re-measure it on the immediately preceding stage's output rather than citing `4371c9b67`.
