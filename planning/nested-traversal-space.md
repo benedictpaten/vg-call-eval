@@ -233,6 +233,55 @@ children now *have* a checkable parent (3,969 nested sites in the first generati
 disagreement that was previously invisible is now counted. Deriving ploidy and strand from one
 computation is what makes it unrepresentable.
 
+## Stage 3 result
+
+The barrier now records *which traversal* of the parent's settled pair carries a chain, and both
+ploidy and strand read off that one value: the chain is carried by this traversal, so it has one copy
+and sits on that traversal's strand. The traversal rather than its index is what makes it hold --
+`record` sorts the called pair and the Viterbi then orients it, so an index recorded at descent means
+nothing by the time the child is placed, which `parent_slot`'s own comment conceded ("agrees with
+allele_first only by luck").
+
+Deleted, because the disagreement is now unrepresentable rather than merely rare: `NestedIncoherence`
+and its three kinds, `apply_nested_filter`, the three `##FILTER=<ID=nested_*>` header lines, the
+separate mirror check for ploidy-2 children, `final_diploid`/`final_absent`/`mask_unknown`, and
+`Entry::parent_slot`. **Net −215 lines** (184 added, 399 removed).
+
+Gate, both halves:
+
+| chr20 | stage 2 | stage 3 |
+|---|---|---|
+| `nested_*` FILTER headers in the output | 3 | **0, and none emittable** |
+| nested sites whose parent settled off their traversal | — | **0** |
+| nested sites carried on *both* parent strands | 440 | 440 |
+| nested sites with no phased parent | 19 | 19 |
+| bare haploid (strandless) GTs | 18 | 18 |
+| records whose strand the panel cannot explain | 341 | **239** |
+| mosaic wildcard sites | 2,868 | **2,767** |
+
+Accuracy is unmoved from stage 2 to four decimal places on every class except SV (0.51903 →
+0.51838, four calls' worth), which is what deleting a FILTER-only mechanism should do: it never
+touched a genotype.
+
+**Two things the single derivation settled that the three could not.** The "parent settled off the
+traversal this chain hangs from" bucket reads **zero** in every generation -- so the 440 that used to
+be reported as a coherence disagreement were never inconsistent at all. They are chains the parent
+carries on *both* its settled traversals: a genuinely diploid locus where the record names one allele
+because it was genotyped at ploidy 1 and the barrier had no ploidy-2 answer kept for it. The old code
+called that `nested_diploid` and filtered it; it is better described than flagged, and the mosaic now
+names both haplotypes there instead of marking the strand unexplained -- which is where 101 of the
+recovered wildcard sites come from.
+
+The deleted mirror check was testing `allele_first`, a VCF allele, against a mask over candidate
+traversals. It was the last of this refactor's two-numbering bugs and had been reporting on the wrong
+axis since it was written.
+
+**The residual 18 strandless records split cleanly**, which is the point of naming the classes: 11
+have no phased parent at all, and 7 are the both-strands case whose GT cannot say "on both" at ploidy
+1. Neither is a coherence failure. Closing the first needs the parent to be reachable at all; closing
+the second needs a ploidy-2 answer retained for every chain, which is a genotyping decision rather
+than a phasing one.
+
 ## Risks
 
 * **A settled pair with no VCF allele.** In traversal space the Viterbi can reach a traversal the
