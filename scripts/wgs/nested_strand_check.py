@@ -242,8 +242,16 @@ def main() -> None:
     for pos, ref, alt, gt in calls:
         if pos in vcf_strand:
             # The record says which strand, so no recovery and no losses.
+            #
+            # `vcf_strand` is keyed on position and several records legitimately share one -- a
+            # nested site sits at or near its parent's position. So reaching this branch does not
+            # mean THIS record is the half-called one; it means some record here was. Stripping the
+            # wildcard from a full diploid GT leaves it unchanged, and the int() below then raised.
             strand = vcf_strand[pos]
             gt = gt.replace("|.", "").replace(".|", "")
+            if not gt.isdigit():
+                stats["diploid_sharing_a_haploid_position"] += 1
+                continue
             stats["haploid_records"] += 1
         elif "|" in gt or "/" in gt or not gt.isdigit():
             continue          # diploid, or no call
