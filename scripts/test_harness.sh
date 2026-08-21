@@ -112,8 +112,8 @@ echo "== mosaic concatenation is not cat =="
 # ordering, so concatenating 24 files under one #haplotype table would silently relabel haplotypes.
 # The fixtures below disagree on purpose: HG005#1 is index 1 on chrA and index 0 on chrB.
 mkdir -p "$TMP/m"
-printf '#mosaic-version\t2\n#graph\tg/chrA.gbz\n#sample\tHG002\n#reference\tCHM13#0#chrA\n#haplotype\t0\tCHM13#0\n#haplotype\t1\tHG005#1\n#H\tc\nH\tchrA\t0\t1\t99\t10\t20\t1\tHG005#1\t5\t21\t3\n' > "$TMP/m/A.tsv"
-printf '#mosaic-version\t2\n#graph\tg/chrB.gbz\n#sample\tHG002\n#reference\tCHM13#0#chrB\n#haplotype\t0\tHG005#1\n#haplotype\t1\tCHM13#0\n#H\tc\nH\tchrB\t0\t1\t99\t30\t40\t0\tHG005#1\t7\t61\t2\nH\tchrB\t1\t1\t99\t30\t40\t*\t*\t7\t.\t.\n' > "$TMP/m/B.tsv"
+printf '#mosaic-version\t3\n#graph\tg/chrA.gbz\n#sample\tHG002\n#reference\tCHM13#0#chrA\n#haplotype\t0\tCHM13#0\n#haplotype\t1\tHG005#1\n#H\tc\nH\tchrA\t0\t1\t99\t10\t20\t1\tHG005#1\t5\t21\t3\n' > "$TMP/m/A.tsv"
+printf '#mosaic-version\t3\n#graph\tg/chrB.gbz\n#sample\tHG002\n#reference\tCHM13#0#chrB\n#haplotype\t0\tHG005#1\n#haplotype\t1\tCHM13#0\n#H\tc\nH\tchrB\t0\t1\t99\t30\t40\t0\tHG005#1\t7\t61\t2\nH\tchrB\t1\t1\t99\t30\t40\t*\t*\t7\t.\t.\n' > "$TMP/m/B.tsv"
 if bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/out.tsv" chrA:"$TMP/m/A.tsv" chrB:"$TMP/m/B.tsv" 2>"$TMP/m/err"; then
     got=$(awk -F'\t' '/^H\t/ && $9=="HG005#1" {print $8}' "$TMP/m/out.tsv" | sort -u | tr -d '\n')
     check "one haplotype gets one index across contigs" "$got" "1"
@@ -136,11 +136,11 @@ fi
 # Malformed input must stop the run rather than produce a plausible-looking genome file. A version
 # the script does not implement is the case worth pinning: the columns it needs may be absent or mean
 # something else, and appending the rows anyway yields a file that parses and lies.
-sed 's/#mosaic-version	2/#mosaic-version	9/' "$TMP/m/A.tsv" > "$TMP/m/otherver.tsv"
+sed 's/#mosaic-version	3/#mosaic-version	9/' "$TMP/m/A.tsv" > "$TMP/m/otherver.tsv"
 bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/bad.tsv" chrA:"$TMP/m/otherver.tsv" 2>/dev/null \
     && bad "concat_mosaic.sh rejects an unrecognised mosaic version" \
     || ok "concat_mosaic.sh rejects an unrecognised mosaic version"
-printf '#mosaic-version\t2\n#graph\tg.gbz\n#reference\tR\n#haplotype\t0\tX#0\n#H\tc\nH\tchrA\t0\t1\t99\t10\t20\t0\tGHOST#9\t5\t21\t3\n' > "$TMP/m/ghost.tsv"
+printf '#mosaic-version\t3\n#graph\tg.gbz\n#reference\tR\n#haplotype\t0\tX#0\n#H\tc\nH\tchrA\t0\t1\t99\t10\t20\t0\tGHOST#9\t5\t21\t3\n' > "$TMP/m/ghost.tsv"
 bash scripts/wgs/concat_mosaic.sh HG002 "$TMP/m/bad.tsv" chrA:"$TMP/m/ghost.tsv" 2>/dev/null \
     && bad "concat_mosaic.sh rejects a haplotype missing from its own panel" \
     || ok "concat_mosaic.sh rejects a haplotype missing from its own panel"

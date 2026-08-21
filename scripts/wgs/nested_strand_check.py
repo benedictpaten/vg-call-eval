@@ -78,10 +78,24 @@ def strands_from_vcf(calls_records):
 
 
 def wildcard_intervals(mosaic, contig):
-    """Per strand, the [start, end] ranges the panel names no haplotype over."""
+    """Per strand, the [start, end] ranges the panel names no haplotype over.
+
+    Requires mosaic version 3 or later. Version 2 wrote * for two different things -- a strand the
+    panel cannot name a haplotype for, and a strand carrying no sequence at all -- so on a v2 file
+    this function silently returned the union of the two and over-reported.
+    """
     spans = {0: [], 1: []}
+    seen_version = None
     with open(mosaic) as fh:
         for line in fh:
+            if line.startswith("#mosaic-version"):
+                seen_version = line.rstrip("\n").split("\t")[1]
+                if seen_version != "3":
+                    raise SystemExit(
+                        f"{mosaic}: mosaic-version {seen_version}, need 3 -- in version 2 the "
+                        "haplotype column conflated 'panel cannot explain' with 'no sequence here', "
+                        "so this measurement would over-report"
+                    )
             if not line.startswith("H\t"):
                 continue
             f = line.rstrip("\n").split("\t")

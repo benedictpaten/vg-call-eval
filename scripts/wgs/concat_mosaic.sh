@@ -41,8 +41,11 @@ END {
         while ((getline line < file[C]) > 0) {
             if (line !~ /^#/) continue
             split(line, f, "\t")
-            if (f[1] == "#mosaic-version" && f[2] != "2") {
-                print "expected mosaic-version 2 in " file[C] ", got " f[2] > "/dev/stderr"; exit 1
+            if (f[1] == "#mosaic-version" && f[2] != "3") {
+                # Refused rather than upgraded: in version 2 the haplotype column spelled "no
+                # sequence on this strand" and "the panel cannot name a haplotype" both as *, so a
+                # v2 file cannot be turned into a v3 one without the information that was lost.
+                print "expected mosaic-version 3 in " file[C] ", got " f[2] > "/dev/stderr"; exit 1
             }
             if (f[1] == "#graph")     graph[C] = f[2]
             if (f[1] == "#reference") ref[C]   = f[2]
@@ -52,7 +55,7 @@ END {
         if (!(C in graph)) { print "no #graph line in " file[C] > "/dev/stderr"; exit 1 }
         if (!(C in ref))   { print "no #reference line in " file[C] > "/dev/stderr"; exit 1 }
     }
-    print "#mosaic-version\t2"
+    print "#mosaic-version\t3"
     print "#sample\t" sample
     print "#decoding\tconstrained-viterbi"
     print "#note\tgenome-wide file: assembled from per-contig runs, so there is no single graph. gbwt_node/gbwt_offset resolve against the #contig graph for that row s own contig and only that one, because an offset is a rank among the sequences at a node and the whole-genome GBWT has more of them."
