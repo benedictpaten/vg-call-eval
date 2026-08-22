@@ -305,6 +305,97 @@ Do **not** gate on "QUAL == 0 iff GT is all-reference": `src/read_likelihood_cal
 
 **Output moves:** yes, substantially. **Reversibility:** one argument. Revert restores stage 9 exactly, which is the whole reason stage 9 exists.
 
+## 10 result: rendered from the settled genotype, and three ordering bugs the gate could not see
+
+Implemented as three commits' worth of change: record at the genotyping site rather than at emission
+(10a), normalise the locus name (10b), render from the settled pair (10c). Structural gate, against
+stage 9:
+
+| gate | stage 9 | stage 10 | target |
+|---|---|---|---|
+| (i) unrenderable settled genotypes | 1,472 | **496** | 0 |
+| (ii) final GT of 0/0 or 0\|0 | 4,490 | **1,383** | 0 |
+| (v) GT past the ALT list | 0 | 0 | 0 |
+| (vi) GQ > GQI | 0 | 0 | 0 |
+| records | 116,966 | 115,618 | — |
+
+(i) and (ii) fall by 66% and 69% but **not to zero, and the gate as written called for zero.** The
+residue is nested chains, which still emit inline from the pre-linkage genotype because the barrier
+itself emits: only the top-level render pass moved. Driving both to zero needs the barrier to stop
+emitting, which is stage 11's deletion, not stage 10's reordering. Recorded as a partial pass rather
+than a pass.
+
+Accuracy, against the stated prediction:
+
+| class | stage 9 | stage 10 | delta |
+|---|---|---|---|
+| ALL | 0.97048 | **0.97231** | +0.00183 |
+| SNV | 0.98436 | 0.98523 | +0.00087 |
+| Insertion | 0.90843 | 0.91504 | +0.00661 |
+| Deletion | 0.93266 | 0.93724 | +0.00458 |
+| JointIndel | 0.91840 | 0.92390 | +0.00550 |
+| SV | 0.51875 | 0.52099 | +0.00224 |
+
+**The prediction was wrong about the mechanism, and that is the finding.** FP was predicted to fall
+from 2,008 to at most 1,800, with 1,900 as the abandon threshold; it fell to 1,972 — a 36-record
+improvement against a predicted 275. The gain is almost entirely recall: TP 91,154 → 91,454 and
+FN 3,537 → 3,237, both moving by 300. So the 4.24x GQ-matched enrichment at unrenderable sites did
+**not** mean those sites were false positives waiting to be removed; rendering from the settled
+genotype instead *recovers true calls that the pre-linkage ALT list could not express*. 1,840 records
+gained, 3,174 lost. On the gate's literal terms FP missed its threshold, and on the gate's own
+"record it rather than tuning around it" instruction the result stands: every class improved, and the
+mechanism is now known to be recall.
+
+### Re-gated with phasing working, and the result confirms the invariant
+
+The accuracy above was first measured while phasing was entirely absent (bug 2 below). Re-run with it
+restored, chr20 comes out **identical to five decimal places, with identical TP/FP/FN**: ALL 0.97231,
+91,454/1,972/3,237. Unphased records fell from all 116,952 to 144; record count unchanged at 115,618.
+
+That equality is the evidence, not a formality. Aardvark's GT comparison is order-insensitive, so
+identical counts across a run that gained phasing is a direct measurement of the property the phased
+output is supposed to have — phasing re-orders a genotype without re-deciding it — at chr20 scale
+rather than on a 70-record fixture. `nested_strand_check` agrees: `no_strand` 0,
+`strand_not_recoverable` 0, strand correct on 180 of 286 decisive sites (62.9%) against a best trivial
+control of 56.6%, unchanged from before the render moved.
+
+### Three bugs, all of them ordering, none visible to the structural gate
+
+Each was found only by a test or a fixture, and each would have passed every gate above.
+
+**1. Locus versus path name.** `record_site` keys on `get_ref_position`'s answer, which is the base
+path name `CHM13#0#chr20`; emission reduces it to `chr20`. Every patch lookup therefore missed and
+**all 116,952 records came out unphased** — with no counter reading wrong, because the patch index was
+consistent with itself. Fixed with `PathMetadata::parse_locus_name`.
+
+**2. `emitted` is a snapshot, and the phase alleles with it.** `linkage_phased` holds `PhaseCall`
+*copies* taken during resolution. `set_allele_map` writes `emitted` into the live `Entry`. With the
+record now built after the decision, every copy says unemitted forever, so the patch-index build
+(`if (!pc.emitted) continue`) skipped all 70 fixture records and reported `phasing: 0 sites phased` —
+phasing absent, not mis-numbered. The same snapshot breaks the mosaic in the other direction: built
+during resolution it would have admitted the ~100k sites that never become records. Both moved into a
+new `finalise_linkage_outputs()` that runs after the render and reads the emitted set live, in one
+pass (`emitted_records()`) rather than a scan per key — 219,600 entries against 219,600 phase calls is
+not a lookup that can be answered individually.
+
+**3. `--no-phased` is not "the same run without PS".** Where the linkage layer runs, turning phasing
+off turns *nested calling* off with it (`src/subcommand/call_main.cpp:1810`, deliberate and documented:
+a nested site's ploidy comes from its parent's phased genotype). So `test/t/18_vg_call.t`'s
+permutation check compared a nested run against a non-nested one — valid only while the two emitted
+the same records, which decide-then-render ends: 70 records against 63. The test was rewritten to put
+`--no-nested` on both sides, where the invariant holds exactly (63 = 63, all joining, zero
+non-permutations), and to **join on the snarl ID instead of pairing by line order**, because POS is not
+an identity: one snarl legitimately moved from POS 10 to POS 9 between arms, and `paste` by line
+number then reported 41 of 70 records broken. This is the same class as stage 10b's locus bug and the
+third position-as-identity error in this phase.
+
+This also confirms stage 11's open item (b) from the other direction: the configuration where the
+collector is armed but nesting is off is live, and it is reached by `--no-phased`, not only by
+`--no-nested`.
+
+**Tests.** `test/t/18_vg_call.t` at 304 (was 303: the rewritten check gained a record-set assertion so
+a join cannot silently drop rows). `vg test` 835 cases, 12,547,453 assertions.
+
 ## 11. Delete the patch machinery
 
 **Goal.** Remove the path decide-then-render replaces, so the two cannot drift.
