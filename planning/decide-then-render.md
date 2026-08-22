@@ -611,6 +611,64 @@ whether it is writing a line. `render_phase_pair`, `vcf_allele_of_traversal` and
 `phase_fallback` population go with it, since the render knows the traversal→allele map it has just
 built.
 
+### 11c result: phasing moved into the render, output byte-identical
+
+`apply_phasing` (161 lines), the phasing patch in `write_variants` (30), the `linkage_phasings` index,
+`phase_declined_allele` and `vcf_allele_of_traversal` are gone. **chr20 output is byte-identical to the
+patch-based run** — the right gate for a refactor whose whole claim is that it changes nothing but
+where the work happens.
+
+Phasing was a patch for exactly one reason: a PhaseCall names a *traversal* pair, the VCF needs allele
+numbers, and the map between them did not exist until the record was built. Rendered instead, that map
+is `trav_to_allele`, complete and correct, a few lines above in the same function. No fallback is
+needed and none is taken: **zero phase refusals of any kind** on chr20, against 144 unphased records at
+stage 10 and a 192,045-site `render_phase_pair` fallback population.
+
+Two mistakes on the way, neither visible on the 70-record fixture, both worth recording:
+
+- `trav_to_allele` is a `std::map` keyed *by* traversal, not a vector indexed by it. Bounds-checking a
+  traversal index against `map::size()` — the number of alleles the record carries — refused 101,947
+  phases and left 7,189 records unphased. `operator[]` would have been worse than the wrong bound: on a
+  miss it inserts a default 0, writing allele 0 for a traversal the record does not carry into the very
+  map `set_allele_map` is then handed.
+- Adding PS before `update_vcf_info` put it second in FORMAT where the patch had appended it last.
+  Same fields, same values, every line different — which costs the byte comparison for no gain.
+
+`build_render_phases()` fills the lookup between the barrier and the render, deliberately with **no
+`emitted` filter**, unlike the mosaic. That filter is what forced the bookkeeping to run after the
+render in the first place; a render-time lookup does not need it, because a site with no line never
+looks itself up.
+
+**Left standing on purpose.** `render_phase_pair` and `PhaseCall::allele_first/allele_second` are now
+written and never read, and the misleading `phase_fallback` report is removed, but the conversion
+itself stays: `allele_*` carries the *compact* pair before that block overwrites it with the VCF one,
+so removing it needs a rename rather than a deletion, and doing both at once inside the phasing path
+was not worth the risk in the same commit that moved it.
+
+---
+
+# Phase II complete
+
+Stages 1–12 are landed and gated. The invariant the phase was built for holds by construction rather
+than by inspection: **nothing is written before it is decided.** There is one emission path, one
+genotype behind every record, and no patch machinery at all.
+
+| chr20 | stage 9 | now |
+|---|---|---|
+| unrenderable settled genotypes | 1,472 | **0** |
+| records with GT 0/0 or 0\|0 | 4,490 | **0** |
+| unphased records | — | **0** |
+| GT past the ALT list | 0 | 0 |
+| records | 116,966 | 115,038 |
+| ALL F1 | 0.97048 | **0.97222** |
+| SNV | 0.98436 | 0.98525 |
+| Insertion | 0.90843 | 0.91457 |
+| Deletion | 0.93266 | 0.93677 |
+| JointIndel | 0.91840 | 0.92338 |
+
+`--no-nested`, which the unification brought onto the same path, moved 0.96468 → 0.96658 with hom-ref
+records 3,131 → 0 and unphased 416 → 0.
+
 ## 12. Documentation for phase II
 
 **Changes.** `doc/read-likelihood-genotyping.md:564-565` still documents the three deleted `nested_*` FILTERs and how to interpret them (verified stale today, before any of this work). Rewrite that section around decide-then-render: the genotype is settled before the record exists, so there is nothing to flag. Also stale and not in any candidate plan's scope: `:210-211` ("linkage re-decides genotypes afterwards" — the architecture stage 10 inverts), `:370` (the merge header asserting DP/QUAL/GQ/FILTER are computed over the pre-merge allele set), `:389-435` and `:433` (mosaic format and column table, changed by stage 2), `:646` and `:779` (GQN blanking and `lowconf` clearing, whose owner moved in stage 10). In the eval repo: `docs/nested-calling-design.md` (eleven `nested_*` references including two results tables), `docs/coverage.md:233` (`apply_linkage_change`), `planning/nested-traversal-space.md:275`. Mark superseded rather than deleting, per that repo's convention.
