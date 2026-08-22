@@ -1,5 +1,10 @@
 # One allele space: the parent's genotype, not the parent's VCF record
 
+> **Superseded by `planning/decide-then-render.md`.** Stage 1 of this plan landed; the rest was
+> replaced by the decide-then-render phase, which removes the patch machinery this plan was written
+> around rather than extending it. `apply_linkage_change`, `apply_phasing`, `Change`, the `nested_*`
+> FILTERs and the `unrenderable` counter no longer exist.
+
 The linkage layer currently learns about a site only if that site wrote a VCF line. That is a
 presentation decision standing in for a genome fact, and it costs the thing nested calling exists to
 produce: a haplotype path through a nested snarl.

@@ -235,7 +235,11 @@ allele can never match, so its guard rejected every haploid change. The linkage 
 doing the work on haploid contigs and discarding all of it -- and since phasing and the mosaic are
 built from the post-linkage genotypes, the mosaic described genotypes the VCF did not contain.
 
-Fixed in vg; the haploid rows above are post-fix. **Haploid linkage is worth +0.017 F1 at 2.5x and
+Fixed in vg at the time. `apply_linkage_change` itself no longer exists -- the record is now built
+from the settled genotype, so there is no line to patch and no guard to get wrong; see
+`planning/decide-then-render.md`. The account above is kept because the failure mode it names,
+a silent no-op that the progress counter reported as work done, is not specific to that function.
+**Haploid linkage is worth +0.017 F1 at 2.5x and
 +0.008 at 14.6x**, none of which chrY or non-pseudoautosomal chrX was receiving.
 
 Three points of method, all learned the hard way in this stage:

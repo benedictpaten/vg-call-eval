@@ -1,5 +1,15 @@
 # Nested calling by symbolic alleles, with ploidy propagation
 
+> **Superseded in its mechanism, not its results, by `planning/decide-then-render.md`.** Everything
+> below describes nested calling as it worked when a record was written during the read sweep and then
+> corrected: `apply_linkage_change` patched the genotype of an already-written line, `apply_phasing`
+> patched its phase, and the three `nested_*` FILTERs marked the cases a patch could not express.
+> None of that machinery exists any more. Every site is now genotyped and staged during the sweep, the
+> barrier settles each generation's genotypes at the ploidy its parent implies, and the record is
+> built afterwards from the settled genotype -- so a genotype naming an allele the record has no ALT
+> for, and a record carrying a hom-ref genotype, are both impossible by construction rather than
+> flagged. Read the results tables as history: they were measured on the arm described here.
+
 Design, implementation and results. Stages 0-3 and 5 are built and measured behind `vg call
 --nested`; Stage 4 is deliberately last and not started. Every claim is cited so it can be
 re-checked.
