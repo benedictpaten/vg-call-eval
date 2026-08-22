@@ -647,6 +647,79 @@ was not worth the risk in the same commit that moved it.
 
 ---
 
+# Whole-genome result
+
+24 contigs under `schedule_wgs.py` into `work/wgs-dtr`, both prior arms left intact. 4,970,004
+records. Scored through the same `bench_wgs.py` path as the arms it is compared against.
+
+**Autosomes**, summed counts (averaging per-contig F1s would weight chr21 like chr1):
+
+| class | inline | post-linkage descent | decide-then-render | delta vs inline |
+|---|---|---|---|---|
+| ALL | 0.97034 | 0.97032 | **0.97288** | +0.00254 |
+| SNV | 0.98372 | 0.98371 | **0.98492** | +0.00119 |
+| Insertion | 0.91046 | 0.91042 | **0.91811** | +0.00765 |
+| Deletion | 0.93348 | 0.93350 | **0.94105** | +0.00757 |
+| JointIndel | 0.91948 | 0.91946 | **0.92720** | +0.00772 |
+
+TP 4,025,074 → 4,039,888 (+14,814), FP 94,189 → 88,172 (−6,017), FN 151,914 → 137,100 (−14,814).
+**Both** precision and recall improve, which chr20 alone did not show: there the gain was recall-only
+with FP nearly flat. Genome-wide FP falls 6.4% and FN 9.8%.
+
+Every one of the 22 autosomes improves. The largest gains are chr16 (+0.00543), chr15 (+0.00497),
+chr2 (+0.00396) and chr19 (+0.00386) — the contigs with the most segmental duplication, which is
+where collapsed parents and nested children are most common.
+
+**Invariants hold on all 24 contigs**: zero records with a hom-ref genotype, zero unphased records,
+zero genotypes past the ALT list. Peak RSS tops out at 6.05 GB on chr1.
+
+## chrX regresses, and the mechanism is identifiable
+
+**chrX: 0.94939 → 0.93643, −0.01296**, FN +3,143 against FP −1,067. It is the only contig that gets
+worse, and it is worth more than the note it would get as an outlier.
+
+Including chrX the whole-genome figure is still strongly positive — ALL 0.96989 → 0.97212 (+0.00223),
+TP +11,671, FP −7,084, FN −11,671 — so this is a real cost inside a larger gain, not a wash.
+
+What was lost is specific: of 7,566 chrX records that disappeared, **3,461 carried a bare haploid
+`1`** and 1,858 a bare `0` (the latter correctly, being reference). 4,021 were gained. The loss
+concentrates in non-PAR: 5,892 lost against 2,076 gained, versus 1,674/1,945 in the PAR.
+
+The mechanism is the **site-to-record ratio at ploidy 1**:
+
+| | sites in the layer | records | ratio |
+|---|---|---|---|
+| chr20 | 219,600 | 115,038 | 1.91 |
+| chr1 | 662,724 | 369,226 | 1.79 |
+| **chrX** | 816,291 | 110,804 | **7.37** |
+| **chrY** | 354,607 | 64,554 | **5.49** |
+
+The ratio itself is expected and is not the defect: a haploid site needs only *one* reference allele
+to collapse and write no line, where a diploid site needs two, so P(no line) is p rather than p², and
+haploid regions therefore produce far more line-less sites. What is not expected is the consequence.
+Those sites are recorded so that nested children can inherit a strand — but they also **enter the
+linkage chain**, and on a haploid contig that chain is a single-strand HMM in which they now outnumber
+real records 7:1. Their emissions and their transition gaps steer the Viterbi path for the records
+that do get emitted. chrX's linkage moved 15,116 genotypes against the prior arm's 6,170.
+
+**This is a modelling change that predates this phase and was made visible by it.** Recording
+collapsed sites arrived with stage 2; what decide-then-render changed is that the model's answer is
+now always what gets emitted, where before a patch was often declined or the record already agreed. So
+the fix is not in the rendering.
+
+**The question to answer, and not by guessing:** should a site that will produce no VCF line
+participate in the linkage chain at all, or only in the strand inheritance its children need? Those
+are separable — a site can be in the collector for its children without being a node in its parent
+chain's HMM. The measurement is a chrX arm with line-less sites excluded from the chain but retained
+for strand, against this one. It bears directly on stage 15, which rebuilds the chain per haplotype,
+and on stage 19's conditioning; doing it there rather than as a patch here is the right sequencing,
+because stage 15 changes what a chain *is*.
+
+Not deferred out of convenience: chrX is ~5% of the genome and the loss is 3,143 true calls, against
+14,814 recovered elsewhere.
+
+---
+
 # Phase II complete
 
 Stages 1–12 are landed and gated. The invariant the phase was built for holds by construction rather
