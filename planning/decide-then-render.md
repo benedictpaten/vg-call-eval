@@ -737,10 +737,61 @@ linkage chain**, and on a haploid contig that chain is a single-strand HMM in wh
 real records 7:1. Their emissions and their transition gaps steer the Viterbi path for the records
 that do get emitted. chrX's linkage moved 15,116 genotypes against the prior arm's 6,170.
 
-**This is a modelling change that predates this phase and was made visible by it.** Recording
-collapsed sites arrived with stage 2; what decide-then-render changed is that the model's answer is
-now always what gets emitted, where before a patch was often declined or the record already agreed. So
-the fix is not in the rendering.
+**Correction: it does not predate this phase.** The claim above was that recording collapsed sites
+arrived with the older stage 2, and the deferred arm disproves it — `wgs-defer` has **114,383** sites
+on chrX against inline's 114,412, and scores 0.94931 against 0.94939. The 7x inflation arrived in
+*this* plan's work, and the regression is ours.
+
+**Correction: the first diagnostic was misconfigured and its result should be ignored.** A chrX probe
+at `--linkage-weight 1` came out at 0.89823, which looked like a refutation of the density
+explanation. It was run with `-d 2` where `call_wgs.sh` uses `-d 1` plus the PAR bed, so it changed
+base ploidy as well as the weight and measured neither. Both whole-genome arms did use the same
+configuration — `chrX: haploid with diploid PAR (--ploidy-bed)` appears in both schedule logs — so the
+comparison itself is sound; only the probe was wrong.
+
+**What is established.** The lost calls are not relocated. Of 4,247 chrX records with a non-reference
+genotype that disappeared, only **39** have a new record nested inside them; **4,208 were lost with
+nothing taking their place**. So this is not symbolic collapsing moving a difference down into a
+child — it is the settled genotype changing from alt to reference. A decision change, not a
+representation change, which puts the linkage model at the centre.
+
+**And the obvious explanation is wrong.** A collapsed site is not an uninformative site: its panel row
+is over *traversals*, and those traversals genuinely differ from each other — they differ inside the
+child chains. Such a site says which panel haplotype the sample follows, which is exactly the evidence
+linkage wants. Adding informative sites to a chain should not degrade it.
+
+## The transition model's switch rate depends on site density
+
+`switch_probability` computes `rho = rho_min + (1-rho_min)(1-exp(-gap/scale))` and returns
+`pow(rho, weight)`, with `weight` defaulting to 2. **Raising a per-step probability to a power breaks
+composition**: subdividing a span cannot preserve its total switch probability.
+
+Measured on chrX's mean inter-site gap, which fell from 1,348 bp to 189 bp:
+
+| | one step of 1,348 bp | 7.1 steps of 189 bp |
+|---|---|---|
+| weight 1 | switch 0.12701 | 0.13235 (0.96x — telescopes, as it should) |
+| **weight 2** | switch 0.01613 | **0.00277 (5.83x stickier)** |
+
+At weight 1 the distance term telescopes exactly and only the `rho_min` floor accumulates. At weight 2
+it does not telescope at all, so **the effective switch rate is a function of how many sites are in
+the chain rather than of genomic distance.** Any change to what enters the layer silently re-tunes the
+linkage strength: `weight = 2` was fitted at ~114k sites on chrX and is now applied at 816k.
+
+This is a defect independent of chrX, and it means the autosomes were re-tuned too — 1.9x denser, so
+mildly stickier, which evidently helped there.
+
+**Whether it explains the chrX loss is still open** and the test is a probe at weight 1 with the
+correct `-d 1 --ploidy-bed`, where the model is density-independent. The candidate mechanism is
+rigidity: with the per-step switch probability 5.8x smaller, the Viterbi path is pinned by whichever
+haplotype pair was favoured earlier and cannot switch when a later site disagrees, so real haploid alt
+calls get pulled to the pinned haplotype's reference allele. That is consistent with chrX's linkage
+moving 15,116 genotypes against 6,170, but consistency is not evidence and the probe decides it.
+
+The principled fix, if confirmed, is to make `weight` act on the survival probability so that it
+composes: `1 - rho = pow((1-rho_min) * exp(-gap/scale), 1/weight)`, for which N steps multiply to
+exactly the one-step answer over the same span. It changes what the number 2 means, so it needs a
+re-fit — which the deferred list already anticipates.
 
 **The question to answer, and not by guessing:** should a site that will produce no VCF line
 participate in the linkage chain at all, or only in the strand inheritance its children need? Those
