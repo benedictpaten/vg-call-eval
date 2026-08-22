@@ -554,6 +554,63 @@ The nested arm is untouched by this: where `nested_calling` is true the new cond
 
 **Output moves:** no for the deletions, yes for the >64 subtrees. **Reversibility:** split into two commits — the pure deletions, then the mask replacement — so a regression can be attributed.
 
+## 11b: the deletion, and a silent regression it uncovered
+
+`apply_linkage_change` (216 lines), the `linkage_changes` index, the `Change` struct, the
+`change_declined` counters and the `unrenderable` counter are gone. Net −132 lines across the two
+files. Every generation reported **0 genotypes changed** on chr20 before the deletion, in both the
+nested and the `--no-nested` arm, so the code was provably dead: a Change is only produced for a site
+that already has a line, and no site has one at resolution time.
+
+**The regression.** `apply_linkage_change` did two jobs, and only one of them stopped being
+necessary. Alongside rewriting the GT it computed the post-linkage *quality*: GQ as the phred
+complement of the HMM posterior, discounted by the explained-read share, capped at GQI, GQN blanked,
+a stale `lowconf` cleared. When the genotype patch stopped being produced, that arithmetic stopped
+running with it — and **nothing in the accuracy gate could see it**, because GQ is not used as a
+filter here, so a run whose quality has silently reverted to the per-site value scores an identical
+F1 and is differently calibrated. The counter told the story only in hindsight:
+
+| | records carrying posterior-derived quality |
+|---|---|
+| stage 9 | 9,980 |
+| stage 10 | 3,524 |
+| 10b | **0** |
+
+The cap at GQI is the load-bearing part — about +0.003 AUC and 1–2% fewer surviving false calls,
+against +0.0001 to +0.0009 for the share discount alone — and it is what makes `GQ <= GQI` hold at
+all. This is exactly the item stage 10 named as "the part no candidate plan scheduled", and it was
+missed there and again in 10b.
+
+Restored as `apply_linkage_quality`, driven by record key from a new
+`LinkageCollector::moved_quality()` (record key → posterior, explained share) filled at the two places
+the model moves a genotype. It touches GQ, GQN and FILTER only; the genotype is not its business any
+more, because the line already carries the settled one.
+
+**Deliberately not widened.** The posterior now exists for every settled site, not just moved ones, so
+posterior-derived quality *could* apply to all 219,600. That is a different change with its own
+measurement (AUC, and surviving false calls at matched recall) and it is not made here — the
+restoration reproduces exactly the population the arithmetic used to cover.
+
+**Counter renamed to match what it counts.** "N genotypes changed" was the number of patches
+produced, which now reads 0 at every generation — a counter reporting that linkage changed nothing,
+about the pass that decides every genotype in the output. It is "N genotypes moved by linkage" and is
+incremented where the model's answer differs from the called one, whether or not anything is patched.
+
+**Verified.** chr20 after the deletion: 115,038 records, unrenderable 0, hom-ref 0, GT past ALT 0,
+unphased 0, ALL F1 0.97222 with identical TP/FP/FN — the VCF differs from the previous commit's only
+in GQ and GQN, which is the repair. The quality pass is live: 15,068 genotypes moved, GQ changed on
+5,910 records, GQN on 9,504, `GQ > GQI` 0, and the cap visibly acting in both directions (2 → 6 capped
+at GQI 6; 43 → 19). `vg test` 835 cases / 12,547,462 assertions; TAP 304.
+
+**Still to delete, and why not yet.** `apply_phasing` is the last patch pass. It is load-bearing:
+the phase is applied by rewriting a rendered line's GT separator and appending PS. Moving it into the
+render is the remaining half of stage 11 and needs the phase lookup built between the barrier and the
+render rather than after it — which is possible, because the `emitted` filter that forced
+`finalise_linkage_outputs` to run late exists for the mosaic, not for phasing: the render knows
+whether it is writing a line. `render_phase_pair`, `vcf_allele_of_traversal` and the whole
+`phase_fallback` population go with it, since the render knows the traversal→allele map it has just
+built.
+
 ## 12. Documentation for phase II
 
 **Changes.** `doc/read-likelihood-genotyping.md:564-565` still documents the three deleted `nested_*` FILTERs and how to interpret them (verified stale today, before any of this work). Rewrite that section around decide-then-render: the genotype is settled before the record exists, so there is nothing to flag. Also stale and not in any candidate plan's scope: `:210-211` ("linkage re-decides genotypes afterwards" — the architecture stage 10 inverts), `:370` (the merge header asserting DP/QUAL/GQ/FILTER are computed over the pre-merge allele set), `:389-435` and `:433` (mosaic format and column table, changed by stage 2), `:646` and `:779` (GQN blanking and `lowconf` clearing, whose owner moved in stage 10). In the eval repo: `docs/nested-calling-design.md` (eleven `nested_*` references including two results tables), `docs/coverage.md:233` (`apply_linkage_change`), `planning/nested-traversal-space.md:275`. Mark superseded rather than deleting, per that repo's convention.
