@@ -1070,6 +1070,57 @@ and "the approximation threw the signal away".
 and two fields on `Site`. The plan already flagged `record()` as a 17-argument function in the parallel
 hot path; this takes it to 19.
 
+## 15(a) and 15(b) results: one no-op kept, one revert
+
+**15(a) landed with no measured effect, and half of it is unevidenced.** Keying `by_strand` on
+(phase set, strand) is a real fix -- a strand only means something inside a phase set -- but chr20
+**cannot exercise it**: PS is per chain, so on a single-chain contig the old and new keys are the same
+key. chrX, which has a phase-set boundary at the PAR, shows 25 sites the old key would have pooled
+across it. Both contigs are byte-identical and chrX's F1 is unchanged to five decimals. The singleton
+half fires on **neither** contig (0 groups of one), so nothing measured supports it at all; it rests on
+the argument that `freq_prior` acts on a chain of one. Kept as correctness, not as a measured gain, and
+both counters print so the next contig that does exercise them says so.
+
+**15(b) is REVERTED on its own criterion.** chr20 against 15(a):
+
+| class | 15(a) | 15(b) | delta |
+|---|---|---|---|
+| ALL | 0.97231 | 0.97220 | −0.00011 |
+| **JointIndel** | 0.92390 | 0.92329 | **−0.00061** |
+| Insertion | 0.91504 | 0.91442 | −0.00062 |
+| Deletion | 0.93724 | 0.93678 | −0.00046 |
+| SNV | 0.98523 | 0.98526 | +0.00003 |
+
+The criterion was JointIndel up by at least 0.0005 or revert rather than keep on principle. It fell.
+
+**The negative result is interpretable, and that is what writing the approximation down first
+bought.** Stage 14 had already bounded the upside: 9% of adjacent gaps differ by more than 5% between
+frames, which at `scale` = 10 kb is a 10-20% perturbation to `rho` on a minority of steps. A
+perturbation to the transition is not new information. So the finding is narrow and clean: **the
+distances really are different, and feeding those differences into this transition model does not
+improve genotypes.**
+
+### What this does to the rest of stage 15
+
+(b) was the distance half. With it out, and with (a) measuring nothing on either contig, the case for
+(c) -- folding nested sites into the parent's chain -- is materially weaker than when the phase was
+planned, because (c) was to be the thing that made the per-strand distances *reach* the nested sites.
+
+(c) is also the expensive part: `LinkageModel` never reads `Site::ploidy`, and `posteriors()` indexes
+`genotype_index(ai,bi)` against buffers sized n(n+1)/2 while a ploidy-1 `Site`'s
+`genotype_ln_likelihood` has only `num_alleles` entries -- an out-of-bounds read. So it needs a real
+single-copy emission under the two-haplotype latent state, specified and reviewed, and the plan says as
+much.
+
+**Recommendation, on the evidence rather than on the plan's momentum:** do not build (c) yet. Two of
+phase III's three landed sub-stages measured nothing and one measured worse. That is not an argument
+that nesting-in-the-chain is wrong; it is an argument that the *reason* given for it -- carrying
+per-strand distances to nested sites -- has been measured and does not pay. If (c) is built it should
+be justified by something else, and the honest candidate is the pooling argument: a nested site
+currently links only against same-strand nested siblings, never against the top-level sites around it,
+and that is a real modelling gap independent of distance. That is a different claim, needs its own
+prediction, and should not inherit (b)'s.
+
 ## 16. Children with no reference path
 
 **Goal.** 12,516 chr20 children are skipped for having no reference path, so REF and POS are undefined for them. In the haplotype frame they are orderable and linkable; only *rendering* needs a reference POS.
