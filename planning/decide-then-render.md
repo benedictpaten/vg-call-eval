@@ -514,6 +514,30 @@ and reachable only in the configuration above. `apply_phasing` is still load-bea
 phase is applied by patching lines after the render, and moving PS and the phased separator into the
 render is the second half of stage 11.
 
+### 11a result: unifying the path improves the non-nested arm too
+
+chr20, `--no-nested --phased`, decide-then-render against the old inline path:
+
+| | old path | decide-then-render | delta |
+|---|---|---|---|
+| records | 105,251 | 103,904 | |
+| hom-ref records | 3,131 | **0** | |
+| unphased records | 416 | **0** | |
+| unrenderable | 0 | 0 | |
+| ALL F1 | 0.96468 | 0.96658 | **+0.00190** |
+| SNV | 0.97809 | 0.97897 | +0.00088 |
+| Insertion | 0.90580 | 0.91245 | +0.00665 |
+| Deletion | 0.92814 | 0.93335 | +0.00521 |
+| JointIndel | 0.91428 | 0.92009 | +0.00581 |
+
+TP 89,897 → 90,210, FP 1,789 → 1,758, FN 4,794 → 4,481. Every class improves, and the shape matches
+stage 10's gain at top level -- mostly recall, precision moving slightly the same way. So the
+unification is not merely the precondition for the deletion; it is worth doing for this arm on its
+own, and it makes the nested-versus-not comparison the prose rests on a fairer one, since both arms
+now emit by the same mechanism and differ only in nesting.
+
+The nested arm is untouched by this: where `nested_calling` is true the new condition is the old one.
+
 ## 11. Delete the patch machinery
 
 **Goal.** Remove the path decide-then-render replaces, so the two cannot drift.
