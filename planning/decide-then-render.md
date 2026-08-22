@@ -171,6 +171,46 @@ The second `-L` defect — `trav_to_allele` built at `:2078-2118` before `merge_
 
 ---
 
+## 4. Ploidy provenance — MEASURED ZERO, NOT IMPLEMENTED
+
+Every one of stage 4's four sub-items measures no observable effect, so none was implemented. The
+mechanisms are real; their consequences are not reachable in the output.
+
+chrX with `scripts/wgs/chrX.par.bed`, 114,207 records, on `a8b9ea448`:
+
+| | |
+|---|---|
+| haploid interior records | 105,355 |
+| of those with a genuinely diploid GT | **0** |
+| PAR records | 8,852 |
+| of those with a bare haploid GT | **0** |
+| records whose REF straddles a PAR boundary | **0** |
+| `crossing_unknown` (>64 parent traversals), chrX and chr20 | **0** |
+
+The first measurement needed correcting before it meant anything: a naive "diploid GT" test counted
+9,214, all of them `a|.` — nested haploid records in the deliberate half-called form, matched because
+`.` sat inside the character class. Requiring both sides to be called gives 0.
+
+Why zero. The hard-coded `2` at `src/graph_caller.cpp:4768` does hand a retained chain ploidy 2 in a
+declared-haploid region, but the barrier then re-renders it at the ploidy the settled parent implies,
+which for a haploid parent is at most 1. So the wrong ploidy is chosen and then corrected, and the
+output never shows it. The same masking covers `ploidy_override` overriding `ploidy_at`.
+
+**This is a Phase II prerequisite, not a closed item.** Phase II changes the barrier's role — the
+record is built once, after the decision — so a ploidy chosen wrongly at descent is no longer
+corrected downstream. These three edits (the literal, composing the override as a minimum, and
+`ploidy_at` taking the minimum across the snarl's interval rather than reading its start) must land
+*with* stage 9 or 10, where a gate can see them. Doing them now would be three unverifiable changes
+to a numerical pipeline, and (c) is a signature change across four call sites at that.
+
+`crossing_unknown` being 0 on both contigs also settles sub-item (d): there is nothing to widen the
+mask for, and stage 11 deletes the mask anyway.
+
+**What this run did validate**, incidentally and worth keeping: chrX is the only available contig with
+mixed ploidy and more than one chain, and stages 1–3 are clean on it — all nested sites placed on
+exactly one strand, no bare haploid GT anywhere in the PAR, no uncheckable masks. chr20 cannot test
+any of that.
+
 # 6. Whole-genome run 1
 
 **Goal.** Validate the four pushed commits and stages 1–5 in one run. Nothing is validated past chr20 since `a27149728`, and the pushed work nearly doubled the linkage site count (117,210 → 219,246) and grew the arena 15.8 → 29.0 MB with chr20 wall +22% and the linkage pass 18.8 → 41.1 s. chrX with `--ploidy-bed`, chrY's haploid chains, and the acrocentric and centromeric contigs exist only at genome scale. This run also establishes the baseline every later comparison uses.
@@ -288,6 +328,47 @@ Do **not** gate on "QUAL == 0 iff GT is all-reference": `src/read_likelihood_cal
 **Gate.** No `nested_diploid`/`nested_haploid`/`nested_unreachable`/`respecify`/`apply_linkage_change` string survives outside a section marked as history — grep. Every source line cited in the rewritten sections resolves in the tree at this head, checked by a script in the eval repo so it can be re-run; confirm it fails by running it against `4371c9b67`, where `:564-565` cites FILTERs the source no longer emits. The four eval documents quoting pre-refactor whole-genome figures are **not** regenerated here — they need run 2, and updating them from chr20 would be worse than leaving them stale.
 
 ---
+
+## 7-8 result: retention priced exactly, route decided
+
+**407.25 MB on chr20**, walked from the retained objects rather than estimated: 222,623 records,
+5,097,064 traversal visits, 991,557 genotype likelihoods, ~1,830 B a record, 14x the collector's own
+29 MB arena. Landed byte-identical as `d151dc3d7`.
+
+Stage 7's estimate-arbitration was abandoned in favour of measuring, for a reason worth keeping:
+**peak RSS cannot resolve a delta this size on one contig.** Six runs of a single binary spread
+3.39-4.42 GB, wider than the retention being priced and wider than the documented 0.7 GB noise floor.
+The two prior estimates were also wrong in opposite directions -- 297 MB (27% low) and ~620 MB (52%
+high) -- so a third estimate would have added a guess, not an answer.
+
+**Route: retain unconditionally.** Projected by record count, chr1 (3.02x chr20) is ~1.23 GB, taking
+its measured 5.7 GB peak to ~6.9 GB and chr3's 6.1 GB worst case to ~7.3 GB. Against the documented
+32 GB machine packing contigs under a budget, that is about four concurrent contigs instead of five:
+a throughput cost near 20%, not a feasibility limit. And it is transient -- stage 10 renders and can
+release, so the peak spans only the sweep-plus-barrier window. The plan's 7.0 GB threshold against a
+"24 GB budget" is not used; that budget figure is undocumented, and the real constraint is packing
+density under 32 GB.
+
+Two corrections to the stage-8 text itself:
+
+* The retained population is **not** "top-level snarls" and the gate's "retained top-level count
+  equals the top-level snarl count" is unsatisfiable. It is snarls reaching an emit branch with no
+  ploidy override: 165,408 top-level plus 26,799 children that `call_top_level_snarls` reaches by
+  recursing on failure. Those belong in the render container -- the barrier does not revise them
+  either.
+* Staging in "all three emit branches" is right, but the `parent_child_trav_sets` branch is
+  unreachable on the default path: `nested` is set only by `-A`, `--top-down` or `--bottom-up`, never
+  by `--nested`.
+
+**And the move point has exactly one right answer, of three candidates.** Moving `travs` into the
+record at emit time costs 12,302 chr20 records, because descent runs after every emit branch and
+reads `travs` to see which children the called alleles reach -- the same failure as `906812957`, five
+times larger. Moving it after symbolic descent, where the nested branch completes its own staging,
+breaks four `-A` and `--top-down` tests, because the `-A` recursion builds each child's
+`ChildTraversalSets` from `travs[allele_idx]` further down. Only after that recursion is correct. The
+nested branch survives completing early only because `pending_this` is never set on the `-A` path --
+correct by accident of configuration, not by construction. Anything Phase II moves near here needs
+that ordering checked rather than inherited.
 
 # Phase III — haplotype-frame linkage
 
