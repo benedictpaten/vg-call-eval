@@ -673,6 +673,41 @@ where collapsed parents and nested children are most common.
 **Invariants hold on all 24 contigs**: zero records with a hom-ref genotype, zero unphased records,
 zero genotypes past the ALT list. Peak RSS tops out at 6.05 GB on chr1.
 
+## Runtime and read I/O
+
+The read I/O goal is met exactly. Eliminating the five-sweep penalty was the entire reason for the
+single-sweep design, and it is gone to within 0.1%:
+
+| | inline | post-linkage descent | decide-then-render |
+|---|---|---|---|
+| reads fetched | 609.1 M | 903.3 M (+48.8%) | **609.7 M (1.001x)** |
+| CPU user | 6.26 h | 11.45 h | **9.96 h (+59%)** |
+| wall clock | 3.20 h | 4.89 h | 6.03 h |
+| linkage pass, serial | 1,064 s | 950 s | 1,762 s |
+
+Wall clock is not comparable across separately scheduled runs -- the scheduler packs contigs
+concurrently and the contention differs -- so **CPU user is the number to read: +59% against inline**,
+and against the deferred arm it is a 13% saving with the read penalty removed as well.
+
+The linkage pass accounts for only ~0.2 h of the +3.7 h. The rest is the sweep and the render doing
+more work per site, and the layer holding more sites.
+
+**The per-contig spread points at the same cause as the accuracy regression.** Slowest ratios against
+inline: chrX **4.66x**, chr1 2.36x, chr4 2.26x, chr3 2.29x, chr2 2.02x, chr7 1.40x. chrX is the worst
+by a wide margin and is exactly the contig with 7.4x site inflation.
+
+So the excess line-less sites in the layer cost **both** accuracy (on the haploid contigs) and
+runtime (everywhere, worst where they are densest). That reframes the fix: a site is recorded so its
+nested children can inherit a strand, but **a site with no children does not need to be in the layer
+at all**, and on chrX almost none of the 700,000 extra sites can have any. Filtering on "has a nested
+child that needs this strand" would cut the density inflation, restore the transition model to the
+density it was tuned at, and remove most of the added CPU -- one change against three symptoms, and
+it removes the cost rather than working around it.
+
+The information is available at the right moment: `record_site` runs during the sweep, and descent
+runs immediately after in the same call, so whether any child was staged is known before the record
+has to be final -- the same "stage now, complete after descent" discipline `travs` already uses.
+
 ## chrX regresses, and the mechanism is identifiable
 
 **chrX: 0.94939 → 0.93643, −0.01296**, FN +3,143 against FP −1,067. It is the only contig that gets
