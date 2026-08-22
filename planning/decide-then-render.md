@@ -1030,6 +1030,46 @@ wrong order, and the measurement did change the design.
 
 **Output moves:** yes. **Reversibility:** four commits in the order (a), (b), (c), (d); tag stage 14 as the fallback. (c) is the one that is not cheap to revert.
 
+## 15(b) needs a specification too, and here it is
+
+The plan singled out (c) as "not plumbing" and needing a specification before it is written. (b) needs
+one as well, and the reason only becomes visible once stage 13 exists.
+
+**The problem.** The distance a haplotype has travelled between two adjacent sites depends on the
+indel content it carries *between* them — which is exactly what the Viterbi is deciding. A transition
+probability that depended on the source state would be a legitimate HMM, but it would need one `rho`
+per source state, O(m) values a step, and that destroys the factorisation into row and column sums
+that keeps `transition_apply` and `viterbi_step` at O(m^2). Stage 13's pair form takes two scalars for
+precisely this reason: two is affordable, m is not.
+
+**So (b) is only implementable as an approximation, and the choice has to be stated rather than
+absorbed into the code.** The distances are derived from the *called* alleles and fixed before the
+Viterbi runs:
+
+    gap_a = ref_gap + (length of the called first allele at the source site - its reference length)
+    gap_b = ref_gap + (length of the called second allele at the source site - its reference length)
+
+Taken from the source site, since that is the sequence being traversed on the way out of it. This is
+what a read-based phaser does — the distance is treated as a property of the assembly, not of the path
+being scored — and it is exact wherever linkage does not move the genotype, which is 219,600 minus
+15,068 sites on chr20, about 93%. Where linkage does move a site, the distance used is the one implied
+by the per-site call rather than by the settled one.
+
+**What this buys, bounded in advance.** Stage 14 measured 9% of adjacent gaps differing by more than
+5% between frames. `scale` is 10 kb, so at typical gaps a 5-10% change in distance moves `rho` by
+5-10%, and `weight = 2` squares that to 10-20% on a minority of steps. That is a perturbation to the
+transition, not a new source of information, so a large accuracy gain would be surprising and should
+be treated as suspicious rather than welcome.
+
+**The kill criterion is the plan's own and is kept:** JointIndel must rise by at least 0.0005 on
+chr20, or (b) is reverted rather than kept on principle. Stating the approximation first is what makes
+that criterion meaningful — otherwise a null result is ambiguous between "the frame does not matter"
+and "the approximation threw the signal away".
+
+**Cost.** Two `int32` on `Entry` (~8 bytes a site, ~1.8 MB on chr20), two more arguments on `record()`,
+and two fields on `Site`. The plan already flagged `record()` as a 17-argument function in the parallel
+hot path; this takes it to 19.
+
 ## 16. Children with no reference path
 
 **Goal.** 12,516 chr20 children are skipped for having no reference path, so REF and POS are undefined for them. In the haplotype frame they are orderable and linkable; only *rendering* needs a reference POS.
