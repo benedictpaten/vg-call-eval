@@ -708,6 +708,60 @@ The information is available at the right moment: `record_site` runs during the 
 runs immediately after in the same call, so whether any child was staged is known before the record
 has to be final -- the same "stage now, complete after descent" discipline `travs` already uses.
 
+## The chrX regression: two haploid bugs, both fixed
+
+**Resolved.** Two bugs in the haploid path, one of them introduced by this phase's own depth->=2
+strand fix. Neither had anything to do with linkage, symbolic collapsing, or site density -- all three
+of which were proposed here first and are wrong. What found them was elimination: the deficit is flat
+across `--linkage-weight` 0.01 / 1 / 2 (TP 82,435 / 82,697 / 82,689), so linkage cannot be
+responsible; and only 39 of 4,247 lost records had a new record nested inside them, so collapsing was
+not relocating the difference into a child. That left the rendering and the ploidy paths.
+
+**Bug 1: a strand was assigned without requiring a diploid parent** (`src/linkage_model.cpp:2026`).
+`strand = 1` was conditioned on `parent.ploidy == 2`; `strand = 0`, three lines above it, was not. A
+haploid top-level site has ploidy 1 and no strand of its own, so the nested-parent branch misses and
+the identity match fires unconditionally, handing its children strand 0. The renderer turns a strand
+into `a|.`, which asserts the locus is diploid and the other strand carries nothing -- false on a
+haploid contig, where the correct rendering is a bare `a`.
+
+| chrX non-PAR | haploid-shaped | `a|.` |
+|---|---|---|
+| inline | 103,064 | 2,333 |
+| before the fix | 93,444 | 8,056 |
+| after | 102,669 | **0** |
+
+The inline arm's 2,333 were wrong too, just fewer. chrY carried 10,994 of them and now carries none.
+
+**Bug 2: an unreached child was descended at a hard-coded ploidy 2** (`src/graph_caller.cpp:4879`).
+`child_ploidy` returns `min(copies, ploidy)`, so the fallback exceeded the bound the same call had
+just applied, and on `-d 1` it named a ploidy the contig does not have. Output-neutral in fact --
+`set_want_alt_ploidy` keeps the other ploidy's answer and the barrier respecifies anyway, so the
+initial choice only decides which is primary -- and kept as a correctness fix rather than a measured
+one.
+
+**Result.** chrX 0.94939 -> **0.95666**, so it goes from the one regressing contig to +0.00727 against
+inline. With both fixes in, **all 23 scoreable contigs improve**:
+
+| autosomes + chrX | inline | decide-then-render | delta |
+|---|---|---|---|
+| ALL | 0.96989 | **0.97253** | +0.00264 |
+| SNV | 0.98329 | 0.98460 | +0.00130 |
+| Insertion | 0.91023 | 0.91788 | +0.00765 |
+| Deletion | 0.93335 | 0.94091 | +0.00757 |
+| JointIndel | 0.91909 | 0.92687 | +0.00778 |
+
+TP +15,316, FP −6,844, FN −15,316. chr20 is byte-identical across both fixes, so the autosomes are
+provably untouched by them.
+
+**A test gap this exposed.** The existing depth->=2 strand test could never have caught bug 1: its
+parent is a het *diploid* site, so the strand it hands down is real. A haploid-parent case is now
+asserted and confirmed to discriminate -- it fails against the restored bug and passes with the fix.
+
+**And a claim retracted.** The `pow(rho, weight)` density dependence documented below is real
+arithmetic and remains worth fixing, but it is NOT the cause of anything measured here: at weight 1,
+where the transition composes correctly, chrX scored 0.93726 against weight 2's 0.93643. It is a
+latent mis-parameterisation, not this regression.
+
 ## chrX regresses, and the mechanism is identifiable
 
 **chrX: 0.94939 → 0.93643, −0.01296**, FN +3,143 against FP −1,067. It is the only contig that gets
