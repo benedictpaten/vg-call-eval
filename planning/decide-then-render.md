@@ -963,6 +963,51 @@ Then instrument, inert: for every adjacent site pair on chr20, the reference-POS
 
 **Output moves:** no. **Reversibility:** additive.
 
+## 13-14 result: the arithmetic lands byte-identical, and the frame matters for distance only
+
+**Stage 13** generalised `transition_apply` and `viterbi_step` to one switch probability per strand,
+both given the same value. `viterbi_step` needed less than the plan expected: its four candidates
+already *are* the four stay/jump combinations, so each takes its own axis's coefficient and the
+leave-one-out top-2 maxima do not change at all.
+
+Better than its own gate: the gate allowed 5 differing genotypes on chr20, each to be characterised as
+a sub-1e-9 near-tie, on the reasoning that the re-association is unavoidable. It is unavoidable, and
+chr20 still comes out **byte-identical** -- it falls below printed precision everywhere. The gate was
+right to allow for it and right that a waived byte-identity claim would have been worthless.
+
+Which test does the work is not the obvious one. The reduction test -- pair form with `(rho, rho)`
+against a local copy of the old arithmetic -- **cannot** catch a swap between the two stay factors,
+because passing one value makes them equal. Perturbing `stay_a * jump_b * row[a]` to
+`stay_b * jump_b * row[a]` is caught only by the asymmetric test (`rho_a = 0`, `rho_b = 1` against the
+closed form), which is also the test that could not be written before this change.
+
+**Stage 14** measured the frame instead of assuming it. chr20:
+
+| | |
+|---|---|
+| adjacent sibling pairs | 25,098 |
+| reorder in the haplotype frame | **152 (0.606%)** |
+| gaps within 1.05 of the reference gap | **91.05%** |
+| children whose two parent traversals disagree on offset | 11,035 (mean 1,699 bp, max 55,751) |
+| children with no offset on a called traversal | 2,714 |
+
+The off-ramp required reordering under 1% **and** 99% of gaps inside 1.05. Only the first holds, so it
+is not taken.
+
+**The split reshapes stage 15 more usefully than either verdict would have.** Order barely changes;
+distance changes materially for about 9% of adjacent pairs. So:
+
+- **Keep** the per-haplotype distances. That is what stage 13 now makes expressible.
+- **Drop the consensus ordering rule.** The plan reserved design effort for sorting by the longest
+  allele's order with the shorter breaking ties, against the case where a diploid parent's two
+  traversals disagree. At 152 pairs in 25,098 that rule cannot pay for its complexity: a simple
+  deterministic order (reference-frame offset, then start node id) is indistinguishable in effect and
+  cannot introduce an ordering bug of its own. Stage 15's risk budget goes to the distances.
+
+Nothing is stored yet -- no `Entry` field, no `record()` parameter. Adding a 20th argument to a
+function in the parallel hot path before knowing whether the answer justified it would have been the
+wrong order, and the measurement did change the design.
+
 ## 15. One chain per haplotype, at every depth, with per-strand distances
 
 **Goal.** Dissolve nesting as a separate linkage stage. This is the agreed design and the largest change in the plan.
