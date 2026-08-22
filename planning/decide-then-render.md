@@ -396,6 +396,124 @@ collector is armed but nesting is off is live, and it is reached by `--no-phased
 **Tests.** `test/t/18_vg_call.t` at 304 (was 303: the rewritten check gained a record-set assertion so
 a join cannot silently drop rows). `vg test` 835 cases, 12,547,453 assertions.
 
+## 10b. The residue was one defect, not two, and the fix is subtraction
+
+Stage 10's gate items (i) and (ii) did not reach zero, and the reason turned out to be simpler than
+the "partial pass" note above suggested. **Stage 10 converted only the top-level branch of
+`call_snarl_internal` to staging.** The nested branch still called `emit_variant` inline during the
+sweep (`src/graph_caller.cpp:4886`), and the barrier then called it a *second* time to replace that
+line whenever the parent-implied ploidy differed.
+
+So a nested chain's line was written twice, both times before its own generation resolved. An
+independent audit established the ordering precisely: the selector `pr.generation != gen + 1` means a
+generation-*g* chain is emitted during barrier iteration *g−1*, and `resolve_generation` skips
+`entries[i].generation > generation`, so the site is *provably* unresolved when its line is written.
+
+Once a line exists the only way to change it is a patch, and a patch has exactly two things it cannot
+do. It cannot add an ALT, and it cannot withdraw a line. Those two impossibilities **are** gate items
+(i) and (ii):
+
+| | count | mechanism |
+|---|---|---|
+| (i) unrenderable | 496 | the settled traversal has no ALT on the already-written line, so the genotype is left as called |
+| (ii) hom-ref | 1,383 | the settled pair maps to VCF allele 0 in both slots, so `apply_linkage_change` writes `0/0` and the line stays |
+
+Both `++unrenderable` sites sit behind the same guard — `if (!e.emitted) continue;`
+(`src/linkage_model.cpp:1771`, `:2292`) — so the counter can only fire for a site whose line already
+exists. **It is therefore not a defect to be fixed but a count of how many records still take the old
+path**, and it is structurally zero the moment nothing is written before the barrier. Item (ii)
+follows the same way: the ALT list is built by iterating the genotype handed in
+(`src/graph_caller.cpp:2262`), so an all-reference genotype leaves `alt` empty and
+`wants_line = genotype_snarls || !out_variant.alt.empty()` is false. **Emission cannot write a `0/0`
+line at all** — every one of the 1,383 was created by a patch.
+
+**Two claims in the stage 10 note above are wrong and are corrected here.** The barrier's emit is not
+"load-bearing twice because `respecify` needs the post-flatten position and allele map that only
+emitting produces": `record_site` already passes a *pre-flatten* position and `no_allele_map`, with
+`set_allele_map` supplying the map at render time, and its own comment records why that is sound —
+"what the model uses position for is ordering and the transition gaps". Both are therefore deferrable
+at the barrier exactly as they are at the sweep. And the residue is not two defects needing separate
+work; it is one, and the fix removes code rather than adding it.
+
+**The change.** The nested branch stages like the top-level branch; the barrier revises the staged
+record in place (`pr.genotype`, `pr.ploidy`, `pr.call_info`) and respecifies the entry with the
+pre-flatten key and no allele map; every surviving chain is handed to `render_records` after the
+generation loop; one render pass writes every line, once, from the settled genotype. Deleted with it:
+the barrier's `emit_variant` call, the `blank_buffered_line` replacement dance, the buffer handles on
+a nested record, and the `landed` bookkeeping.
+
+**One trap avoided, worth recording.** `crossing_known` is seeded from `parent_alleles.valid`, which
+is gated on `emitted_this_call` — so stopping nested emission looked like it would make every
+grandchild `crossing_unknown` and silently exempt it from revision. It does not:
+`child_crossing_mask` sets `*known = true` unconditionally on entry and only clears it above 64
+traversals, so the seed is overwritten and has no effect. The mask has been in *traversal* space on
+both sides since stage 1; the `parent_alleles.valid` coupling is vestigial from when it was in
+emitted-allele space, and the comment above it is stale.
+
+### 10b result: both gate items zero, accuracy flat
+
+chr20, against stage 10:
+
+| gate | stage 9 | stage 10 | 10b |
+|---|---|---|---|
+| (i) unrenderable settled genotypes | 1,472 | 496 | **0** |
+| (ii) final GT of 0/0 or 0\|0 | 4,490 | 1,383 | **0** |
+| (v) GT past the ALT list | 0 | 0 | 0 |
+| unphased records | 116,952 | 144 | **0** |
+| records | 116,966 | 115,618 | 115,038 |
+
+Both items reach zero, which was stage 10's gate as written, and every record is now phased.
+
+| class | stage 9 | stage 10 | 10b | vs 10 |
+|---|---|---|---|---|
+| ALL | 0.97048 | 0.97231 | 0.97222 | −0.00009 |
+| SNV | 0.98436 | 0.98523 | 0.98525 | +0.00002 |
+| Insertion | 0.90843 | 0.91504 | 0.91457 | −0.00047 |
+| Deletion | 0.93266 | 0.93724 | 0.93677 | −0.00047 |
+| JointIndel | 0.91840 | 0.92390 | 0.92338 | −0.00052 |
+
+Accuracy is flat: TP +16, FN −16, FP +35, ALL F1 down 9e-5. Stage 10's gain survives in full
+(+0.00174 against stage 9). The scoring is deterministic on a fixed VCF, so the sign is real rather
+than noise, but the magnitude is 0.009% and the change was made for coherence, not for accuracy.
+
+**One thing to look at later, recorded rather than chased.** The 496 previously-unrenderable sites now
+render on their *settled* genotype instead of keeping the called one, and that trade came out +16 TP
+against +35 FP. At top level the same substitution was the source of stage 10's whole gain, so the
+settled genotype being *worse* on average at exactly the sites where the patch could not express it is
+a real asymmetry, concentrated in the indel classes (Insertion FP 878→887, Deletion 669→679). Worth a
+targeted comparison of called-vs-settled at those sites; it bears on stage 19's conditioning, which is
+about making the nested genotype better rather than merely renderable.
+
+**Counter semantics corrected in passing.** `was_gained` was `!pr.emitted`, true for every record once
+nothing is emitted, which reported "0 revised, 2,950 gained". Reading `!has_entry()` instead restores
+the 2,514 revised / 518 gained / 411 retracted split exactly, which is also a check that the change
+moved no chain between those populations.
+
+## Open decision 3, resolved: unify the emission path rather than scope the deletion
+
+Stage 11's item (b) asked what to do about the live configuration where the collector is armed but
+nesting is off, since the patch path is the only mechanism there. It is reachable by `--no-phased`,
+not only `--no-nested`: `src/subcommand/call_main.cpp:1810` turns nested calling off wherever linkage
+runs and phasing does not.
+
+**Decision: make retention and rendering conditional on the collector being armed, not on nesting.**
+The alternative -- scoping the deletion so `apply_linkage_change` survives for that one configuration
+-- keeps two emission paths alive, which is the exact thing stage 11 exists to prevent ("so the two
+cannot drift"). With staging armed wherever the collector is, `run_deferred_descent` in a non-nested
+run simply resolves generation 0 over an empty pending set and the render pass writes every record
+from the settled genotype, which is the same rule rather than a second one.
+
+This changes `--no-nested` output and therefore needs its own gate, run on chr20 before the deletion
+lands: hom-ref records to zero and unrenderable to zero there too, on the same reasoning that took
+them to zero under nesting. It is not a free deletion and is not treated as one.
+
+After 10b the patch path is already dead in the default configuration -- every generation reports 0
+genotypes changed, because a Change is only produced for a site with a line and no site has one at
+resolution time. So `apply_linkage_change` is currently unreachable under `--read-likelihood --phased`
+and reachable only in the configuration above. `apply_phasing` is still load-bearing everywhere: the
+phase is applied by patching lines after the render, and moving PS and the phased separator into the
+render is the second half of stage 11.
+
 ## 11. Delete the patch machinery
 
 **Goal.** Remove the path decide-then-render replaces, so the two cannot drift.
