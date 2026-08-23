@@ -1281,8 +1281,52 @@ moves from the parallel sweep (where stage 14 measured it free) to the serial ba
 
 **Output moves:** no new records, but neighbours may flip. **Reversibility:** one `continue` restored.
 
-## 17. The copy-number cap
+## 16 attempted and BLOCKED, with the diagnosis so far
 
+Reverted, not landed. What is established, and what is not.
+
+**Removing the skip works.** Replacing the `continue` at the no-reference-path test does descend into
+the population: child calls go 30,416 -> 42,932, exactly +12,516, and the descent-depth histogram grows
+at every level. So the chains are reached and genotyping is attempted.
+
+**Nothing comes out.** Linkage sites stay at 219,600, retained chains stay at 30,416, records stay at
+115,038, and read I/O is flat (14,231,576 against 14,251,354, -0.14%). So all 12,516 return early
+during setup, before they are recorded or staged. That also means the read-I/O gate is *satisfied* --
+these chains are inside the parent's resident window, exactly as the plan predicted -- but on a
+population that produces nothing, so the number does not yet mean what it will mean.
+
+**Two things were tried on the setup path.** The first was widening
+`common_names.empty() && parent_child_trav_sets != nullptr` to admit a symbolically descended child.
+That does not fire: `common_names` asks whether the reference path NAME is present in the snarl, while
+the skip test asks whether the parent's reference TRAVERSAL crosses the child, and these children
+generally have the name. The second was falling back to the parent's interval when
+`get_ref_interval` returns -1 for a descended child, which is the right shape -- the
+`use_parent_interval` branch already leaves `ref_trav` empty and takes the first traversal as a
+pseudo-reference, and the read-likelihood genotyper already guards `ref_trav_idx >= 0` in both places
+it uses it. Neither changed the counts.
+
+**Where the diagnosis stopped.** A `no_reference_path` flag was threaded through `NestedContext` and
+`PendingRecord` to mark these sites as never-render, and instrumentation shows it is **false at the
+child's own entry to `call_snarl_internal`** -- 0 of 12,516 -- even though it is set 12,516 times in the
+parent's descent loop, immediately before the call, on the same thread, after `saved` is taken. That
+contradiction is unresolved and is the next thing to chase. One of the debug counters was also placed
+in the wrong function (its anchor text occurs twice in the file), so part of that instrumentation was
+measuring nothing, and it should be redone with the placement checked before anything is concluded.
+
+**Why it is reverted rather than left.** With the skip removed and nothing produced, the change is
+12,516 wasted child calls per contig for no output. Reverting also keeps the read-I/O and CPU baselines
+honest for whoever resumes.
+
+**What resuming needs.** Establish where the 12,516 return -- instrument every `return false` between
+the ref-interval block and the genotyping call, with each counter's placement verified against the
+enclosing function. The likely candidates are the traversal finder returning nothing without a
+reference to anchor on, and the `assert` on `ref_trav`'s endpoints, which is inside
+`if (!use_parent_interval)` and so should be skipped but is worth confirming. Only once a chain is
+reachable and genotyped does the rest of stage 16 -- linking it, phasing it, and passing a strand to
+its children while emitting nothing -- become testable.
+
+## 17. The copy-number cap
+ 
 **Goal.** A chain one traversal crosses twice — tandem duplication, cycle — is counted as one copy and its second copy is never scored.
 
 **Changes and the representation question that gates them.** `child_ploidy` caps at 1 with a `--progress` warning (`src/graph_caller.cpp:3744-3752`, verified), and ploidy is clamped to {1,2} at `src/linkage_model.cpp:1216` and `:1348`. Lifting the cap collides with four representations no candidate plan named: `Entry` stores exactly two settled alleles (`final_i`, `final_j`); `Site::genotype_ln_likelihood` is defined only for ploidy 1 (allele-indexed) and ploidy 2 (triangular, `n_gt = k*(k+1)/2`); `PhaseCall` has exactly two strands; and `LinkageModel`'s state is an ordered pair of *panel haplotypes*, so two copies on one haplotype has no representation at all — the same objection that rules out three copies. Further, `nested_context.active = (copies == 1)` (`src/graph_caller.cpp:4677`) and `carrying_trav` is set only under `copies == 1` (`:4664-4669`), so at `copies == 2` the child stops being a nested site and loses its strand and parent linkage. And two copies of one snarl print the same ID, so `(contig, POS, ID)` stops being total — stage 1 regresses undetectably — and two entries collide on one `record_key`, which is the sole identity for `has_entry`, `retract`, `set_parent_trav` and the `by_key` map, all first-match lookups.
