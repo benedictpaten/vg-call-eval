@@ -1133,28 +1133,46 @@ then has **no reference position**, so anything that orders or spaces nested sit
 
 ### Two corrections that shape the design
 
-**Loops mean the unit is a VISIT, not a chain.** A parent traversal may enter the same nested chain
-more than once, and each visit is at a different point along the haplotype, so each has its own
-distance. `traversal_offset_span` returns the *first* crossing and stops
-(`src/graph_caller.cpp:3637-3645`), so it cannot express this. The identity of a linkage site below
-the top level is therefore **(chain, visit index)**. Note this is the same population as stage 17's
-copy-number question -- a chain visited twice on one traversal *is* two copies -- so the two stages
-share a representation decision and should not answer it differently.
+**Loops: subsequent visits are MASKED, and the unit stays the chain.** A parent traversal may enter the
+same nested chain more than once. Each visit sits at a different point along the haplotype and would
+have its own distance, which makes the natural unit a (chain, visit) -- but that also makes a chain
+produce more than one record, which is stage 17's copy-number question. **Decided: mask visits after
+the first.** The unit stays the chain, stage 17 is not pulled forward, and the copy-number
+representation stays capped.
+
+This is already the behaviour on both sides, and the point of the decision is to make it deliberate
+rather than incidental:
+
+- Ploidy already masks. `child_ploidy` does `if (crossings > 1) { crossings = 1; }`
+  (`src/graph_caller.cpp`), so `copies` counts *traversals that cross* rather than crossings summed
+  over traversals -- which is the correct ploidy semantics, and worth stating because the two are easy
+  to conflate. A chain crossed twice by ONE traversal is one haplotype carrying two copies, not two
+  haplotypes carrying one each, and it must not be genotyped at ploidy 2.
+- Distance already masks. `traversal_offset_span` returns the first crossing and stops
+  (`src/graph_caller.cpp:3637-3645`). Under this decision that is correct rather than a limitation, and
+  should be documented and asserted as such instead of left as an implementation detail.
+
+**The masked population is tiny, measured on the whole-genome run:** the multi-crossing warning fires
+**0 times on chr20** and **242 times on chrX**. So masking costs essentially nothing on the autosomes
+and little on the haploid contigs, which is what makes deferring stage 17 cheap. Replace the
+per-occurrence warning with a counter so the size of the deferred question is reported every run rather
+than inferred by grepping a log -- it is currently gated on `--progress` and printed once per
+occurrence, which is the wrong shape for a population that needs sizing.
 
 **The two chosen traversals are alignable, and the alignment gives the order.** The parent's two
 settled traversals are two paths through one snarl, sharing its boundaries and whatever nodes they
 have in common. Aligning them yields a merged sequence of chain *visits*: a visit both traversals make
 is one column; a visit only one makes slots in between its neighbouring shared anchors. That is a
 single order both haplotypes agree on, derived from the graph rather than from a heuristic tie-break,
-and it produces the per-visit columns loops need for free. It replaces the "sort by the longest
-allele, shorter breaks ties" rule, which stage 14 had already measured as barely load-bearing at the
+and with visits after the first masked there is exactly one column per chain. It replaces the "sort by
+the longest allele, shorter breaks ties" rule, which stage 14 had already measured as barely load-bearing at the
 sibling level (0.606% of adjacent sibling pairs reorder).
 
 ### ORDER and DISTANCE are computed separately, and that is the whole fix
 
 The rejected draft made one number do both jobs, and that is precisely what broke it.
 
-**Order: a lexicographic snarl-tree key.** `(top-level anchor, offset within parent, visit index,
+**Order: a lexicographic snarl-tree key.** `(top-level anchor, offset within parent,
 recursively down the tree)`, compared componentwise. This preserves subtree containment *by
 construction* -- no arithmetic claim is being made, so none can be violated. Within one parent,
 sibling order comes from the traversal alignment above.
