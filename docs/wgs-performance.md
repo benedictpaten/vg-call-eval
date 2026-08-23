@@ -3,6 +3,34 @@
 `vg call --read-likelihood` on a 34-haplotype HPRC graph, 30x reads, on a 10-core laptop with
 32 GB. One contig per invocation, several contigs at once, packed under a memory budget.
 
+## Decide-then-render: read I/O restored, CPU up
+
+The current arm settles every genotype before building its record. The cost that mattered was read
+I/O, because the arm before it bought the same coherence guarantee by re-reading the contig once per
+generation:
+
+| | inline | post-linkage descent | decide-then-render |
+|---|---|---|---|
+| reads fetched | 609.1 M | 903.3 M (+48.8%) | **609.7 M (1.001x)** |
+| CPU user | 6.26 h | 11.45 h | **9.96 h (+59%)** |
+| wall clock | 3.20 h | 4.89 h | 6.03 h |
+| linkage pass, serial | 1,064 s | 950 s | 1,762 s |
+| peak RSS, worst contig | 4.30 GB (chr1) | — | 6.05 GB (chr1) |
+
+**The read penalty is gone to within 0.1%**, which was the entire point of the single sweep. It costs
++59% CPU against inline, and is 13% *cheaper* on CPU than the deferred arm while also dropping that
+arm's read penalty -- so it strictly dominates the arm it replaces.
+
+Read CPU, not wall clock, for the reasons the rest of this file gives; these runs were separately
+scheduled and their contention differs.
+
+**Per-contig peak RSS rose by about 50%** -- chr1 4.30 -> 6.05 GB, chr4 3.05 -> 4.60 GB -- because
+every record's render inputs are retained until the barrier settles. chr1's retention was measured
+directly at 1,063 MB against a 1.23 GB projection, so the estimate that decision rested on was 14%
+conservative rather than wrong. `schedule_wgs.py`'s memory predictions do NOT model this, and happen
+to remain safe only because they were already conservative (chr1 predicted 7.16 GB, actual 6.05). They
+should be refitted from these numbers rather than left to that coincidence.
+
 **Whole-genome wall clock on this machine is not a measurement of the caller**, and the cleanest
 demonstration of that is the single-sweep nested arm against the inline one. Summed per-contig wall
 clock went 163.8 → 213.1 minutes, +30%. Summed CPU went 457.3 → 472.0 minutes, **+3.2%** — and that

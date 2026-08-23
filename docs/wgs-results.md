@@ -24,10 +24,12 @@ nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).
 **The mosaic** this run also emits: 180,858 segments over 5,037,872 sites, 14 MB.
 See wgs-performance.md for why assembling it is not `cat`.
 
-**Nested calling and phasing are the defaults** as of this run, which is why these
-numbers moved: SNV F1 0.9752 -> 0.9833, ALL F1 0.9626 -> 0.9699, SV F1 0.5134 -> 0.5470,
-with 58,336 SNV false negatives recovered, at no runtime or memory cost. `--no-nested`
-and `--no-phased` restore the old behaviour. See
+**Nested calling and phasing are the defaults**, and **decide-then-render** is how records are now
+built: a site's genotype is settled by the linkage barrier before its record exists, so nothing is
+patched after the fact. Cumulatively over the two changes: SNV F1 0.9752 -> 0.9846, ALL F1
+0.9626 -> 0.9725, SV F1 0.5134 -> 0.5577. `--no-nested` and `--no-phased` restore the older
+behaviour -- note `--no-phased` also disables nested calling, since a nested site's ploidy comes from
+its parent's phased genotype, so it is not a control for phasing alone. See
 [nested-calling-design.md](nested-calling-design.md).
 
 **One caveat that belongs with these numbers.** The gain is a rich-panel effect: on the
@@ -37,45 +39,63 @@ extra-records cost still applies. Parent/child ploidy incoherence, which cost 0.
 records a FILTER in earlier arms, is now structural rather than flagged: a nested chain
 is genotyped at the ploidy its parent's settled genotype implies. The guarantee holds
 wherever the parent's crossing mask can be computed, which is not everywhere -- where it
-cannot, the chain keeps its sweep-time ploidy and the coherence FILTERs stay live to say
-so. They fire on no record in this run, and a handful in some single-contig runs, so
-treat a nonzero count as a pointer at those chains rather than as a regression.
+cannot, the chain is dropped rather than emitted at a ploidy its parent contradicts. The three
+coherence FILTERs this paragraph used to describe are gone: a record is built from the settled
+genotype, so a genotype naming an allele the record has no ALT for, and a record carrying a hom-ref
+genotype, are both impossible by construction rather than flagged. Both counts are zero on all 24
+contigs of this run, and they are asserted rather than reported.
 
 ## Small variants (aardvark, GT)
 
-- **ALL**: TP 4,110,906  FP 99,341  FN 155,913  recall 0.9635  precision 0.9764  **F1 0.9699**
-- **SNV**: TP 3,297,737  FP 23,625  FN 88,450  recall 0.9739  precision 0.9929  **F1 0.9833**
-- **Indel**: TP 813,169  FP 75,716  FN 67,463  recall 0.9234  precision 0.9148  **F1 0.9191**
+Current arm is **decide-then-render**: every site's genotype is settled before its record is built,
+so no record is patched after the fact. The arm it replaced is kept alongside because the whole
+comparison rests on it being the same binary, reads and scoring path.
+
+| | decide-then-render | previous (inline) |
+|---|---|---|
+| **ALL** | TP 4,126,222  FP 92,497  FN 140,597  recall 0.9670  precision 0.9781  **F1 0.9725** | F1 0.9699 |
+| **SNV** | TP 3,304,342  FP 21,547  FN 81,845  recall 0.9758  precision 0.9935  **F1 0.9846** | F1 0.9833 |
+| **Indel** | TP 821,880  FP 70,950  FN 58,752  recall 0.9333  precision 0.9205  **F1 0.9269** | F1 0.9191 |
+| Insertion | recall 0.9224  precision 0.9134  **F1 0.9179** | F1 0.9102 |
+| Deletion | recall 0.9440  precision 0.9379  **F1 0.9409** | F1 0.9333 |
+
+**Both precision and recall improve in every class**, which the chr20 development runs did not show --
+there the gain was recall-only with false positives nearly flat. Genome-wide FP falls 6.9% and FN 9.8%.
+All 23 scoreable contigs improve; none regresses.
 
 ## Structural variants (truvari, >=50 bp)
 
-- TP 13,756  FP 12,424  FN 10,361  **F1 0.5470**
+| | decide-then-render | previous (inline) |
+|---|---|---|
+| SV >= 50 bp | TP 14,401  FP 13,123  FN 9,716  **F1 0.5577** | F1 0.5470 |
+
+SVs gain from recall: FN 10,361 -> 9,716 with FP rising 12,424 -> 13,123. That narrows the PanGenie gap
+quoted above from 0.5488-vs-0.5739 to 0.5577-vs-0.5739 without any SV-specific work.
 
 ## Per contig
 
-| contig | small F1 | SV F1 | notes |
-|---|---|---|---|
-| chr1 | 0.9700 | 0.5637 |  |
-| chr2 | 0.9665 | 0.5590 |  |
-| chr3 | 0.9744 | 0.5877 |  |
-| chr4 | 0.9745 | 0.5688 |  |
-| chr5 | 0.9739 | 0.5488 |  |
-| chr6 | 0.9750 | 0.5666 |  |
-| chr7 | 0.9707 | 0.5172 |  |
-| chr8 | 0.9742 | 0.5636 |  |
-| chr9 | 0.9725 | 0.5518 |  |
-| chr10 | 0.9624 | 0.4975 |  |
-| chr11 | 0.9713 | 0.5563 |  |
-| chr12 | 0.9724 | 0.5643 |  |
-| chr13 | 0.9761 | 0.5508 |  |
-| chr14 | 0.9726 | 0.5796 |  |
-| chr15 | 0.9598 | 0.5557 |  |
-| chr16 | 0.9581 | 0.4948 |  |
-| chr17 | 0.9667 | 0.5274 |  |
-| chr18 | 0.9737 | 0.5105 |  |
-| chr19 | 0.9524 | 0.5382 |  |
-| chr20 | 0.9700 | 0.5140 |  |
-| chr21 | 0.9734 | 0.5467 |  |
-| chr22 | 0.9676 | 0.5051 |  |
-| chrX | 0.9494 | 0.4598 |  |
-| chrY | 0.0034 | - | excluded: reference mismatch with truth; truvari_error |
+| contig | small F1 | SV F1 | small, previous | notes |
+|---|---|---|---|---|
+| chr1 | 0.9722 | 0.5871 | 0.9700 |  |
+| chr2 | 0.9705 | 0.5594 | 0.9665 |  |
+| chr3 | 0.9765 | 0.5994 | 0.9744 |  |
+| chr4 | 0.9763 | 0.5841 | 0.9745 |  |
+| chr5 | 0.9758 | 0.5528 | 0.9739 |  |
+| chr6 | 0.9773 | 0.5820 | 0.9750 |  |
+| chr7 | 0.9734 | 0.5235 | 0.9707 |  |
+| chr8 | 0.9761 | 0.5789 | 0.9742 |  |
+| chr9 | 0.9750 | 0.5748 | 0.9725 |  |
+| chr10 | 0.9647 | 0.5174 | 0.9624 |  |
+| chr11 | 0.9736 | 0.5756 | 0.9713 |  |
+| chr12 | 0.9745 | 0.5785 | 0.9724 |  |
+| chr13 | 0.9777 | 0.5571 | 0.9761 |  |
+| chr14 | 0.9745 | 0.5897 | 0.9726 |  |
+| chr15 | 0.9648 | 0.5580 | 0.9598 |  |
+| chr16 | 0.9635 | 0.5119 | 0.9581 |  |
+| chr17 | 0.9694 | 0.5364 | 0.9667 |  |
+| chr18 | 0.9757 | 0.5413 | 0.9737 |  |
+| chr19 | 0.9563 | 0.5472 | 0.9524 |  |
+| chr20 | 0.9722 | 0.5258 | 0.9700 |  |
+| chr21 | 0.9762 | 0.5561 | 0.9734 |  |
+| chr22 | 0.9710 | 0.5260 | 0.9676 |  |
+| chrX | 0.9567 | 0.4699 | 0.9494 | haploid outside PAR |

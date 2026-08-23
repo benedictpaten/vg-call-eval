@@ -1478,3 +1478,112 @@ Marked [A] where a stage depends on a claim that is agent-reported or inferred r
 **Before stage 20.** [A] That `observed_reads` at a nested single-copy site counts reads from one haplotype rather than from the window's full pile. This is the pivot the whole item turns on, and the code reading says the copy count already cancels between divisor and sum — which means today's `DR` should read ≈1.0 at both site classes and the "2x miscalibration" is unsupported as stated. Stage 20a measures it, and the honest outcome may be that no code change is made.
 
 **Throughout.** [A] The chr20 emitted-record count: 105,251 and 116,965 are both in circulation. Stage 1 reports it and no later gate should quote either figure until then. [A] Every standing baseline used as an absolute constant — 22 phase blocks, N50 248 Mb, 6,716 of 6,716 on one strand, 2,767 mosaic wildcards, 239 panel-unexplained, 511 nested gained — was measured at `4371c9b67`, and stages 3, 4, 10, 15 and 16 all move the populations they count. Each gate that uses one must re-measure it on the immediately preceding stage's output rather than citing `4371c9b67`.
+
+---
+
+# Left on the table
+
+Written at the point the work was wrapped up, so that what is unfinished is unfinished on the record
+rather than by omission. Ordered by what a successor would most want to know.
+
+## 1. Stage 16, blocked mid-diagnosis (highest value, and the covering-reference enabler)
+
+Fully described above. In one line: removing the no-reference-path skip does descend into all 12,516
+chr20 chains, and every one of them returns early during setup, so nothing is recorded, staged or
+emitted and read I/O is flat. The unresolved contradiction is that the `no_reference_path` flag reads
+false at the child's own entry to `call_snarl_internal` although it is set immediately before the call
+on the same thread. Reverted, with the next instrumentation step named. **This is the blocker for the
+covering reference**, since off-reference nested chains cannot be called until it is fixed.
+
+## 2. The reference dependency is 88% removed, not removed
+
+Nested chains are ordered by a snarl-tree tuple and can be spaced along the parent's settled traversal.
+What still reads a reference position:
+
+- **Cross-parent steps, 12% of adjacent pairs in a group.** Forming them in the frame needs the
+  distance from the earlier parent's END to the later parent's START, and only parent start positions
+  are stored. One field on `Entry` (the parent's reference span) closes it.
+- **The top-level anchor**, by design -- under a covering reference this becomes the covering contig's
+  coordinate by the same mechanism.
+- **`copies == 2` nested sites**, which are not in the nested path at all (`nested_context.active =
+  (copies == 1)`), so they sit in `chainable` sorted by reference position. The gate "zero nested sites
+  ordered by a reference position" would pass while these violate it. The overloaded `nested` flag
+  needs splitting first -- it currently does three jobs.
+- **Frames not written**: 3,389 chains the settled traversal does not cross and 1,202 with no layer
+  entry, of ~30,015. An earlier claim in this document that the fallback population was "empty by
+  construction" was wrong and is retracted above.
+
+## 3. A traversal distance is a WORSE predictor than a reference distance, and nobody knows why
+
+The most surprising result here, measured twice by unrelated derivations: spacing nested chain steps
+along a traversal instead of along the reference costs ~0.0005 of JointIndel on chr20 (15(b), from
+per-site called alleles: −0.00061; 15', from the parent's settled traversal: −0.00052). Same magnitude,
+same direction. So it is not the labelling and not the derivation.
+
+**No mechanism has been established for this.** It is the single most interesting open question in the
+phase, because the traversal distance is by construction closer to the sequence the sample actually
+carries. Candidate explanations, none tested: the reference distance is implicitly a better proxy for
+recombination rate than physical distance on the sample's own haplotype; `weight`/`scale` are fitted to
+reference distances and a different distance scale needs a refit; or ~7% of steps changing distance is
+simply noise that happens to land negative twice.
+
+## 4. `switch_probability` is density-dependent, which is a latent mis-parameterisation
+
+`pow(rho, weight)` raises a per-step PROBABILITY to a power, so it does not compose: the same 1,348 bp
+span is **5.83x stickier** divided into 7 steps than taken in one. The model's effective switch rate
+therefore tracks site density, not genomic distance, and `weight = 2` was fitted at ~114k chrX sites
+and is now applied at 816k.
+
+This is real arithmetic and independently verified, and it is **not** the cause of anything measured
+here -- chrX at weight 1 scored 0.93726 against weight 2's 0.93643. The composing form is
+`1 - rho = ((1 - rho_min) * exp(-gap/scale))^(1/weight)`, for which N steps multiply to exactly the
+one-step answer. Fixing it changes what the number 2 means and needs a refit, which is why it was not
+done here.
+
+## 5. The uniform jump
+
+The transition redraws a strand's panel haplotype **uniformly over all m**, so there is no population
+structure and no local haplotype frequency in the transition at all (frequency enters only through
+`freq_prior` in the emission). For a recombination model that is the crudest available choice. It is
+also what keeps the row/column factorisation valid and the step at O(m^2): any non-uniform jump breaks
+the collapse to `row[a]`/`col[b]`/`total`. Untested, and noted as a structural observation rather than
+a finding.
+
+## 6. Phase IV, not started
+
+Stages 18-20: whether parent conditioning has anything to remove, conditioning the child's panel on the
+parent's settled traversal, and the Poisson depth divisor. All three are measure-first stages and all
+are independent of stage 16, so they are the cheapest available next work. Nothing here blocks them.
+
+## 7. Stage 17, deliberately deferred
+
+Visits after the first are masked by decision: one copy for ploidy, the first crossing for distance.
+Measured cost of deferring: **0 occurrences on chr20, 242 on chrX**. Representing a second copy is the
+copy-number question and stays closed.
+
+## 8. Smaller items
+
+- **`transition_apply`'s pair form has no live consumer.** Both strands are passed the same value; its
+  only intended consumer is `copies == 2` nested sites, which cannot reach it (item 2).
+- **`render_phase_pair` and `PhaseCall::allele_first/allele_second` are written and never read.**
+  Removing them needs a rename, because `allele_*` carries the compact pair before that block
+  overwrites it with the VCF one.
+- **`schedule_wgs.py`'s memory predictions do not model retention** (+50% per contig). Safe only
+  because they were already conservative; should be refitted.
+- **A one-record discrepancy** between the descended-no-reference counter (12,516) and the frame
+  instrumentation's count of the same condition (12,517 measured from called traversals). Both atomic,
+  so not a lost increment. Unexplained.
+
+## What this phase got wrong, for calibration
+
+Recorded because the pattern is more useful than any single error. Five claims made confidently here
+and then measured false: that the barrier's emit was load-bearing for `respecify`; that the residual
+gate items were two defects rather than one; that `unrenderable` was pure dead weight (it was
+accidentally protecting haploid sites); that the site-density stickiness explained the chrX regression;
+and that the fallback population was empty by construction. Plus three arithmetic errors inside one
+instrumentation pass, caught only by reasoning through the null case afterwards -- which is now checked
+at runtime.
+
+The thing that worked was elimination against measurement, not hypothesis: the chrX regression was
+found by ruling linkage out across three weights and ruling relocation out at 39 of 4,247, which left
+only the rendering path.
