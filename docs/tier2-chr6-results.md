@@ -1,5 +1,16 @@
 # Tier 2 results: HG002 chr6 on HPRC v2.1 MC CHM13, 34-haplotype graph
 
+> **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
+> before genotypes were settled ahead of record construction. That change moved the whole-genome
+> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
+> with both precision and recall improving in every class -- so the figures here understate the
+> current caller by roughly that much, and any *analysis* built on which calls were wrong may have
+> picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
+> re-measuring them is hours of runs that were not spent. Current numbers:
+> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md).
+> What changed and what is still open: `planning/decide-then-render.md`.
+
+
 Real reads, real benchmark, run on a 32 GB laptop.
 
 This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from haplotype sampling. It is the primary subject because it is what the caller is tuned for -- both the linkage transition and the panel frequency prior are panel-size effects and have little to work with on a thin panel -- and because it is the better-performing configuration. The 4-haplotype graph has its own page at [tier2-chr6-4hap-results.md](tier2-chr6-4hap-results.md), and the two are put side by side in [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md).

@@ -1,5 +1,27 @@
 # Tier 2 results: HG002 chr20 on HPRC v2.1 MC CHM13, 34-haplotype graph
 
+> **Small-variant arms re-measured 2026-08-23 against decide-then-render.** The figures immediately
+> below are current. **Everything further down this page is from the previous run** -- the raw
+> per-arm dumps, the SV sections and every analysis built on them -- because the re-run was truncated
+> after the small-variant arms (a script edit applied while the script was executing; bash reads
+> scripts incrementally, so it resumed at a shifted offset). The seven small-variant arms themselves
+> completed cleanly with no failures.
+>
+> | arm | variants | wall | peak RSS | ALL F1 | SNV F1 | Indel F1 |
+> |---|---|---|---|---|---|---|
+> | `poisson` | 124,445 | 257 s | 2.83 GB | **0.9101** | 0.9563 | 0.7447 |
+> | `poisson-z` | 124,769 | 107 s | 3.13 GB | **0.9119** | 0.9582 | 0.7466 |
+> | `readlik-support` | 118,132 | 152 s | 4.7 GB | **0.9591** | 0.9823 | 0.8744 |
+> | `readlik-nomismap-support` | 121,476 | 173 s | 2.82 GB | **0.9396** | 0.9620 | 0.8573 |
+> | `readlik` | 115,038 | 310 s | 4.03 GB | **0.9722** | 0.9853 | 0.9234 |
+> | `readlik-nomismap` | 136,161 | 304 s | 3.92 GB | **0.9601** | 0.9735 | 0.9102 |
+> | `readlik-nolink` | 118,306 | 126 s | 3.87 GB | **0.9594** | 0.9824 | 0.8754 |
+>
+> The shipped arm, `readlik`, is TP 91,470 FP 2,007 FN 3,221 on ALL -- which is the same measurement
+> as the chr20 gate used throughout `planning/decide-then-render.md`, so the two agree by construction
+> rather than by coincidence. Previous values for this arm were ALL 0.9699, SNV 0.9833, Indel 0.9191.
+
+
 Real reads, real benchmark, run on a 32 GB laptop.
 
 This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from haplotype sampling. It is the primary subject because it is what the caller is tuned for -- both the linkage transition and the panel frequency prior are panel-size effects and have little to work with on a thin panel -- and because it is the better-performing configuration. The 4-haplotype graph has its own page at [tier2-chr20-4hap-results.md](tier2-chr20-4hap-results.md), and the two are put side by side in [tier2-chr20-graph-comparison.md](tier2-chr20-graph-comparison.md).

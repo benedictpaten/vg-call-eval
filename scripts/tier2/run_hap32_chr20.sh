@@ -20,6 +20,14 @@ for f in "$NEW/chr20_0_chr20.gbz" "$NEW/chr20.pack" "$NEW/chr20.fa" \
          work/reads.hap32.gaf.db work/graph.hap32.gbz.db; do
     [ -s "$f" ] || { echo "missing: $f -- run prep_hap32_chr20.sh first"; exit 1; }
 done
+# The BINARY, checked with the input files rather than discovered five arms later. Without this the
+# read-likelihood arms all reach `vg call`, fail inside it with "could not execute 'gbz-base'", and
+# report `FAILED rc=1` per arm with the reason buried in a per-arm log while the console shows
+# instruction counts -- which reads like a caller regression and is not one. Same check as
+# prep_hap32_chr20.sh, and fail-fast rather than the find-into-scratch fallback call_wgs.sh uses,
+# since that hardcodes an ephemeral session path.
+command -v gbz-base >/dev/null || {
+    echo "gbz-base not on PATH -- the --gaf-base arms cannot run; see docs/install.md" >&2; exit 1; }
 mkdir -p "$OUT"
 
 echo "=== small variants: five arms ==="

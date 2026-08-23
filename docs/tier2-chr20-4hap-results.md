@@ -1,5 +1,16 @@
 # Tier 2 results: HG002 chr20 on HPRC v2.1 MC CHM13, 4-haplotype graph
 
+> **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
+> before genotypes were settled ahead of record construction. That change moved the whole-genome
+> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
+> with both precision and recall improving in every class -- so the figures here understate the
+> current caller by roughly that much, and any *analysis* built on which calls were wrong may have
+> picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
+> re-measuring them is hours of runs that were not spent. Current numbers:
+> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md).
+> What changed and what is still open: `planning/decide-then-render.md`.
+
+
 Real reads, real benchmark, run on a 32 GB laptop.
 
 This is the **4-haplotype** graph: CHM13, GRCh38 and 2 recombinants. It is kept as a thin-panel reference rather than the headline configuration -- the caller is tuned on the 34-haplotype graph, whose page is [tier2-chr20-results.md](tier2-chr20-results.md). The two are compared directly in [tier2-chr20-graph-comparison.md](tier2-chr20-graph-comparison.md).

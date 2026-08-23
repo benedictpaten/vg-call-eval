@@ -14,19 +14,25 @@ Autosomes, summed counts, rates recomputed from them:
 
 | autosomes | vg call | PanGenie |
 |---|---|---|
-| ALL F1 | **0.9703** | 0.9505 |
-| SNV F1 | **0.9837** | 0.9722 |
-| SNV recall | **0.9740** | 0.9659 |
-| Indel F1 | **0.9195** | 0.8687 |
-| SV ≥50 bp F1 | 0.5488 | **0.5739** |
+| ALL F1 | **0.9729** | 0.9505 |
+| SNV F1 | **0.9849** | 0.9722 |
+| SNV recall | **0.9759** | 0.9659 |
+| Indel F1 | **0.9272** | 0.8687 |
+| SV ≥50 bp F1 | 0.5596 | **0.5739** |
 
 vg leads every small-variant class on both recall and precision; PanGenie leads structural variants
-on both, by 0.0254.
+on both, now by 0.0143.
+
+**The vg column moved with decide-then-render** -- genotypes settled before records are built. It was
+ALL 0.9703, SNV 0.9837, Indel 0.9195, SV 0.5488. PanGenie's column is unchanged: same run, same
+scoring path, nothing about it re-measured. So the SV gap has nearly halved, from 0.0254 to 0.0143,
+with no SV-specific work -- the change was about when a record is built, not about how SVs are
+scored.
 
 These are autosome-only, which is the scope this comparison is drawn at because chrX measures a
 ploidy-handling difference rather than an evidence one (below). [wgs-results.md](wgs-results.md)
-quotes the same run including chrX, so its figures run a few ten-thousandths lower — ALL F1 0.9699,
-SNV 0.9833, SV 0.5467.
+quotes the same run including chrX, so its figures run a few ten-thousandths lower — ALL F1 0.9725,
+SNV 0.9846, SV 0.5577.
 
 ## What makes it like for like
 
@@ -53,18 +59,18 @@ difference it exists to absorb; normalising by hand would have been the riskier 
 |  | vg call | | | | PanGenie | | | |
 |---|---|---|---|---|---|---|---|---|
 | | TP | FP | FN | **F1** | TP | FP | FN | **F1** |
-| ALL | 4,025,074 | 94,189 | 151,914 | **0.9703** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
-| SNV | 3,230,235 | 20,837 | 86,059 | **0.9837** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
-| Indel | 794,839 | 73,352 | 65,855 | **0.9195** | 757,328 | 125,606 | 103,366 | 0.8687 |
-| SV ≥50 bp | 13,516 | 12,116 | 10,105 | 0.5488 | 13,749 | 10,544 | 9,872 | **0.5739** |
+| ALL | 4,039,888 | 88,172 | 137,100 | **0.9729** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
+| SNV | 3,236,524 | 19,356 | 79,770 | **0.9849** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
+| Indel | 803,364 | 68,816 | 57,330 | **0.9272** | 757,328 | 125,606 | 103,366 | 0.8687 |
+| SV ≥50 bp | 14,151 | 12,805 | 9,470 | 0.5596 | 13,749 | 10,544 | 9,872 | **0.5739** |
 
 Recall and precision behind those:
 
 | | vg recall | vg precision | PanGenie recall | PanGenie precision |
 |---|---|---|---|---|
-| ALL | **0.9639** | **0.9769** | 0.9482 | 0.9529 |
-| SNV | **0.9740** | **0.9936** | 0.9659 | 0.9786 |
-| Indel | **0.9240** | **0.9150** | 0.8799 | 0.8577 |
+| ALL | **0.9672** | **0.9786** | 0.9482 | 0.9529 |
+| SNV | **0.9759** | **0.9941** | 0.9659 | 0.9786 |
+| Indel | **0.9334** | **0.9211** | 0.8799 | 0.8577 |
 
 **The result is a clean split by variant class.** vg leads every small-variant class on *both*
 axes; PanGenie leads structural variants on both.
@@ -73,11 +79,12 @@ axes; PanGenie leads structural variants on both.
   false-positive count at higher recall. This is the one place the ranking has actually changed
   rather than merely widened: recall used to be PanGenie's, and the alleles that took it back are
   the ones nested calling stopped burying inside longer records.
-- **Indels**: vg leads by 0.051 F1, the largest small-variant margin. PanGenie emits 125,606 indel
-  false positives against 73,848.
-- **Structural variants**: PanGenie leads by 0.0254 F1, with slightly more true calls (13,749
-  against 13,516) and fewer false ones (10,544 against 12,116). It is the one class where one tool
-  is better in both directions, and it should be taken at face value rather than explained away.
+- **Indels**: vg leads by 0.059 F1, the largest small-variant margin. PanGenie emits 125,606 indel
+  false positives against 68,816.
+- **Structural variants**: PanGenie still leads, by 0.0143 F1, but no longer in both directions: vg
+  now makes MORE true calls (14,151 against 13,749) and still more false ones (12,805 against
+  10,544). Under the previous arm PanGenie was ahead on both axes at once, and that is what changed
+  -- the remaining gap is precision, not sensitivity.
 
 ## chrX, reported apart
 
@@ -129,19 +136,26 @@ well it fits is strongest. The SNV lead is newer and has a specific cause: a SNV
 alternative allele is invisible to a caller that only emits the long allele, and descending into
 those nested bubbles recovered 59,413 SNV false negatives without costing precision.
 
-**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.0254 F1 with both more true
-calls and fewer false ones. The numbers behind that, since one F1 hides which side it comes from:
+**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.0143 F1 -- on precision only,
+now that vg makes more true calls. The numbers behind that, since one F1 hides which side it comes
+from:
 
 | autosomal SVs ≥50 bp | vg call | PanGenie |
 |---|---|---|
-| TP | 13,516 | 13,749 |
-| FP | 12,116 | 10,544 |
-| FN | 10,105 | 9,872 |
-| F1 | 0.5488 | **0.5739** |
-| F1 requiring the right genotype | 0.4805 | **0.5213** |
-| distinct truth SVs missed | 10,053 | 9,841 |
-| of those, missed by the other tool too | 8,172 | 8,172 |
-| missed by this tool alone | 1,881 | 1,669 |
+| TP | **14,151** | 13,749 |
+| FP | 12,805 | **10,544** |
+| FN | **9,470** | 9,872 |
+| F1 | 0.5596 | **0.5739** |
+| F1 requiring the right genotype † | 0.4805 | **0.5213** |
+| distinct truth SVs missed † | 10,053 | 9,841 |
+| of those, missed by the other tool too † | 8,172 | 8,172 |
+| missed by this tool alone † | 1,881 | 1,669 |
+
+† **From the previous vg arm, not re-measured.** These four come from a separate SV overlap analysis
+over both callsets, which has not been re-run against decide-then-render. The rows above them have.
+Given vg's SV recall rose (FN 10,105 → 9,470), the "missed by vg alone" figure is expected to have
+fallen and the genotype-F1 to have risen, but neither has been measured, so they are marked rather
+than adjusted by inference.
 
 The first four rows are truvari's own row counts, kept so the F1s match the published figures; the
 last three are over *distinct* truth variants, which is lower because truvari emits a row per match

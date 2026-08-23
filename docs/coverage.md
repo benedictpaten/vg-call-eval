@@ -1,5 +1,16 @@
 # Calling across coverage and ploidy: the titration
 
+> **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
+> before genotypes were settled ahead of record construction. That change moved the whole-genome
+> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
+> with both precision and recall improving in every class -- so the figures here understate the
+> current caller by roughly that much, and any *analysis* built on which calls were wrong may have
+> picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
+> re-measuring them is hours of runs that were not spent. Current numbers:
+> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md).
+> What changed and what is still open: `planning/decide-then-render.md`.
+
+
 Stage 0 of the coverage-robustness work. The point is to find out what breaks when the caller is
 given less data than the ~30x diploid it was tuned on, and to decide -- from measurement rather
 than from argument -- what a coverage- and ploidy-robust quality score should be.

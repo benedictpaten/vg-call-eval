@@ -1574,6 +1574,53 @@ copy-number question and stays closed.
   instrumentation's count of the same condition (12,517 measured from called traversals). Both atomic,
   so not a lost increment. Unexplained.
 
+## Benchmarks: what was re-measured and what was left stale
+
+Re-measured against decide-then-render:
+
+- `docs/wgs-results.md` -- whole-genome totals and the per-contig table, previous arm kept alongside.
+- `docs/wgs-performance.md` -- read I/O, CPU, wall clock, peak RSS.
+- `docs/pangenie-comparison.md` -- the vg column only. PanGenie's is unchanged and deliberately not
+  re-measured: same run, same scoring path. Four rows in the SV section are marked with a dagger and
+  are NOT re-measured -- the genotype-aware SV F1 and the "missed by this tool alone" overlap counts
+  come from a separate analysis over both callsets. vg's SV recall rose, so they have very likely moved
+  in vg's favour, and they are marked rather than adjusted by inference.
+- `docs/tier2-chr20-results.md` -- the 34-haplotype chr20 arm, which its own text calls the primary
+  subject because it is the configuration the caller is tuned for.
+
+**Left stale, and bannered as such in each file**: `tier2-chr6-results.md`,
+`tier2-chr6-4hap-results.md`, `tier2-chr20-4hap-results.md`, both graph-comparison pages,
+`tier2-sv-errors.md`, `sv-residual-errors.md`, `sv-quality-gates.md`, `sv-delta.md`, `coverage.md`.
+These use their own reads, truth sets and graphs, so the whole-genome run does not touch them and
+re-measuring is hours of runs. Two distinct kinds of staleness are worth separating: the *figures*
+understate the current caller by roughly the whole-genome delta, but any *analysis* of which calls were
+wrong may have selected a different population entirely, which is not a rescalable error. The banner
+says both.
+
+**The 4-haplotype arms may be where this change looks worst**, and that is expected rather than a
+regression: the existing pages record nested calling as flat to 0.0005 *down* on ALL F1 there, because
+the linkage transition and the frequency prior are panel-size effects with little to work with on a
+thin panel. A flat or slightly negative decide-then-render result on 4 haplotypes would be consistent
+with that and should not be read as a defect without checking the panel-size axis first.
+
+## A harness gap found while doing this
+
+`scripts/tier2/run_hap32_chr20.sh` preflighted its input *files* but not `gbz-base`, so all five arms
+reached `vg call`, failed inside it, and reported `FAILED rc=1` each with the reason -- "could not
+execute 'gbz-base'" -- buried in a per-arm log while the console printed instruction counts. It reads
+exactly like a caller regression and is not one. Fixed with the fail-fast check
+`prep_hap32_chr20.sh` already uses, placed with the file preflight.
+
+**Six more tier-2 scripts have the same gap** and are not fixed here, because changing scripts that
+were not run and cannot be verified is worse than naming them: `cap_sweep2_hap32.sh`,
+`cap_check_4hap.sh`, `cap_sweep_hap32.sh`, `floor_sweep.sh`, `mismap_sweep.sh`,
+`floor_sweep_at_cap.sh`.
+
+Note also that the repo has two incompatible conventions for finding this binary: fail-fast (the tier-2
+prep scripts) and a `find` into `/private/tmp/claude-501` (`call_wgs.sh`, `thread_ab.sh`). The second
+works but hardcodes an ephemeral session path, so it will stop working for anyone else. Worth
+converging on the first.
+
 ## What this phase got wrong, for calibration
 
 Recorded because the pattern is more useful than any single error. Five claims made confidently here
