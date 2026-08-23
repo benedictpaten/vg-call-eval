@@ -1121,6 +1121,136 @@ currently links only against same-strand nested siblings, never against the top-
 and that is a real modelling gap independent of distance. That is a different claim, needs its own
 prediction, and should not inherit (b)'s.
 
+## 15': Order from the traversal alignment, distance from the traversals, no reference below the anchor
+
+**Supersedes (b), (c), (d) and the first draft of this stage.** That draft had a units error and is
+recorded below as a rejected alternative, because the way it fails is instructive.
+
+**Why.** A *covering reference* is coming: the current reference plus non-overlapping contigs covering
+the graph's nested nodes, so snarls on paths the reference never visits become callable. A nested site
+then has **no reference position**, so anything that orders or spaces nested sites by
+`Entry::position` is undefined rather than approximate.
+
+### Two corrections that shape the design
+
+**Loops mean the unit is a VISIT, not a chain.** A parent traversal may enter the same nested chain
+more than once, and each visit is at a different point along the haplotype, so each has its own
+distance. `traversal_offset_span` returns the *first* crossing and stops
+(`src/graph_caller.cpp:3637-3645`), so it cannot express this. The identity of a linkage site below
+the top level is therefore **(chain, visit index)**. Note this is the same population as stage 17's
+copy-number question -- a chain visited twice on one traversal *is* two copies -- so the two stages
+share a representation decision and should not answer it differently.
+
+**The two chosen traversals are alignable, and the alignment gives the order.** The parent's two
+settled traversals are two paths through one snarl, sharing its boundaries and whatever nodes they
+have in common. Aligning them yields a merged sequence of chain *visits*: a visit both traversals make
+is one column; a visit only one makes slots in between its neighbouring shared anchors. That is a
+single order both haplotypes agree on, derived from the graph rather than from a heuristic tie-break,
+and it produces the per-visit columns loops need for free. It replaces the "sort by the longest
+allele, shorter breaks ties" rule, which stage 14 had already measured as barely load-bearing at the
+sibling level (0.606% of adjacent sibling pairs reorder).
+
+### ORDER and DISTANCE are computed separately, and that is the whole fix
+
+The rejected draft made one number do both jobs, and that is precisely what broke it.
+
+**Order: a lexicographic snarl-tree key.** `(top-level anchor, offset within parent, visit index,
+recursively down the tree)`, compared componentwise. This preserves subtree containment *by
+construction* -- no arithmetic claim is being made, so none can be violated. Within one parent,
+sibling order comes from the traversal alignment above.
+
+**Distance: pairwise, between consecutive sites only.** For two adjacent sites C1 (under parent P1)
+and C2 (under P2), the distance along one haplotype is
+
+    remaining span of P1's settled traversal after C1
+      + anchor-frame gap P1 -> P2
+      + offset of C2 within P2's settled traversal
+
+Computed for the pair, never as a difference of two absolute coordinates. This cannot reorder anything,
+because it is not the sort key.
+
+**Why the rejected draft was wrong, and why it would not have been caught.** It defined
+`frame(child) = frame(parent) + offset`, summing a *reference* position with a *haplotype-walk* length.
+The offset is bounded by the traversal's length, not by the parent's reference span, so an insertion
+makes it arbitrarily larger: P1 at POS 1,000 carrying a 40 kb insertion with a child at offset 30,000
+gets frame 31,000, while P2 at POS 5,000 with a child at offset 50 gets 5,050 -- inverting the true
+order. Every cross-parent step is mis-scaled by the parent's net indel content. And **the sort hides
+it**: the group is sorted by the same key then used for spacing (`src/linkage_model.cpp:2262-2273`), so
+gaps come out non-negative by construction and no statistic reveals the inversion. The only symptom is
+the F1 number -- which is exactly how 15(b) failed.
+
+### Required fixes, from an adversarial review of the draft against the source
+
+1. **Measure the cross-parent population before building.** Stage 14's 0.606% / 91.05% are
+   **sibling-only** -- computed within one parent's `children_of` (`src/graph_caller.cpp:4888-4951`,
+   counters at `:3657`) -- while the comparison this stage changes happens across a whole
+   `(phase_set, strand)` group, one contig on one haplotype, where cross-parent adjacency is the common
+   case. The neutrality prediction currently rests on a statistic about a different population. Measure
+   inversion count and gap-ratio agreement over adjacent pairs *within a group*, plus each parent's net
+   settled-versus-reference excess.
+
+2. **One `int32`, keyed by the traversal it was measured along -- not two keyed by strand.** A haploid
+   nested parent has only `trav_first`, so only slot 0 is fillable, yet its child's strand is
+   `parent.nested_strand`, which can be 1: the child would read an unwritten slot, sort to the group
+   head, and hand its neighbour a spurious multi-megabase gap. That is the shape of the 448-site
+   regression already recorded at `src/linkage_model.cpp:2044-2053`. Tag the frame by its traversal and
+   resolve trav->strand at placement exactly as `parent_trav` already does (`:2145-2152`); for a
+   `copies == 1` child `parent_trav` *is* the tag, so one value suffices.
+
+3. **`copies == 2` nested sites are not in the nested path at all.** `nested_context.active =
+   (copies == 1)` (`src/graph_caller.cpp:5003`), so a two-copy child has `Entry::nested == false`,
+   lands in `chainable`, and is sorted and spaced by `entries[].position`. The gate "zero nested sites
+   ordered by a reference position" would compile and pass while these sites keep reading one -- and
+   under a covering reference they would sort on a meaningless value. Split the overloaded `nested`
+   flag (it currently does three jobs: cut the chain, hold out of the diploid run, route to the
+   deferred strand pass) with an explicit "descended" bit, then either give these sites a chain or drop
+   them from scope explicitly.
+
+4. **The 11,035-child figure does not justify the pair form.** It is het-parent-only, from *called*
+   traversals, over all `children_of` at descent (`src/graph_caller.cpp:4925`). The barrier's
+   `copies == 2` population is deferred nested chains from *settled* traversals, already counted as
+   `carried_on_both` (`src/linkage_model.cpp:2091`). A homozygous parent tests one crossing bit twice
+   (`src/graph_caller.cpp:4030-4033`), so its two offsets are identical and the pair form is vacuous
+   there. Re-derive the het/hom and descended split of the actual population, or drop the claim.
+
+5. **Three write sites, and a parent-side index the barrier does not have.** `set_parent_trav`'s return
+   is discarded and is a silent no-op when no entry exists (`src/graph_caller.cpp:4047`,
+   `src/linkage_model.cpp:1513-1522`); `respecify` (`:4158`) and the `record` fallback (`:4185-4188`)
+   are the other two. A setter alone drops the frame for gained chains (~2,950, the `!has_entry`
+   population), which then enter the layer with a frame of 0. And `traversal_offset_span` needs the
+   *parent's* `travs`: generation-1 parents are top-level records in `render_records`
+   (`src/graph_caller.cpp:5094`) which the barrier never indexes by `record_key`, so the largest slice
+   of nested sites has nothing to walk from. Build a `record_key -> (container, thread, index)` map over
+   `pending` + `render_records` at the top of the barrier, and pass the frame through `record()` as well
+   as the checked setter.
+
+6. **Return which boundary was entered, and carry a direction bit.** `traversal_offset_span` opens on
+   `node == start || node == end` and discards which (`:3637-3645`). Depth 1 survives, but a grandchild
+   under a reversed crossing is mirrored -- offsets measured from the wrong end -- and sibling order
+   inside that subtree reverses. This is masked today only because v1 descends solely where the
+   reference also goes, so every child has a reference path and is flipped onto it; **stage 16 removes
+   exactly that gate**, so the construction would be well defined only on the population it is being
+   retired from. Orientation *is* recoverable: `PendingRecord::snarl` and `::travs` are co-oriented by
+   construction (`:4499`, `:4785`). Also note `*span` is the child's extent along the *parent*, not the
+   child's own length -- do not use it as the latter.
+
+7. **Retract "the fallback population is empty by construction."** It is false: three `continue` paths
+   in the barrier leave a child with no settled parent traversal. Count them and give them a defined
+   behaviour.
+
+8. **Types.** A frame feeding `Site::position` (a `size_t`) through an unsigned gap must not be able to
+   arrive negative or unset -- that wraps rather than failing. Keep the frame signed to its own last
+   consumer and check at the boundary.
+
+### Gate -- non-regression, and now with the right denominator
+
+Stage 14's numbers cannot support the neutrality prediction (fix 1), so the gate is: the **new**
+cross-parent measurement first, then chr20 and chrX ALL F1 and JointIndel not below stage 15(a), with a
+null result a PASS. The payoff is the capability, not accuracy: 15(b) already measured the accuracy
+upside of a better frame as negative on reference-anchored data. Determinism byte-identical across two
+runs and independent of traversal enumeration order. Cost reported per contig, since the traversal walk
+moves from the parallel sweep (where stage 14 measured it free) to the serial barrier.
+
 ## 16. Children with no reference path
 
 **Goal.** 12,516 chr20 children are skipped for having no reference path, so REF and POS are undefined for them. In the haplotype frame they are orderable and linkable; only *rendering* needs a reference POS.
