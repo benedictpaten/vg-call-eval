@@ -16,12 +16,13 @@ Autosomes, summed counts, rates recomputed from them:
 |---|---|---|
 | ALL F1 | **0.9729** | 0.9505 |
 | SNV F1 | **0.9849** | 0.9722 |
-| SNV recall | **0.9759** | 0.9659 |
-| Indel F1 | **0.9272** | 0.8687 |
-| SV ≥50 bp F1 | 0.5596 | **0.5739** |
+| SNV recall | **0.9762** | 0.9659 |
+| Indel F1 | **0.9275** | 0.8687 |
+| SV ≥50 bp F1 | 0.5642 | **0.5739** |
 
 vg leads every small-variant class on both recall and precision; PanGenie leads structural variants
-on both, now by 0.0143.
+on both, now by 0.0097 — down from 0.0143, because block emission became the default and took vg's
+autosomal SV F1 from 0.5596 to 0.5642.
 
 **The vg column moved with decide-then-render** -- genotypes settled before records are built. It was
 ALL 0.9703, SNV 0.9837, Indel 0.9195, SV 0.5488. PanGenie's column is unchanged: same run, same
@@ -59,18 +60,18 @@ difference it exists to absorb; normalising by hand would have been the riskier 
 |  | vg call | | | | PanGenie | | | |
 |---|---|---|---|---|---|---|---|---|
 | | TP | FP | FN | **F1** | TP | FP | FN | **F1** |
-| ALL | 4,039,888 | 88,172 | 137,100 | **0.9729** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
-| SNV | 3,236,524 | 19,356 | 79,770 | **0.9849** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
-| Indel | 803,364 | 68,816 | 57,330 | **0.9272** | 757,328 | 125,606 | 103,366 | 0.8687 |
-| SV ≥50 bp | 14,151 | 12,805 | 9,470 | 0.5596 | 13,749 | 10,544 | 9,872 | **0.5739** |
+| ALL | 4,040,932 | 88,680 | 136,056 | **0.9729** | 3,960,421 | 195,585 | 216,567 | 0.9505 |
+| SNV | 3,237,294 | 20,186 | 79,000 | **0.9849** | 3,203,093 | 69,979 | 113,201 | 0.9722 |
+| Indel | 803,638 | 68,494 | 57,056 | **0.9275** | 757,328 | 125,606 | 103,366 | 0.8687 |
+| SV ≥50 bp | 14,208 | 12,539 | 9,413 | 0.5642 | 13,749 | 10,544 | 9,872 | **0.5739** |
 
 Recall and precision behind those:
 
 | | vg recall | vg precision | PanGenie recall | PanGenie precision |
 |---|---|---|---|---|
-| ALL | **0.9672** | **0.9786** | 0.9482 | 0.9529 |
-| SNV | **0.9759** | **0.9941** | 0.9659 | 0.9786 |
-| Indel | **0.9334** | **0.9211** | 0.8799 | 0.8577 |
+| ALL | **0.9674** | **0.9785** | 0.9482 | 0.9529 |
+| SNV | **0.9762** | **0.9938** | 0.9659 | 0.9786 |
+| Indel | **0.9337** | **0.9215** | 0.8799 | 0.8577 |
 
 **The result is a clean split by variant class.** vg leads every small-variant class on *both*
 axes; PanGenie leads structural variants on both.
@@ -90,10 +91,10 @@ axes; PanGenie leads structural variants on both.
 
 | | vg call | PanGenie |
 |---|---|---|
-| ALL | **0.9494** | 0.8467 |
-| SNV | **0.9631** | 0.8766 |
-| Indel | **0.9022** | 0.7449 |
-| SV ≥50 bp | 0.4617 | **0.4768** |
+| ALL | **0.9563** | 0.8467 |
+| SNV | **0.9691** | 0.8766 |
+| Indel | **0.9172** | 0.7449 |
+| SV ≥50 bp | 0.4569 | **0.4768** |
 
 **This is a ploidy-handling difference, not an evidence one, and folding it into a genome-wide F1
 would misreport it.** HG002 is male, so chrX outside the pseudoautosomal regions carries one copy;
@@ -113,6 +114,13 @@ Comparing which truth variants each misses:
 |---|---|---|---|---|---|
 | chr1 | 11,940 | 17,475 | 8,552 | 3,388 | 8,923 |
 | chr20 | 3,535 | 5,263 | 2,432 | 1,103 | 2,831 |
+
+**This table is from an earlier vg arm and is the one thing on this page not re-measured.** vg's
+small-variant FN has since fallen to **10,791 on chr1 and 3,200 on chr20**, so the shared-floor
+percentages below are lower bounds on today's. It is left whole rather than part-updated because the
+decomposition has to sum: 8,552 + 3,388 is the old 11,940, and replacing only the total would leave
+a table that does not add up. Refreshing it needs a small-variant FN intersection, which does not
+exist as a script -- `sv_delta.py` does this for structural variants only.
 
 Read down the vg column rather than across: **72% of what vg still misses on chr1 is also missed by
 PanGenie** (8,552 of 11,940), and 69% on chr20. vg's residual recall deficit is now mostly the
@@ -136,26 +144,29 @@ well it fits is strongest. The SNV lead is newer and has a specific cause: a SNV
 alternative allele is invisible to a caller that only emits the long allele, and descending into
 those nested bubbles recovered 59,413 SNV false negatives without costing precision.
 
-**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.0143 F1 -- on precision only,
+**Where k-mer evidence wins: structural variants.** PanGenie leads by 0.0097 F1 -- on precision only,
 now that vg makes more true calls. The numbers behind that, since one F1 hides which side it comes
 from:
 
 | autosomal SVs ≥50 bp | vg call | PanGenie |
 |---|---|---|
-| TP | **14,151** | 13,749 |
-| FP | 12,805 | **10,544** |
-| FN | **9,470** | 9,872 |
-| F1 | 0.5596 | **0.5739** |
-| F1 requiring the right genotype † | 0.4805 | **0.5213** |
-| distinct truth SVs missed † | 10,053 | 9,841 |
-| of those, missed by the other tool too † | 8,172 | 8,172 |
-| missed by this tool alone † | 1,881 | 1,669 |
+| TP | **14,208** | 13,749 |
+| FP | 12,539 | **10,544** |
+| FN | **9,413** | 9,872 |
+| F1 | 0.5642 | **0.5739** |
+| distinct truth SVs missed | **9,385** | 9,841 |
+| of those, missed by the other tool too | 8,184 | 8,184 |
+| missed by this tool alone | **1,201** | 1,657 |
 
-† **From the previous vg arm, not re-measured.** These four come from a separate SV overlap analysis
-over both callsets, which has not been re-run against decide-then-render. The rows above them have.
-Given vg's SV recall rose (FN 10,105 → 9,470), the "missed by vg alone" figure is expected to have
-fallen and the genotype-F1 to have risen, but neither has been measured, so they are marked rather
-than adjusted by inference.
+**The daggers are gone: the overlap analysis has been re-run** against this arm, so every row above
+comes from the same callset. `sv_delta.py` over both callsets now reports 8,184 truth SVs missed by
+both, 1,201 by vg alone and 1,657 by PanGenie alone.
+
+The change in "missed by vg alone" is large -- the previous, un-remeasured figure was 1,881 -- but do
+not read all of it as this revision's doing. That number came from an arm several revisions back, so
+the 680 spans everything between, not just block emission. What *is* attributable to block emission
+is the row-count movement measured directly, arm against arm on one binary: TP 14,151 → 14,208 and
+FP 12,805 → 12,539.
 
 The first four rows are truvari's own row counts, kept so the F1s match the published figures; the
 last three are over *distinct* truth variants, which is lower because truvari emits a row per match

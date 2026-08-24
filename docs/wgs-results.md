@@ -51,26 +51,45 @@ Current arm is **decide-then-render**: every site's genotype is settled before i
 so no record is patched after the fact. The arm it replaced is kept alongside because the whole
 comparison rests on it being the same binary, reads and scoring path.
 
-| | decide-then-render | previous (inline) |
-|---|---|---|
-| **ALL** | TP 4,126,222  FP 92,497  FN 140,597  recall 0.9670  precision 0.9781  **F1 0.9725** | F1 0.9699 |
-| **SNV** | TP 3,304,342  FP 21,547  FN 81,845  recall 0.9758  precision 0.9935  **F1 0.9846** | F1 0.9833 |
-| **Indel** | TP 821,880  FP 70,950  FN 58,752  recall 0.9333  precision 0.9205  **F1 0.9269** | F1 0.9191 |
-| Insertion | recall 0.9224  precision 0.9134  **F1 0.9179** | F1 0.9102 |
-| Deletion | recall 0.9440  precision 0.9379  **F1 0.9409** | F1 0.9333 |
+| | block emission (current) | decide-then-render | previous (inline) |
+|---|---|---|---|
+| **ALL** | TP 4,127,286  FP 93,089  FN 139,533  recall 0.9673  precision 0.9779  **F1 0.9726** | F1 0.9725 | F1 0.9699 |
+| **SNV** | TP 3,305,121  FP 22,450  FN 81,066  recall 0.9761  precision 0.9933  **F1 0.9846** | F1 0.9846 | F1 0.9833 |
+| **Indel** | TP 822,165  FP 70,639  FN 58,467  recall 0.9336  precision 0.9209  **F1 0.9272** | F1 0.9269 | F1 0.9191 |
+| Insertion | recall 0.9228  precision 0.9122  **F1 0.9174** | F1 0.9179 | F1 0.9102 |
+| Deletion | recall 0.9443  precision 0.9370  **F1 0.9406** | F1 0.9409 | F1 0.9333 |
 
-**Both precision and recall improve in every class**, which the chr20 development runs did not show --
-there the gain was recall-only with false positives nearly flat. Genome-wide FP falls 6.9% and FN 9.8%.
-All 23 scoreable contigs improve; none regresses.
+**Small variants are unmoved by block emission**: ALL +0.0001, SNV flat, Indel +0.0003, with
+insertions and deletions marginally down. The gain over inline is the earlier work's, not this one's.
+Against decide-then-render, the current arm recovers 1,064 more true small variants and adds 592
+false ones.
+
+The current arm carries two changes over decide-then-render: block emission became the default, and
+`resolve_site` stopped rejecting reversed snarls. The second is measured separately at 10 false
+positives removed on chr20 and essentially nothing on chr6, so it is a small part of the FP movement
+and none of the SV movement.
 
 ## Structural variants (truvari, >=50 bp)
 
-| | decide-then-render | previous (inline) |
-|---|---|---|
-| SV >= 50 bp | TP 14,401  FP 13,123  FN 9,716  **F1 0.5577** | F1 0.5470 |
+| | block emission (current) | decide-then-render | previous (inline) |
+|---|---|---|---|
+| SV >= 50 bp | TP 14,449  FP 12,857  FN 9,668  **F1 0.5620** | F1 0.5577 | F1 0.5470 |
 
-SVs gain from recall: FN 10,361 -> 9,716 with FP rising 12,424 -> 13,123. That narrows the PanGenie gap
-quoted above from 0.5488-vs-0.5739 to 0.5577-vs-0.5739 without any SV-specific work.
+**This is where block emission pays, and it is the only place it does.** F1 0.5577 -> 0.5620,
+**+0.0043**, from 48 more true SVs and 266 fewer false ones -- so unlike the previous step's
+recall-only gain, this one improves both sides. Autosomes alone give 0.5596 -> 0.5642. The PanGenie
+gap quoted above narrows from 0.0143 to 0.0097.
+
+The per-contig spread is wide and worth knowing before quoting a single figure. Measured arm against
+arm on one binary, chr20 gives **+0.0099** and chr6 **+0.0017** -- a 6x range, and with opposite
+mechanisms: chr20 gained 11 true SVs at unchanged FP, chr6 removed 14 false ones and lost 2 true.
+The genome-wide +0.0043 is the aggregate over 22 autosomes and is the number to use; chr20's figure
+is the favourable tail, not the typical case.
+
+`truvari refine` puts the same two comparisons at +0.0233 and +0.0121, so the record-matching metric
+understates this change -- expected, since it penalises splitting one record into several and drops
+any resulting block under the 50 bp size floor. Reported unrefined regardless, because every other SV
+figure in this repository is unrefined and a refined number would compare to none of them.
 
 ## Per contig
 
