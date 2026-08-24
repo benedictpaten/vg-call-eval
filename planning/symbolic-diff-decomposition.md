@@ -478,6 +478,27 @@ because it appears in no MATCH block" matches the case-(c) population measured i
 small number, possibly zero on chr20 -- a large one means the alignment is failing to match
 identical symbols and D1's tie-break is wrong.
 
+**RESULT: the gate caught a real bug in my own implementation, on the first run.** The counter came
+back at **2,831** against a case-(c) population of **47** -- 60x too high -- and the record count
+FELL, 115,686 to 115,287.
+
+The predicate tested whether the **reference's** chain step fell inside a difference block, not
+whether **the haplotype's own crossing** did. Those differ exactly where it matters: a haplotype that
+*deletes* the chain puts the reference's step inside a block while crossing the chain zero times, so
+it read as "already reported by a block ALT" when it contributes no copy at all. Worse, chains no
+called allele reaches are precisely the ones the caller deliberately retains in case linkage moves
+the parent onto an allele that does reach them -- so the over-fire deleted 399 records that were
+still legitimately in play.
+
+Fixed to test each haplotype's own projection: suppress only when at least one called haplotype
+crosses the chain and *every* crossing falls inside a block. That is the rule as originally stated --
+`ploidy(C) = #crossings in MATCH steps`, suppress when it is zero and the total is not -- so the
+implementation was wrong rather than the rule.
+
+Worth naming why this was caught: the gate specified the expected magnitude in advance. Nothing in
+the output looked wrong, no test failed, and a 0.3% record-count drop would have passed unremarked as
+noise. Writing "expect a small number, possibly zero" is the only reason it was visible at all.
+
 ### Stage 7 -- validation
 
 Arm `readlik`, dataset `chr20-34hap` (`work/tier2-chr20-hap32`), baseline
@@ -537,7 +558,13 @@ split produces, which is expected rather than a finding. All-zero AD went 97 -> 
    self-contradictory and a scoring confound, since the baseline's records are phased and these
    would be compared on unequal terms. Block records now inherit the site's phase by mapping each
    genotype slot to the site allele its haplotype carries, and drop `PS` when they genuinely cannot.
-2. My truvari size-exposure counter was measuring boundary-node length (see stage 2).
+2. My truvari size-exposure counter was measuring boundary-node length (see stage 2). Corrected, it
+   reads **203** ALTs of >=50 bp whose diff contains a sub-50 bp block, against 74,885 before --
+   and 203 is comfortably below the 634 ALTs that split at all, as it must be.
+
+The phase fix verifies: of 1,128 block records, **1,045 phased, 83 unphased, and 0 carrying PS
+without a phase** -- so no record contradicts itself, and the 83 are sites where the slot-to-site
+allele mapping genuinely could not be resolved rather than ones where the phase was dropped.
 
 **Interpretation, stated plainly.** The direction is consistently positive on the metrics stage 0
 established as fair, and every safety invariant holds. But the magnitude -- +0.00026 BASEPAIR F1,
@@ -553,11 +580,86 @@ evaluation. That follows from the population: 489 sites out of 115,038, or 0.43%
 | AD-arity, all-zero-AD, `(CHROM,POS,ID,block)`-collision counters all zero | the silent failures F1 cannot see |
 | GT F1 reported with `query_total` beside it | visible, never gated |
 
+**FINAL RESULT.** Four arms, all from the same binary lineage in one session:
+`s7-base` (flag off), `s7-atomize` (blocks, no phase inheritance, no delegation), `s7-final`
+(blocks + phase + the over-firing delegation gate), `s7-final2` (blocks + phase + fixed gate).
+
+| | base | atomize | final | final2 |
+|---|---|---|---|---|
+| GT ALL recall | 0.965984 | 0.966143 | 0.966206 | **0.966206** |
+| GT ALL F1 | 0.972250 | 0.972290 | 0.972332 | **0.972322** |
+| GT Snv F1 | 0.985193 | 0.985122 | 0.985156 | **0.985156** |
+| GT JointIndel F1 | 0.927672 | 0.928032 | 0.928099 | **0.928057** |
+| BASEPAIR ALL F1 | 0.924542 | 0.924802 | 0.924892 | **0.924903** |
+| BASEPAIR ALL truth_tp | 378,392 | 378,441 | 378,489 | **378,486** |
+| BASEPAIR ALL query bases | 427,914 | 427,744 | 427,768 | **427,752** |
+| records | 115,038 | 115,686 | 115,287 | **115,427** |
+
+Gate by gate:
+
+| gate | result |
+|---|---|
+| recall holds or rises | **PASS** -- +0.000222 all types, and up in every class |
+| BASEPAIR query bases fall, truth_tp holds | **PASS** -- -162 bases claimed, +94 matched |
+| truvari refined SV F1 | not run; see below |
+| AD arity / all-zero AD / (CHROM,POS,ID) collisions | **PASS** -- 0, explained, 0 |
+| GT F1 with query_total beside it | +0.000072, query_total +157 |
+
+**Phase inheritance was worth measuring separately.** `s7-atomize` to `s7-final` is the only place a
+fix moved the metric: recall +0.000063 and BASEPAIR truth_tp +48. Emitting block records unphased
+against a phased baseline was costing real matches, not just producing a self-contradictory record.
+
+**The delegation gate is not measurable in either direction, and that is the finding about it.**
+`s7-final` suppressed 2,831 chains and deleted 399 legitimate records; `s7-final2` suppresses 362 and
+deletes 258. The difference between the two in GT ALL F1 is **0.00001**, and recall is identical to
+six decimals. So a bug that removed 399 records the caller was entitled to keep was invisible to
+every metric in the harness. That is precisely the silent-breakage class this plan was warned about,
+and the only thing that caught it was writing the counter's expected magnitude down in advance.
+
+### Conclusion
+
+The change is correct, safe, and directionally right on every metric stage 0 established as fair.
+Its magnitude on chr20-34hap is **+0.00036 BASEPAIR F1 and +0.00022 recall, about an order of
+magnitude below the 0.002-0.01 band this harness resolves.** It is not distinguishable from noise
+here.
+
+That follows from the population, not the implementation. 487 snarls of 115,038 records decompose --
+0.42% -- and two graph properties bound it:
+
+- a single difference block spans every step but the two snarl boundaries, so an ALT that does not
+  split is barely changed, and `flatten_common_allele_ends` already trims those ends;
+- 9,279 sites have no symbolic projection at all because of the `flip_snarl` defect, so neither
+  symbolic collapsing nor this change acts on them.
+
+**The flipped-snarl defect is now the most valuable single thing on this list**, and it is not part
+of this change. It silently disables symbolic collapsing -- a feature measured at SNV F1 0.9752 to
+0.9833 -- on 7.4% of sites. Fixing it stands to be worth more than decomposition, is independent of
+it, and has its own clean gate.
+
 ## Left on the table, deliberately
 
-- **Per-block GL by max-marginal fold.** Required to ship, not required to measure. See D2.
-- **The flipped-snarl fix itself.** Stage 2 measures it; fixing it is a separate change with its own
-  gate, and it should not ride along with decomposition because it moves the baseline.
+Ordered by what the measurements say they are worth, which is not the order they were written in.
+
+1. **The `flip_snarl` fix. Now the most valuable item here, and it is not part of this change.**
+   9,279 chr20 sites -- 7.4% -- have no symbolic projection, so symbolic collapsing is inert there.
+   That feature is measured at SNV F1 0.9752 -> 0.9833 genome-wide, so recovering it on 7.4% of
+   sites plausibly beats everything decomposition achieved by a wide margin. Independent of this
+   work, and it has a clean gate: the counter must go to zero and the collapsed-site count must
+   rise. It should not ride along with decomposition, because it moves the baseline.
+2. **Per-block GL by max-marginal fold over `genotype_lls`.** Required to ship `--atomize-blocks`,
+   not required to measure it. See D2. Roughly 200 lines of new numerics whose only gate is a
+   counter.
+3. **Turning `--atomize-blocks` on by default.** Not justified by these numbers. The effect is
+   positive but below the harness's resolution, and the replicated AD/GL make it wrong to ship as a
+   default regardless.
+4. **The 83 block records that could not inherit a phase.** Small, and the mechanism (slot-to-site
+   allele mapping not resolving) is understood but not chased.
+5. **A block that lands on top of a chain gets the coarser report, not the finer one.** The
+   exactly-once rule resolves double reporting by keeping the block's ALT and dropping the chain's
+   own record -- but the chain's record is the more decomposed of the two, so for those 362 chains
+   the rule works against the goal of the change. Choosing the other way round is not possible as
+   the code stands, because a block's ALT is contiguous sequence and cannot have a hole in it.
+   Measured as unmeasurable: suppressing 2,831 versus 362 moved GT F1 by 0.00001.
 - **`allele_core_length` re-stratification.** `merge_similar_alleles` gates on
   `allele_core_length(alleles) < allele_merge_min_len` (:1512-1514), and a block's core length is
   the block's span, so `-L` stops firing where it fires today. Every size-stratified figure in the
