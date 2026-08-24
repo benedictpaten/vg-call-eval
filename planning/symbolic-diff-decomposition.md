@@ -689,6 +689,7 @@ alongside them. The fix removes the duplicate.
 | | baseline | flip fix | delta |
 |---|---|---|---|
 | unresolvable sites | 9,279 | **0** | -9,279 |
+| resolved as a reversal | 0 | **9,279** | +9,279 |
 | records | 115,038 | 115,003 | **-35** |
 | GT ALL recall | 0.965984 | 0.965984 | **+0.000000** |
 | GT ALL truth_tp | 91,470 | 91,470 | **+0** |
@@ -721,10 +722,60 @@ reversed nested references (`nested_snp_in_del_rev`, `nested_del_star_indel_rev`
 `inverted_allele`) are referenced only by `26_deconstruct.t` and `11_vg_paths.t`, never by the
 calling tests. So TAP passing says the fix breaks nothing; it does not say the fix works.
 
-The gate is the unit test, and it is a real one -- verified to fail against the restored defect.
-`symbolic_reversed_site_count()` is added so that "the reversed branch is exercised" is a measurement
-rather than an assumption. An end-to-end TAP case would need a nested fixture with a backwards
-reference path plus a pack, and is not written.
+The gate is the unit test, and it is a real one -- verified to fail against the restored defect. A
+per-site counter is added so that "the reversed branch is exercised" is a measurement rather than an
+assumption. An end-to-end TAP case would need a nested fixture with a backwards reference path plus a
+pack, and is not written.
+
+### Adversarial review of the fix
+
+Four independent probes plus a synthesis, run against the committed fix with instructions to break it
+rather than confirm it.
+
+**The orientation test survives, and structurally rather than luckily.** `snarl_into` holds exactly
+two keys per snarl -- `(start.id, start.backward)` and `(end.id, !end.backward)` (src/snarls.cpp) --
+and flipping a snarl swaps which boundary produces which key while leaving the key SET identical.
+The reversed lookup is therefore the same map entry read from the other end and returns the same
+pointer by construction. Two results sharper than anything established when the fix was written:
+
+- the reversed branch is **dead** in the start-key case, so the new acceptance is confined to exactly
+  the `flip_snarl` population and cannot widen beyond it;
+- the key-collision worry has no reachable precondition: `snarl_into` is a partition over node sides,
+  and vg's decomposition makes sequentially adjacent snarls siblings rather than parent and child, so
+  no two snarls contend for a key.
+
+**One blocking finding, and it was mine.** The counter added to instrument the fix incremented inside
+`resolve_site`, which is reached from `symbolic_site_resolvable` AND from `symbolic_allele` -- and
+projection runs per traversal, inside loops over alleles and haplotypes, plus twice per
+`symbolically_equal`. So it counted **calls, not sites**, at several times the rate of the 9,279 it
+exists to be compared against, and naming it `g_reversed_sites` made the per-site reading look
+intended. Had it shipped, the gate would have read several times 9,279 and looked like an over-fire.
+Now an out-parameter on `symbolic_site_resolvable`, counted once per record in `tally_atomize` --
+the same place and cadence as the counter it must match.
+
+With that correction the correspondence is exact: **9,279 unresolvable before, 9,279 resolved as a
+reversal after**, with the record count unchanged at 115,003 so the rework is output-neutral. The fix
+reaches precisely the population the old counter identified -- which also confirms empirically the
+structural claim that the reversed branch cannot fire on a start-key hit and so cannot widen beyond
+the `flip_snarl` set.
+
+Note the shape of this mistake: it is the second time in this plan that a counter I wrote measured
+something other than what its name claimed (the first was the truvari size-exposure counter measuring
+boundary-node length). Both were caught by comparing a counter against an independently known
+quantity rather than by reading the code.
+
+**One finding refuted.** The claim that the counter was write-only and called from nowhere; it is
+printed at graph_caller.cpp:110.
+
+**One pre-existing issue, untouched by this fix and worth recording.** `NestedFlowCaller` hands
+`emit_variant` the CANONICAL snarl while its traversals were computed in the flipped frame
+(graph_caller.cpp:6056 takes the copy, :6123 flips it, :6385 passes `managed_snarl`). `resolve_site`
+cannot detect that: it inspects the site and never the traversals. On that path resolution already
+succeeded before this fix, via the forward branch, with site and traversals in different frames.
+`FlowCaller` does not have the problem -- it passes the flipped snarl, and its flip precedes
+`find_traversals`. Since `--read-likelihood` uses FlowCaller, this does not touch the 9,279 or the
+measured delta. It is the counterexample to reading `resolve_site` as a frame check rather than an
+identity check, and it belongs to the `-A` path.
 
 ## Left on the table, deliberately
 
