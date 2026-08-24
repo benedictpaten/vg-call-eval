@@ -724,8 +724,14 @@ calling tests. So TAP passing says the fix breaks nothing; it does not say the f
 
 The gate is the unit test, and it is a real one -- verified to fail against the restored defect. A
 per-site counter is added so that "the reversed branch is exercised" is a measurement rather than an
-assumption. An end-to-end TAP case would need a nested fixture with a backwards reference path plus a
-pack, and is not written.
+assumption.
+
+**The gap is now closed.** `test/t/18_vg_call.t` plan 304 -> 309, using
+`test/nesting/nested_snp_in_del_rev.gfa` -- the exact mirror of the forward fixture the suite already
+calls, so both its snarls are reversed and the forward arm is the oracle. Five assertions: both sites
+emit, the nested site is still a star allele, `unresolvable` is 0, the reversed branch fires, and the
+forward twin does NOT take it. That last one is the one that matters: without it the counter could be
+counting anything. 309/309 pass.
 
 ### Adversarial review of the fix
 
@@ -766,6 +772,62 @@ quantity rather than by reading the code.
 
 **One finding refuted.** The claim that the counter was write-only and called from nowhere; it is
 printed at graph_caller.cpp:110.
+
+**What the review changed, beyond the counter.** Three of its items were real defects in the fix's
+own supporting work rather than in the fix:
+
+1. **The reversed branch compared node ids only**, so a half-reversed site -- right nodes, wrong
+   orientation on one boundary -- was accepted. Benign, because the resolved pointer is still
+   correct, but the fix's comment claimed the test was not weakened and strictly it was, by one bit.
+   Now a full-`Visit` comparison. The forward branch is deliberately left as node-ids-only: that is
+   pre-existing behaviour and tightening it could reject sites that resolve today, which is not this
+   fix's business.
+2. **The negative unit test was vacuous.** `make_snarl(7, 8)` names a node that is not a boundary of
+   anything, so `into_which_snarl` returns null and resolution stops before the widened comparison is
+   reached. The suite asserted only that reversals are *accepted*, never that impostors are still
+   *rejected*. Added a case where the lookup succeeds and the pair mismatches, plus a half-reversed
+   case the tightening now catches.
+3. **End-to-end coverage**, TAP plan 304 -> 309. `test/nesting/nested_snp_in_del_rev.gfa` is the exact
+   mirror of the forward fixture already tested -- identical topology and sequences, `x = 6-,5-,3-,2-,1-`
+   -- so both its snarls are reversed and it gives a before/after with an oracle. Asserts both sites
+   emit, `unresolvable` is 0, the reversed branch fires, and -- as the control -- that the forward
+   twin never takes that branch.
+
+Also corrected an overclaiming comment: "`unresolvable` should now be zero" is false under
+`-I/--chains`, which builds a fake chain-spanning snarl that is not a managed snarl and correctly
+resolves to null.
+
+**Three findings refuted, each checked rather than dismissed.** The counter being write-only (it is
+printed at graph_caller.cpp:110). A cycle-closing snarl sharing both boundary nodes but not both
+sides -- the algebra is right but it needs two snarls contending for one `snarl_into` key, and that
+map is treated as a partition over node sides throughout, so no reachable instance could be
+constructed. And `chain_reported_inline` suppressing a chain that then gets no record at all --
+suppression requires every crossing to fall *inside* a block, which requires a non-empty block list,
+so total collapse and suppression are mutually exclusive.
+
+**The interaction with `--atomize-blocks`, measured on counters rather than F1** -- the review asked
+for this specifically, on the grounds that F1 is demonstrably blind to record-set changes of this
+size (it moved 0.00001 for a predicate deleting 399 records earlier in this plan).
+
+| | atomize only | atomize + flip fix |
+|---|---|---|
+| records | 115,427 | 115,392 (**-35**) |
+| child chains not descended into | **362** | **362** |
+| sites split | 487 | 488 |
+| case (c) | 47 | 48 |
+
+The flip fix contributes the same **-35** records with the flag on as without it (115,038 ->
+115,003), so the two changes are additive and independent. The specific worry -- that un-gating
+`chain_reported_inline` for 9,279 more sites would move the suppression count -- did not materialise:
+362 either way. That follows from the mechanism rather than being luck: suppression requires every
+called crossing to fall *inside* a difference block, and a newly-resolvable site's chains are mostly
+matched, which is what collapsing means.
+
+**Commits, so the numbers are attributable.** `1d1194c50` the decomposition work, `739fca116` the
+reversed-snarl fix, `d124576ad` the per-site counter, `17babb31a` the exact reversed test plus
+coverage. Every before/after figure above was produced at one of these, not at an unnamed working
+tree -- which matters because an earlier table in this plan was built against a baseline that had
+been overwritten in place, at a 77x confound.
 
 **One pre-existing issue, untouched by this fix and worth recording.** `NestedFlowCaller` hands
 `emit_variant` the CANONICAL snarl while its traversals were computed in the flipped frame
