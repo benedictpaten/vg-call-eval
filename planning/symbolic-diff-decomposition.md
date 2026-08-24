@@ -636,12 +636,83 @@ six decimals. So a bug that removed 399 records the caller was entitled to keep 
 every metric in the harness. That is precisely the silent-breakage class this plan was warned about,
 and the only thing that caught it was writing the counter's expected magnitude down in advance.
 
+### The SV result, and a correction to the conclusion below
+
+The tables above report aardvark ALL-types, which **dilutes the effect into noise**: SVs are about 765
+of 94,691 truth variants, so a real structural gain disappears in the aggregate. Measured directly on
+chr20-34hap, both arms from the same binary at `17babb31a` (flag-off arm byte-identical to the
+previous build, `mismatch_removed = 0` on both):
+
+| SV >=50 bp | off | on | delta |
+|---|---|---|---|
+| TP-base | 433 | 444 | **+11** |
+| FP | 444 | 444 | **+0** |
+| FN | 332 | 321 | **-11** |
+| recall | 0.566013 | 0.580392 | **+0.014379** |
+| precision | 0.489068 | 0.495455 | +0.006387 |
+| **F1 (truvari, unrefined)** | **0.524735** | **0.534570** | **+0.009836** |
+
+Eleven more true SVs with **zero** additional false positives. That is at or above the top of the
+0.002-0.01 band this harness resolves, and above the entire range `--atomize-substitutions` achieved
+(+0.0017 to +0.008) -- which fits, because that version was restricted to same-length biallelic
+records specifically to avoid needing an aligner, and length-changing blocks are what SVs are made of.
+
+**The placement ladder, as a diagnostic and not as the gate:**
+
+| | off | on | delta |
+|---|---|---|---|
+| refdist 500 (= the unrefined headline) | 0.5247 | 0.5346 | +0.0099 |
+| refdist 1000 | 0.5394 | 0.5516 | +0.0122 |
+| refdist 2000 | 0.5498 | 0.5655 | +0.0157 |
+| refine | 0.6154 | 0.6387 | **+0.0233** |
+
+The gain GROWS under refinement. If the unrefined delta were an artefact of decomposition changing
+representation, re-alignment would erode it; it more than doubles. And refine's counts rule out the
+competing reading that the new calls only match under loose placement: TP-base 498 -> 519, FP
+362 -> **349**, FN 267 -> 246. Sloppily placed calls would raise FP after re-alignment.
+
+**Methodological correction, and it matters more than the number.** An earlier draft of this plan said
+to "gate the refined number only". That was wrong and would have produced a figure comparable to
+nothing else in the project: `scripts/wgs/bench_wgs.py:115-118` runs `truvari bench` with
+`--sizemin 50 --sizefilt 50 --pick ac` and no refine, and `docs/pangenie-comparison.md` states it uses
+the same invocations. So every headline SV number here -- whole genome, tier 2, PanGenie -- is
+unrefined, and refine appears only in `docs/tier2-sv-errors.md` as a sensitivity analysis.
+
+**Report unrefined. Use refine to learn which way it errs.** Here the unrefined metric's known
+weaknesses run AGAINST the treatment -- it matches records, and decomposition splits them, while
+`--sizemin 50` drops any block under 50 bp from consideration entirely (204-206 ALTs >=50 bp contain
+one). A metric biased against the change that still shows a clean gain is a conservative reading, so
++0.0099 is a floor rather than an estimate.
+
+### Structural breakdown of the 488 takeovers
+
+| records emitted per snarl | snarls |
+|---|---|
+| 1 -- the `1/2` -> `1/1` collapse | **32** |
+| 2 | 363 |
+| 3 | 62 |
+| 4-5 | 21 |
+| 7-11 | 9 |
+| 23 | 1 |
+
+456 snarls genuinely split; 32 are single-record takeovers. Net +389 records, 659 gained against 270
+lost, and the gains are structurally weighted: **+87 SV records against 8 lost**, +290 indel, +263
+SNV. 81 genotypes change on snarls that did not split -- `2|1 -> 1|1` (19), `1|1 -> 1|0` (18),
+`1|2 -> 1|1` (13) -- which is pairwise symbolic equality collapsing two long ALTs into a homozygote.
+
+Note the collapse population is **32 snarls**, not the 1,334 the offline proxy predicted. Same cause
+as the split over-estimate: the proxy worked on node paths with no chain symbols.
+
 ### Conclusion
 
 The change is correct, safe, and directionally right on every metric stage 0 established as fair.
-Its magnitude on chr20-34hap is **+0.00036 BASEPAIR F1 and +0.00022 recall, about an order of
-magnitude below the 0.002-0.01 band this harness resolves.** It is not distinguishable from noise
-here.
+
+**On small variants its magnitude is +0.00036 BASEPAIR F1 and +0.00022 recall -- about an order of
+magnitude below the 0.002-0.01 band this harness resolves, i.e. not distinguishable from noise. On
+SV it is +0.0099 F1 unrefined and +0.0233 refined, which is squarely inside that band and above what
+the prior atomisation work achieved.** An earlier version of this conclusion read "below the noise
+floor" full stop; that was true of the aggregate and false of the structural variants, which is the
+population the change was aimed at from the start.
 
 That follows from the population, not the implementation. 487 snarls of 115,038 records decompose --
 0.42% -- and two graph properties bound it:
