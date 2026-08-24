@@ -154,14 +154,34 @@ symbolic_allele.cpp:41-45 then compares node ids: canonical start (= original st
 `site.start()` (= original *end*). They differ, so `site_ptr = nullptr`, `is_child` is false at
 every visit (:74-76), and sigma(T) degenerates to the plain node list with no chain symbols at all.
 
-So symbolic collapsing -- and with it the whole nested-calling benefit -- is **silently inactive for
-every snarl whose reference path runs backwards.** Consequences:
+So symbolic **collapsing** is silently inactive for every snarl whose reference path runs backwards.
 
-- The measured benefit of symbolic collapsing was measured over an unknown subset.
-- For these snarls block decomposition would shred at node granularity, so the 372-block worst case
-  concentrates here.
+**Scope, corrected after reading the descent path.** An earlier version of this note said nested
+calling as a whole was off there. It is not. Descent does its own lookup at graph_caller.cpp:5731
+with **no identity check** -- it needs only a non-null result, and for a flipped snarl the lookup
+succeeds -- so `children_of(managed_ptr)` returned the real children and descent ran normally. What
+was lost is only the collapsing half.
+
+So at those sites the child records **existed** and the parent's redundant long ALT was **also**
+emitted: the defect produced the double-reporting shape, not a reporting gap. Repairing it removes a
+duplicate ALT, which is a precision change, not a recall change. The "worth SNV F1 0.9752 -> 0.9833"
+framing below is correspondingly too optimistic -- that figure is collapsing *and* descent together.
+
+Note also what the defect was NOT. The symbolic representation was never wrong: every `SymbolicStep`
+carries its own orientation, and a chain symbol's identity is the chain's boundary node ids, which
+are orientation-free. The failure was one guard asking "is this the snarl I think it is", answered by
+comparing boundaries in a fixed order, so a snarl viewed from the other end was rejected and no child
+was ever recognised. The projection came out as the plain oriented node path -- orientation intact,
+nothing symbolic in it -- which makes `symbolically_equal` degenerate to exact node-path equality,
+i.e. *stricter* than intended.
+
+Two further consequences for this plan specifically:
+
+- For these snarls block decomposition would shred at node granularity, so the worst-case block
+  counts concentrate here.
 - Every child chain is a run of matched *plain nodes*, so the ploidy rule above reads ploidy 0 for
-  every child of a flipped parent, turning double-reporting into **non**-reporting.
+  every child of a flipped parent, turning double-reporting into **non**-reporting. This is why the
+  delegation predicate guards on `symbolic_site_resolvable`.
 
 The population is unmeasured. 5,181 of 115,038 chr20 records (4.5%) have snarl-ID boundary nodes
 running counter to node-id order, which is where flips live -- suggestive, not a measurement, since
@@ -636,16 +656,89 @@ of this change. It silently disables symbolic collapsing -- a feature measured a
 0.9833 -- on 7.4% of sites. Fixing it stands to be worth more than decomposition, is independent of
 it, and has its own clean gate.
 
+## The `flip_snarl` fix, measured
+
+`resolve_site` now accepts the boundary pair in either order, because a snarl and its reversal are
+the same snarl. One condition; the rest of the change is a regression test and a counter.
+
+**Verified against the defect, not merely alongside it.** With the fix restored to its broken form
+(forward pairing only), the suite reports 13/14 cases and 79/80 assertions -- the failing `REQUIRE`
+is `symbolic_site_resolvable(flipped)`. With the fix: 14/14, 83/83. TAP 304/304 both before and
+after.
+
+**What the defect did and did not break.** The symbolic representation was never wrong: every
+`SymbolicStep` carries its own orientation, and a chain symbol's identity is the chain's boundary
+node ids, which are orientation-free. What failed was one guard asking "is this the snarl I think it
+is", answered by comparing boundaries in a fixed order, so a snarl viewed from the other end was
+rejected and no child was recognised. The projection came out as the plain oriented node path --
+orientation intact, nothing symbolic in it -- making `symbolically_equal` degenerate to exact
+node-path equality, i.e. *stricter* than intended.
+
+**Descent was never affected**, and the run proves it rather than arguing it. Its own lookup
+(graph_caller.cpp:5731) carries no identity check, and the descent counters come out **identical**
+across the fix:
+
+    descent depth: 1=23824 2=5233 3=1217 4=131 5=9 6=2 (30416 child calls)   -- both runs
+    descent skipped: 2714 no called allele reaches, 12516 with no reference path -- both runs
+
+So at those sites the child records already existed and the parent's redundant long ALT was emitted
+alongside them. The fix removes the duplicate.
+
+**Result: a pure precision gain with zero recall cost.**
+
+| | baseline | flip fix | delta |
+|---|---|---|---|
+| unresolvable sites | 9,279 | **0** | -9,279 |
+| records | 115,038 | 115,003 | **-35** |
+| GT ALL recall | 0.965984 | 0.965984 | **+0.000000** |
+| GT ALL truth_tp | 91,470 | 91,470 | **+0** |
+| GT ALL query_tp | 91,765 | 91,765 | **+0** |
+| GT ALL query_total | 93,772 | 93,762 | **-10** |
+| GT ALL precision | 0.978597 | 0.978701 | **+0.000104** |
+| GT ALL F1 | 0.972250 | 0.972301 | +0.000052 |
+| GT JointIndel precision | 0.924893 | 0.925184 | +0.000291 |
+| BASEPAIR ALL query bases | 427,914 | 427,856 | -58 |
+| BASEPAIR ALL precision | 0.884271 | 0.884391 | +0.000120 |
+
+`truth_tp` and `query_tp` are identical in every class, so the change removed 10 false-positive
+records and touched nothing else. `bcftools norm --check-ref` reports mismatch_removed = 0.
+
+**And the "most valuable item left" framing was wrong.** It was written from the site count -- 9,279
+-- and the footprint is 35 records. For a parent to collapse it must differ from the reference *only*
+inside a child chain; most of those sites differ at their own level too and were always going to emit
+an ALT. ALTs projected rose 115,996 -> 119,639, so the sites are now processed; they mostly do not
+collapse. The estimate was off by two orders of magnitude, and the only reason that is visible is
+that the fix was measured rather than reasoned about.
+
+What it *is*: a small, correct, strictly-positive change with no recall cost and a regression test
+that fails against the defect. Better behaved than the decomposition work, and smaller.
+
+**Coverage gap, stated because 304/304 TAP could be read as validating this and does not.**
+`test/t/18_vg_call.t` never reaches `resolve_site` on a flipped snarl. The reverse-oriented fixtures
+it does use -- `inv60_in_2kb` and `inv60_vs_del60` -- run through `vg call ... -k pack -p x -L`, the
+support caller, where nested calling is off and `symbolic_manager` is null. The fixtures that carry
+reversed nested references (`nested_snp_in_del_rev`, `nested_del_star_indel_rev`, `orientation_flip`,
+`inverted_allele`) are referenced only by `26_deconstruct.t` and `11_vg_paths.t`, never by the
+calling tests. So TAP passing says the fix breaks nothing; it does not say the fix works.
+
+The gate is the unit test, and it is a real one -- verified to fail against the restored defect.
+`symbolic_reversed_site_count()` is added so that "the reversed branch is exercised" is a measurement
+rather than an assumption. An end-to-end TAP case would need a nested fixture with a backwards
+reference path plus a pack, and is not written.
+
 ## Left on the table, deliberately
 
 Ordered by what the measurements say they are worth, which is not the order they were written in.
 
-1. **The `flip_snarl` fix. Now the most valuable item here, and it is not part of this change.**
-   9,279 chr20 sites -- 7.4% -- have no symbolic projection, so symbolic collapsing is inert there.
-   That feature is measured at SNV F1 0.9752 -> 0.9833 genome-wide, so recovering it on 7.4% of
-   sites plausibly beats everything decomposition achieved by a wide margin. Independent of this
-   work, and it has a clean gate: the counter must go to zero and the collapsed-site count must
-   rise. It should not ride along with decomposition, because it moves the baseline.
+1. **The `flip_snarl` fix -- DONE, measured separately.** 9,279 chr20 sites, 7.4%, had no symbolic
+   projection. `resolve_site` now accepts the boundary pair in either order, since a snarl and its
+   reversal are the same snarl. Regression test verified to FAIL against the restored defect
+   (13/14 cases, 79/80 assertions) and pass with the fix.
+
+   Expected value revised downward on inspection: descent was never affected, so the fix removes the
+   parent's redundant long ALT at those sites rather than recovering absent child records. A
+   precision change, not a recall one, and not the SNV F1 0.9752 -> 0.9833 that nested calling as a
+   whole is worth.
 2. **Per-block GL by max-marginal fold over `genotype_lls`.** Required to ship `--atomize-blocks`,
    not required to measure it. See D2. Roughly 200 lines of new numerics whose only gate is a
    counter.
