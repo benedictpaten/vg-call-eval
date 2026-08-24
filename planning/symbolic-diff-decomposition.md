@@ -52,6 +52,17 @@ the reference does not cross has it empty and the child returns false before gen
 nothing. The `use_parent_interval` branch at :4551 is dead on this path for the same reason. This is
 stage 16's blocker, and the reason a covering reference is wanted.
 
+**And there is a more direct gate than that one, with the population already counted.** Descent never
+even reaches such a child: graph_caller.cpp:5674-5680 asks `child_ploidy` over the reference
+traversal alone and `continue`s when it is zero, incrementing `g_descent_skipped_no_ref`. Its own
+comment says so -- "v1 descends only where the reference also goes. A chain crossed only by a
+non-reference allele has no reference path through it, so REF and POS for its record are undefined".
+On chr20-34hap that counter reads **12,516**, against 30,416 child calls actually made. So roughly
+a third of the child chains the called alleles reach are never given a record, and their sequence
+reaches the VCF only inside their parent's ALT.
+
+That is the off-reference burial population, measured, and it did not need a new counter.
+
 Enumerating where a chain symbol lands in a REPLACE block:
 
 | case | chain crossed by | today | duplicate? |
@@ -228,9 +239,42 @@ Same binary, one minute apart (Aug 10 15:52 and 15:53), differing *only* by reco
 104,234 - 104,165 = 69, and 39 IDs carry those 69 extra records. atomize0 was never scored -- there
 is no `aardvark-*atomize0*` directory. Two `score_vcf.py` runs settle it.
 
-**Gate:** if decomposition alone moves GT F1 by more than the BASEPAIR-fair band, GT F1 is
-disqualified as a ruler for the whole project and the gate below is BASEPAIR + truth-side counters
-only. If it moves nothing, GT F1 can be reported as a secondary.
+**RESULT: PROCEED.** Scored both under fresh labels `s0-atomize0` / `s0-atomize8`, same session,
+same scorer invocation. Decomposition alone -- 69 records across 39 IDs, nothing else different:
+
+| | atomize0 | atomize8 | delta |
+|---|---|---|---|
+| GT ALL F1 | 0.948779 | 0.948778 | **-0.000001** |
+| GT ALL recall | 0.932232 | 0.932274 | +0.000042 |
+| GT ALL precision | 0.965923 | 0.965875 | -0.000048 |
+| GT ALL query_total | 91,528 | 91,547 | +19 |
+| GT ALL truth_tp | 88,274 | 88,278 | +4 |
+| BASEPAIR ALL F1 | 0.921069 | 0.921069 | **+0.000000** |
+| GT JointIndel F1 | 0.853129 | 0.853247 | +0.000118 |
+| GT Insertion / Deletion F1 | -- | -- | **exactly 0** |
+
+Three things this settles, and one it sharpens:
+
+1. **Aardvark credits a decomposed record.** It is not structurally hostile to decomposition. GT F1
+   moves by one part in a million and BASEPAIR F1 not at all, so representation change alone does
+   not manufacture or destroy score.
+2. **BASEPAIR is confirmed as the neutral ruler.** Flat to six decimals, with `truth_tp == query_tp`
+   as always.
+3. **Insertion and Deletion are exactly unchanged**, confirming `--atomize-substitutions` only ever
+   touched same-length records -- so this calibration covers the substitution population only, and
+   the length-changing blocks the new algorithm reaches are uncalibrated.
+
+**The sharpened finding, which replaces "F1 is unfair" with something more useful.** The marginal
+decomposed record is credited at **14/19 = 73.7%**, against the arm's 96.6% average precision. So
+the denominator does move, but not for free -- added records must earn their TP, and they earn it at
+a below-average rate. The mechanical exposure is therefore
+`N x (0.966 - 0.737) / query_total`: for N = 2,000 added records that is about **-0.005 GT F1**,
+squarely inside the 0.002-0.01 band this harness resolves.
+
+**Revised gate for stage 7:** GT F1 is usable, not disqualified, but it must be reported with
+`query_total` and the marginal credit rate beside it, and BASEPAIR remains primary. A GT F1 that
+falls by less than the mechanical exposure is a *pass*, not a regression -- and that is a judgement
+the numbers must be shown for, not folded into a single column.
 
 This also disposes of the prior art as an effect-size prior. `docs/tier2-sv-errors.md:558-577`
 reports `--atomize-substitutions` at SV F1 +0.0017 to +0.008 and rejects it, but its baseline was
@@ -267,6 +311,12 @@ Each lands alone, each is independently useful, none changes output except the b
 
 **Gate:** byte-identical output on the chr20 arm except for records exhibiting bug 2.
 
+**RESULT: PASS.** chr20-34hap `readlik`, 115,038 records, **byte-identical** to
+`work/tier2-chr20-hap32/results/readlik.vcf.gz` (`cmp` on the record bodies). Bug 2 changes nothing
+on this data because the arm has **zero** records carrying `*` in any ALT -- the missing-allele path
+is simply not exercised here, which is why the arity defect survived. GL needed no matching fixup:
+it is already omitted whenever the genotype carries a marker, so the two were never inconsistent.
+
 ### Stage 2 -- counters only, no output change
 
 Four counters, because four numbers currently rest on a Python proxy rather than the implementation:
@@ -279,12 +329,66 @@ Four counters, because four numbers currently rest on a Python proxy rather than
 - case (c): chain symbol present in both sigma(R) and sigma(H_k) but unmatched by the alignment --
   the only genuine double-reporting population, and the gate for stage 6
 - called ALTs containing a chain the reference does not cross, and the share of allele length that
-  chain accounts for -- the off-reference burial population, possibly the strongest argument for
-  the change and currently unmeasured
+  chain accounts for. The *count* of such chains is already known -- `g_descent_skipped_no_ref` is
+  12,516 on chr20-34hap -- so what this adds is the base share, i.e. how much of an allele's length
+  is chain the reference never visits. That is what says whether shrinking the allele around it
+  matters.
 
 **Gate:** blocks-per-record from the caller agrees with the offline proxy to within the flipped-snarl
 population. If it does not, the proxy was measuring something else and the motivating numbers are
 wrong.
+
+**RESULT: the gate FAILS, and it was right to exist.** chr20-34hap, flag off, output byte-identical:
+
+    atomize: 115996 called ALTs projected, 115777 difference blocks,
+             638 ALTs a diff would split (>=2 blocks)
+    blocks/ALT: 0=1204 1=114154 2=488 3=96 4=20 5=16 6=2 7=2 8=1 9=2 10=3 11=1 12=2 14=2 15+=3
+    9279 sites where projection is inert because the snarl does not resolve (flip_snarl)
+    47 ALTs carrying a chain the reference also crosses but the alignment did not match
+    4428 ALTs carry a chain the reference does not cross, 1456000 of 2545504 bases (57.2%)
+
+**The offline proxy overstated the split population by 57%: 638, not 1,000.** The proxy diffed
+INFO/AT node paths, which have no chain symbols, so a difference inside a child chain counted as its
+own block. The caller's symbolic projection collapses exactly those, which is the whole point of
+symbolic alleles. Every figure in this plan derived from the proxy has to be read at the lower
+number, and the motivating "0.87% of records split" is really **0.55%**.
+
+**The flipped-snarl population is 9,279**, against 115,996 ALTs projected -- about 7.4% of sites
+have symbolic collapsing silently off. Real, moderate, and previously unknown.
+
+**Case (c) is 47 ALTs.** The double-reporting population the exactly-once rule exists for is
+0.04% of called ALTs. The correction to the rule's scope was right, and stage 6 is very nearly a
+no-op guard rather than a fix.
+
+**The off-reference finding is the strongest number here.** 4,428 ALTs carry a chain the reference
+never visits, and those chains are **57.2% of those alleles' bases**. More than half the sequence in
+such an allele has no record of its own and cannot get one without a reference to call against. But
+see the arithmetic below before treating it as a win.
+
+**One counter of mine was mis-specified and is fixed rather than reported.** It compared the whole
+traversal's length against the smallest block's, and a single block spans everything except the two
+boundary steps -- so it was measuring boundary-node length and called 74,885 of 115,996 ALTs
+"exposed" to truvari's 50 bp filter. Only a genuine split can move a variant across that filter, so
+the counter now requires `blocks >= 2` and the exposure cannot exceed 638.
+
+### The arithmetic this forces, stated before the stage 7 run
+
+638 ALTs split, into 1,623 blocks where they currently produce 638 records: about **+985 records**.
+Stage 0 measured the marginal decomposed record being credited at 73.7% against a 96.6% average, so
+the mechanical GT F1 cost of adding them is about
+
+    985 x (0.966 - 0.737) / 91528 ~= -0.0025
+
+**That is the same order as the entire signal this harness resolves**, and it is a cost the change
+must overcome before any gain shows. Two consequences:
+
+- A single-block ALT spans steps [1, m-1), i.e. everything but the two boundary nodes, so
+  decomposition barely changes it -- `flatten_common_allele_ends` already trims those ends. The
+  99.45% of ALTs that do not split get essentially nothing from this change. In particular the
+  4,428 off-reference ALTs are **not** helped unless they also split, because their allele does not
+  get smaller.
+- So the case rests on 638 ALTs, and it has to beat -0.0025 on GT F1. BASEPAIR, which has no record
+  denominator, is where a real improvement would show first and is the metric to believe.
 
 ### Stage 3 -- the alignment as a pure function
 
@@ -297,6 +401,23 @@ catches it).
 
 **Gate:** unit tests green; the function is deterministic under repeated invocation and independent
 of thread count.
+
+**RESULT: PASS.** Full unit suite green at **12,547,745 assertions in 853 test cases**.
+`symbolic_diff` landed in `src/symbolic_allele.{hpp,cpp}` with the substitution
+cost model and the documented tie-break (prefer the diagonal, then deletion, then insertion, walked
+backwards). 41 assertions in 10 cases under `[symbolic_diff]`, plus 77 in 12 under
+`[symbolic_allele]` including the new visit-range partition tests. The load-bearing case is
+`plain({1,2})` against `plain({2,2})`: it must come out as **one** block, and would come out as two
+under an insert/delete-only model. Tested in both mirror orientations so the answer cannot come from
+a left/right asymmetry.
+
+Two things landed alongside, both needed by the emitter rather than by the diff:
+- `symbolic_allele`'s visit-range out-parameter, whose ranges partition `[0, visit_size)`
+  contiguously -- verified by a helper the tests run on every fixture, since a dropped visit would
+  silently shorten an allele by a node and read as a real variant.
+- `out_alt_before_ref`, giving the alt step index on arrival at each reference step. This is what
+  lets two haplotypes express their alleles over one shared reference span, which the diploid join
+  needs and which no amount of per-haplotype block data provides.
 
 ### Stage 4 -- per-block quality, per D2
 
@@ -323,6 +444,20 @@ not fire and the `alt.empty()` fixup is unreachable on the block path. Handle it
 
 **Gate:** with the flag off, output is byte-identical to the previous binary. With it on, zero
 records have AD arity mismatch, zero have all-zero AD, and `(CHROM, POS, ID, block)` is unique.
+
+**Flag-off gate: PASS** -- byte-identical, 115,038 records (stage 1 result above).
+**Existing tests: PASS** -- full unit suite 12,547,745 assertions / 853 cases, and
+`test/t/18_vg_call.t` **304/304**. Note the TAP suite must be run as `cd test && prove t/18_vg_call.t`;
+running it from the repository root gives `is: command not found` and a bogus FAIL, because
+`bash-tap-bootstrap` is sourced by a relative path.
+
+**Refusals.** `-a/--genotype-snarls` refuses with the intended message. The `--legacy`,
+`--bottom-up` and `--top-down` refusals were originally placed after caller construction, where
+`-k`'s own "pack file is required" check fires first and the refusal is never reached -- so they
+were untestable without a pack and, worse, would have made a user wait for a 22 GB graph load to be
+told the combination is invalid. Moved to option-validation time alongside the other
+option-compatibility checks. The state-dependent refusals (nested calling declined, caller does not
+emit VCF) stay late, because they cannot be answered earlier.
 
 Note what byte-identity can and cannot cover: `add_allele_path_to_info` (:1815-1856) writes the
 *whole* traversal into INFO/AT. Because step 0 and the last step are always MATCH (the boundary
@@ -353,6 +488,62 @@ this), then `score_vcf.py --label <fresh-label>`. Not `param_sweep.py`, whose `-
 restricted to `{mismap-max, mismap-min}` (:177).
 
 **Gate, in priority order:**
+
+**RESULT (first pass; superseded by the final run below, which adds phase inheritance and the
+stage 6 gate).** Both arms scored from the same binary in the same session, fresh labels
+`s7-base` / `s7-atomize`, chr20-34hap:
+
+| | baseline | atomized | delta |
+|---|---|---|---|
+| records | 115,038 | 115,686 | +648 |
+| GT ALL recall | 0.965984 | 0.966143 | **+0.000158** |
+| GT ALL precision | 0.978597 | 0.978516 | -0.000081 |
+| GT ALL F1 | 0.972250 | 0.972290 | +0.000040 |
+| GT ALL query_total | 93,772 | 93,929 | +157 |
+| GT JointIndel F1 | 0.927672 | 0.928032 | **+0.000360** |
+| BASEPAIR ALL F1 | 0.924542 | 0.924802 | **+0.000260** |
+| BASEPAIR ALL query bases | 427,914 | 427,744 | **-170** |
+| BASEPAIR ALL truth_tp | 378,392 | 378,441 | **+49** |
+
+Every truth-side counter holds or rises; recall rises in every class except Deletion, which is flat.
+BASEPAIR query bases fall while truth_tp rises -- the predicted direction, and the thesis of the
+change stated as directly as this harness can state it.
+
+**The predicted mechanical penalty did not materialise at the predicted size.** 648 records were
+added but `query_total` moved only +157, because most block records fall outside the confident
+region or below a size filter. So the -0.0025 exposure computed from stage 0 was an overestimate by
+a factor of four, and GT F1 came out marginally positive instead.
+
+**Invariants:** AD arity mismatch **0**, GL absent **0**, `(CHROM,POS,ID)` collisions **0**, SB
+present on exactly the 1,137 block records. The output validates under `bcftools view`.
+
+**The coordinate arithmetic is verified against the reference FASTA, not just internally.**
+`bcftools norm --check-ref w -f chr20.fa` reports **mismatch_removed = 0** on both arms:
+
+    baseline   total/split/joined/realigned/mismatch_removed: 115038/0/0/3626/0
+    atomized   total/split/joined/realigned/mismatch_removed: 115686/0/0/3863/0
+
+So every block record's REF string is the actual reference sequence at the POS the block was placed
+at. That is the check that matters for stage 5's hardest part -- per-step offsets, the anchor-base
+rule, and the shared-span extension in the diploid join are all wrong in ways that would show here
+and nowhere else. The +237 realigned records are bcftools left-aligning the additional indels the
+split produces, which is expected rather than a finding. All-zero AD went 97 -> 140, and the gate as written
+("zero") was wrong because the baseline already had 97: the split re-expresses the same population,
+72 of the 140 now sitting on block records while ordinary ones fell 97 -> 68. Not new breakage.
+
+**Two defects found by looking at the output rather than the counters**, both fixed and re-run:
+
+1. Block records carried `PS` beside an **unphased** `GT` where the site record was phased. Both
+   self-contradictory and a scoring confound, since the baseline's records are phased and these
+   would be compared on unequal terms. Block records now inherit the site's phase by mapping each
+   genotype slot to the site allele its haplotype carries, and drop `PS` when they genuinely cannot.
+2. My truvari size-exposure counter was measuring boundary-node length (see stage 2).
+
+**Interpretation, stated plainly.** The direction is consistently positive on the metrics stage 0
+established as fair, and every safety invariant holds. But the magnitude -- +0.00026 BASEPAIR F1,
++0.00016 GT recall -- is roughly **an order of magnitude below the 0.002-0.01 band this harness
+resolves**. On chr20-34hap this change is real, safe, and below the noise floor of its own
+evaluation. That follows from the population: 489 sites out of 115,038, or 0.43%.
 
 | must hold | why |
 |---|---|
