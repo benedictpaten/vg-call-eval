@@ -203,13 +203,29 @@ def main() -> None:
     L.append("")
     gap_old = (gtf1(old, "readlik") or 0) - (gtf1(old, "poisson-z") or 0)
     gap_new = (gtf1(new, "readlik") or 0) - (gtf1(new, "poisson-z") or 0)
+    L.append("**And the cost side runs the same way.** Going from four haplotypes to thirty-four "
+             "costs the read-likelihood arms 1.1x to 1.3x more CPU and `poisson` **2.75x** more, so "
+             "the caller that gets better on the richer graph is also the one whose compute barely "
+             "grows. The Cost section below has the per-arm figures and the caveats.")
+    L.append("")
     L.append(f"The read-likelihood caller's margin over the Poisson caller goes from "
              f"**{gap_old:+.4f}** on the 4-haplotype graph to **{gap_new:+.4f}** on the "
              f"34-haplotype one"
              + (f" — {gap_new/gap_old:.1f}x wider." if gap_old else "."))
     L.append("")
+    # Whether SV F1 still falls for the read-likelihood caller is read off the data rather than
+    # asserted. It used to fall for every arm and the sentence said so; on chr6 it no longer does
+    # for `readlik`, and a hardcoded claim would have contradicted the table two rows below it.
+    sv_d = None
+    if "readlik" in old_tv and "readlik" in new_tv:
+        sv_d = new_tv["readlik"].get("f1", 0) - old_tv["readlik"].get("f1", 0)
+    if sv_d is not None and sv_d > -0.005:
+        sv_clause = ("BASEPAIR falls for both callers, and SV F1 falls for every arm **except** "
+                     f"`readlik`, which holds flat at {sv_d:+.4f}")
+    else:
+        sv_clause = "BASEPAIR and SV F1 fall for both callers"
     L.append("**Two directions, and they are not the same direction.** GT F1 rises on the richer "
-             "graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The "
+             f"graph for the read-likelihood caller; {sv_clause}. The "
              "SV fall is **entirely precision** — recall is flat on chr6 and slightly better on "
              "chr20 — and most of it is not the caller getting worse. Two thirds to all of it is "
              "records that are not structural variants plus the cost of scoring unfiltered; at "
@@ -256,19 +272,61 @@ def main() -> None:
 
     L.append("## Cost")
     L.append("")
-    L.append("| arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | "
-             "34-hap variants |")
-    L.append("|---|---|---|---|---|---|---|")
+    have_cpu = any((old.get(a) or {}).get("cpu_seconds") and new.get(a, {}).get("cpu_seconds")
+                   for a in ARM_ORDER)
+    if have_cpu:
+        L.append("| arm | 4-hap wall | 34-hap wall | 4-hap CPU | 34-hap CPU | **CPU x** | "
+                 "4-hap RSS | 34-hap RSS | 4-hap variants | 34-hap variants |")
+        L.append("|---|---|---|---|---|---|---|---|---|---|")
+    else:
+        L.append("| arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | "
+                 "34-hap variants |")
+        L.append("|---|---|---|---|---|---|---|")
     for a in ARM_ORDER:
         o, n = old.get(a), new.get(a)
         if not n:
             continue
-        L.append(f"| `{a}` | {o['seconds']:.0f} s | {n['seconds']:.0f} s | "
-                 f"{o['peak_rss_gb']:.1f} GB | {n['peak_rss_gb']:.1f} GB | "
-                 f"{o['variants']:,} | {n['variants']:,} |" if o else
-                 f"| `{a}` | — | {n['seconds']:.0f} s | — | {n['peak_rss_gb']:.1f} GB | — | "
-                 f"{n['variants']:,} |")
+        row = f"| `{a}` | {o['seconds']:.0f} s | {n['seconds']:.0f} s | " if o \
+            else f"| `{a}` | — | {n['seconds']:.0f} s | "
+        if have_cpu:
+            oc = (o or {}).get("cpu_seconds")
+            nc = n.get("cpu_seconds")
+            if oc and nc:
+                row += f"{oc:,.0f} s | {nc:,.0f} s | **{nc/oc:.2f}x** | "
+            else:
+                row += "— | — | — | "
+        row += (f"{o['peak_rss_gb']:.1f} GB | {n['peak_rss_gb']:.1f} GB | "
+                f"{o['variants']:,} | {n['variants']:,} |") if o else \
+               (f"— | {n['peak_rss_gb']:.1f} GB | — | {n['variants']:,} |")
+        L.append(row)
     L.append("")
+    if have_cpu:
+        L.append("**`CPU x` is the column to read, and it says something the accuracy tables do "
+                 "not.** CPU is user+sys, so unlike wall clock it measures work rather than "
+                 "elapsed time -- it does not move with how much of the machine a phase manages "
+                 "to use, or with how warm the page cache was. Going from four haplotypes to "
+                 "thirty-four, the read-likelihood arms cost between 1.1x and 1.3x more compute. "
+                 "`poisson` costs **2.75x** more.")
+        L.append("")
+        L.append("So the split this page opens with has a cost side as well as an accuracy side: "
+                 "the caller that gets *better* on the richer graph is also the one whose compute "
+                 "barely grows, and the caller that gets worse is the one that more than doubles. "
+                 "`poisson-z` sits between them at 1.43x, which locates most of the effect in "
+                 "support enumeration rather than in Poisson genotyping.")
+        L.append("")
+        L.append("Read it with the not-a-single-variable caveat above: the two graphs differ in "
+                 "topology and the reads are remapped, so this is not panel size alone. The "
+                 "arm-to-arm contrast across one fixed pair of graphs is what the column supports.")
+        L.append("")
+        L.append("One caveat on the Poisson rows specifically: that path is **not "
+                 "bit-reproducible**. The same binary run twice on the 4-haplotype dataset differs "
+                 "on 20 records of 289,002, in depth-derived fields -- `QUAL`, `GL`, `XD` -- with "
+                 "`GT`, `AD` and `GQ` identical, so no genotype moves and the F1 figures are stable "
+                 "to the digits shown. It does mean two regenerations of this page will not diff "
+                 "clean on those arms, and that byte-identity is not a usable regression gate for "
+                 "them. The read-likelihood arms are exactly reproducible; that was verified across "
+                 "twenty runs in [performance.md](performance.md).")
+        L.append("")
 
     for comparison in ("GT", "BASEPAIR"):
         L.append(f"## Small variants — {comparison} F1")

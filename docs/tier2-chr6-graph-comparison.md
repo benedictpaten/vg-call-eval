@@ -22,9 +22,11 @@ The rows to watch are the **`-z` arms**, which enumerate alleles from the GBWT h
 | `poisson-z` | 0.9466 | 0.9318 | **-0.0148** |
 | `readlik` | 0.9575 | 0.9775 | **+0.0200** |
 
+**And the cost side runs the same way.** Going from four haplotypes to thirty-four costs the read-likelihood arms 1.1x to 1.3x more CPU and `poisson` **2.75x** more, so the caller that gets better on the richer graph is also the one whose compute barely grows. The Cost section below has the per-arm figures and the caveats.
+
 The read-likelihood caller's margin over the Poisson caller goes from **+0.0109** on the 4-haplotype graph to **+0.0457** on the 34-haplotype one — 4.2x wider.
 
-**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The SV fall is **entirely precision** — recall is flat on chr6 and slightly better on chr20 — and most of it is not the caller getting worse. Two thirds to all of it is records that are not structural variants plus the cost of scoring unfiltered; at matched sensitivity the residual is 0.021 on chr6 and zero on chr20. [tier2-sv-errors.md](tier2-sv-errors.md) has the decomposition.
+**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR falls for both callers, and SV F1 falls for every arm **except** `readlik`, which holds flat at +0.0011. The SV fall is **entirely precision** — recall is flat on chr6 and slightly better on chr20 — and most of it is not the caller getting worse. Two thirds to all of it is records that are not structural variants plus the cost of scoring unfiltered; at matched sensitivity the residual is 0.021 on chr6 and zero on chr20. [tier2-sv-errors.md](tier2-sv-errors.md) has the decomposition.
 
 Exposure to multi-allelic sites was the earlier explanation and it does not survive measurement: precision falls within the biallelic stratum, which is 78-82% of records, by nearly the whole amount. Multi-allelic records do grow (17.6% to 22.1% of SV-sized records) and are harder, but they are a minor term rather than the mechanism.
 
@@ -38,14 +40,22 @@ Size-matched to <50 bp — the only like-for-like read of the BASEPAIR numbers �
 
 ## Cost
 
-| arm | 4-hap wall | 34-hap wall | 4-hap RSS | 34-hap RSS | 4-hap variants | 34-hap variants |
-|---|---|---|---|---|---|---|
-| `poisson` | 329 s | 666 s | 6.1 GB | 6.0 GB | 288,849 | 294,626 |
-| `poisson-z` | 161 s | 198 s | 5.9 GB | 6.1 GB | 289,002 | 294,835 |
-| `readlik-support` | 308 s | 350 s | 8.0 GB | 8.2 GB | 293,606 | 299,877 |
-| `readlik-nomismap` | 267 s | 356 s | 7.3 GB | 8.5 GB | 296,674 | 303,729 |
-| `readlik-nolink` | 255 s | 277 s | 6.9 GB | 8.0 GB | 293,633 | 299,880 |
-| `readlik` | 282 s | 366 s | 6.7 GB | 7.6 GB | 295,204 | 296,793 |
+| arm | 4-hap wall | 34-hap wall | 4-hap CPU | 34-hap CPU | **CPU x** | 4-hap RSS | 34-hap RSS | 4-hap variants | 34-hap variants |
+|---|---|---|---|---|---|---|---|---|---|
+| `poisson` | 329 s | 666 s | 981 s | 2,696 s | **2.75x** | 6.1 GB | 6.0 GB | 288,849 | 294,626 |
+| `poisson-z` | 161 s | 198 s | 366 s | 524 s | **1.43x** | 5.9 GB | 6.1 GB | 289,002 | 294,835 |
+| `readlik-support` | 308 s | 350 s | 1,004 s | 1,232 s | **1.23x** | 8.0 GB | 8.2 GB | 293,606 | 299,877 |
+| `readlik-nomismap` | 267 s | 356 s | 912 s | 1,144 s | **1.25x** | 7.3 GB | 8.5 GB | 296,674 | 303,729 |
+| `readlik-nolink` | 255 s | 277 s | 875 s | 981 s | **1.12x** | 6.9 GB | 8.0 GB | 293,633 | 299,880 |
+| `readlik` | 282 s | 366 s | 892 s | 1,182 s | **1.33x** | 6.7 GB | 7.6 GB | 295,204 | 296,793 |
+
+**`CPU x` is the column to read, and it says something the accuracy tables do not.** CPU is user+sys, so unlike wall clock it measures work rather than elapsed time -- it does not move with how much of the machine a phase manages to use, or with how warm the page cache was. Going from four haplotypes to thirty-four, the read-likelihood arms cost between 1.1x and 1.3x more compute. `poisson` costs **2.75x** more.
+
+So the split this page opens with has a cost side as well as an accuracy side: the caller that gets *better* on the richer graph is also the one whose compute barely grows, and the caller that gets worse is the one that more than doubles. `poisson-z` sits between them at 1.43x, which locates most of the effect in support enumeration rather than in Poisson genotyping.
+
+Read it with the not-a-single-variable caveat above: the two graphs differ in topology and the reads are remapped, so this is not panel size alone. The arm-to-arm contrast across one fixed pair of graphs is what the column supports.
+
+One caveat on the Poisson rows specifically: that path is **not bit-reproducible**. The same binary run twice on the 4-haplotype dataset differs on 20 records of 289,002, in depth-derived fields -- `QUAL`, `GL`, `XD` -- with `GT`, `AD` and `GQ` identical, so no genotype moves and the F1 figures are stable to the digits shown. It does mean two regenerations of this page will not diff clean on those arms, and that byte-identity is not a usable regression gate for them. The read-likelihood arms are exactly reproducible; that was verified across twenty runs in [performance.md](performance.md).
 
 ## Small variants — GT F1
 
