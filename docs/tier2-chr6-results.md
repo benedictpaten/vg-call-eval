@@ -25,14 +25,16 @@ Build: `vg version v1.4.0-18654-g648296d56`.
 
 The wall column is what the caller costs unaided, and the repeatability note below applies to it harder than to the memory column. It includes snarl decomposition, which is single-threaded — 46 s of a 197 s chr20 run — and which `vg call -r` skips for byte-identical output given `vg snarls -T -P <ref path>`. The whole-genome harness caches one snarl file per contig for exactly that reason; this matrix does not, so these figures include it.
 
-| arm | enumeration | pack? | variants | wall | peak RSS |
-|---|---|---|---|---|---|
-| `poisson` | support (Flow) | yes | 294,626 | 666 s | 6.0 GB |
-| `poisson-z` | panel (`-z`) | yes | 294,835 | 198 s | 6.1 GB |
-| `readlik-support` | support (`--enumerate-support`) | yes | 299,877 | 350 s | 8.2 GB |
-| `readlik-nomismap` | panel (default) | **no** | 303,729 | 356 s | 8.5 GB |
-| `readlik-nolink` | panel (default) | **no** | 299,880 | 277 s | 8.0 GB |
-| `readlik` | panel (default) | **no** | 296,793 | 366 s | 7.6 GB |
+| arm | enumeration | pack? | variants | wall | CPU | peak RSS |
+|---|---|---|---|---|---|---|
+| `poisson` | support (Flow) | yes | 294,626 | 666 s | 2,696 s (4.0x) | 6.0 GB |
+| `poisson-z` | panel (`-z`) | yes | 294,835 | 198 s | 524 s (2.6x) | 6.1 GB |
+| `readlik-support` | support (`--enumerate-support`) | yes | 299,877 | 350 s | 1,232 s (3.5x) | 8.2 GB |
+| `readlik-nomismap` | panel (default) | **no** | 303,729 | 356 s | 1,144 s (3.2x) | 8.5 GB |
+| `readlik-nolink` | panel (default) | **no** | 299,880 | 277 s | 981 s (3.5x) | 8.0 GB |
+| `readlik` | panel (default) | **no** | 296,793 | 366 s | 1,182 s (3.2x) | 7.6 GB |
+
+`CPU` is user+sys, with the multiple of wall clock beside it. It is the column that separates work from waiting: this caller has phases that run on one thread and phases that block on a subprocess, so a wall-clock change can come from either doing less or waiting less, and only CPU distinguishes them. A multiple well under `--threads` means the run spent its time parked rather than computing.
 
 ## Small variants (GIAB `smvar` benchmark)
 

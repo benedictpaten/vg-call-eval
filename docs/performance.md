@@ -216,6 +216,97 @@ then destroyed; the allocator attribution puts 21.7% of its samples inside `gaf_
 the ratio is 5:1 the wrong way, not because it should be done next: it is a read-path refactor and
 wants its own plan.
 
+## What the render-pass fix was actually worth: chr6, measured three ways
+
+The chr20 figure in this file -- 328 s to 197 s -- understates the fix, and reporting it as "131
+seconds" was the wrong unit. The defect was quadratic in the number of sites the linkage layer
+holds, and chr20 holds 219,195 of them where chr6 holds 381,612 on the thin panel and 489,028 on
+the rich one. The contig that showed it worst was the one nobody was re-measuring.
+
+Ten `vg call` runs per build, both chr6 tier-2 datasets, one machine, one session, same dataset
+order on both sides. Pre-session is `08a34da4b`; current is `648296d56`. **Every arm produces
+byte-identical output across the two builds**, so all of what follows is speed.
+
+Three axes, because they answer different questions and only the third is confound-free:
+
+- **wall clock** moves with work done, waiting avoided, and page-cache state alike.
+- **CPU seconds** (user+sys) drops the waiting but still moves with the machine's clock state.
+- **instructions retired** is immune to frequency and cache state. If it falls, the caller genuinely
+  does less. If it holds while cycles fall, the win was stalls and serialisation.
+
+`--threads 5` throughout.
+
+**chr6, 34-haplotype graph** — control factor **0.952**, entries vector 59.7 MB
+
+| arm | linkage | wall | CPU | instructions | IPC | attributable | output |
+|---|---|---|---|---|---|---|---|
+| `poisson-z` | no | 223 → **197 s** | 597 → 541 s | 6.53 → 6.39 T (-2.2%) | 3.57 → 3.83 | **1.08x** | byte-identical |
+| `readlik-support` | no | 392 → **354 s** | 1,332 → 1,242 s | 8.87 → 8.87 T (+0.0%) | 3.55 → 3.72 | **1.05x** | byte-identical |
+| `readlik-nolink` | no | 286 → **292 s** | 1,009 → 1,024 s | 5.87 → 5.87 T (+0.0%) | 3.69 → 3.63 | **0.93x** | byte-identical |
+| `readlik-nomismap` | **yes** | 916 → **374 s** | 1,721 → 1,183 s | 9.52 → 7.73 T (-18.8%) | 2.45 → 3.62 | **2.34x** | byte-identical |
+| `readlik` | **yes** | 902 → **369 s** | 1,700 → 1,186 s | 9.51 → 7.74 T (-18.6%) | 2.47 → 3.65 | **2.33x** | byte-identical |
+
+**chr6, 4-haplotype graph** — control factor **1.050**, entries vector 46.6 MB
+
+| arm | linkage | wall | CPU | instructions | IPC | attributable | output |
+|---|---|---|---|---|---|---|---|
+| `poisson-z` | no | 159 → **163 s** | 364 → 367 s | 3.97 → 3.99 T (+0.4%) | 3.53 → 3.52 | **1.02x** | **22 of 289,002 differ** |
+| `readlik-support` | no | 297 → **312 s** | 965 → 1,002 s | 6.31 → 6.29 T (-0.3%) | 3.67 → 3.52 | **1.00x** | byte-identical |
+| `readlik-nolink` | no | 245 → **257 s** | 856 → 880 s | 4.72 → 4.72 T (-0.1%) | 3.42 → 3.38 | **1.00x** | byte-identical |
+| `readlik-nomismap` | **yes** | 565 → **272 s** | 1,213 → 933 s | 5.94 → 5.01 T (-15.7%) | 2.39 → 3.34 | **2.18x** | byte-identical |
+| `readlik` | **yes** | 564 → **275 s** | 1,202 → 934 s | 5.94 → 5.01 T (-15.8%) | 2.41 → 3.33 | **2.15x** | byte-identical |
+
+### Reading it
+
+**The controls are the two linkage-free read-likelihood arms, not the Poisson one.**
+`readlik-support` and `readlik-nolink` hold instructions retired to **+0.0%** across the builds --
+identical work, three significant figures -- while `poisson-z` wobbles 2%, because the Poisson path
+walks Flow traversals whose work has a small scheduling dependence. Any instruction-count movement
+on the linkage arms is therefore the fix and nothing else.
+
+**A sequential A/B cannot avoid warming the machine for whichever side runs second.** The control
+arms land between 0.93x and 1.08x, so there is a roughly +-8% band around "no change", and the
+attributable column divides out the wall-clock part of it. It cannot manufacture a factor of two,
+and it applies to every arm equally -- which is the point of the arms that show nothing.
+
+**What the fix did, in proportion.** Instructions fell ~19% against a 0.0% baseline: 1.8 trillion
+instructions of quadratic scan, deleted rather than rescheduled. IPC rose from ~2.46 to ~3.64,
+landing on the linkage-free arms' 3.6-3.8 -- the old path was memory-bound streaming a 60 MB vector
+per lookup and the new one is not. And wall clock improved about 1.7x more than CPU, because the
+scan held `LinkageCollector::mutex`: four of five threads were parked in `__psynch_mutexwait`, so
+removing it returns cycles *and* parallelism and the two compound. The chr20 sample profile
+predicted that shape; the hardware counters confirm it without reference to it.
+
+**The noise floor, stated rather than implied.** `readlik-nolink` came in 6 s *slower* after the fix
+on provably identical instruction counts. Wall clock on this benchmark is worth about +-2% at best
+even with the work pinned, which is why every claim here is quoted against a control rather than raw.
+
+### The Poisson arm is not bit-reproducible, which is why it is not the control
+
+`poisson-z` shows 22 of 289,002 records differing across the two builds on the 4-haplotype
+dataset. That is not the fix reaching it -- neither `record_key_of` call site executes without a
+linkage collector, and the arm has none. Running the *same* binary twice gives **20 differing lines
+of 289,002**, so the rate is the same with the build held fixed.
+
+What moves is confined to depth-derived floats -- `QUAL` 403.316 against 403.304, `GL`, `XD` -- with
+`GT`, `AD` and `GQ` identical on every affected record. No genotype changes. The shape points at
+accumulation order in the binned depth model rather than anything about calling.
+
+It matters for two reasons. It explains why `poisson-z` was the one arm whose instruction count
+wobbled (-2.2% where the read-likelihood controls held at +-0.4%), so the control factors here come
+from `readlik-support` and `readlik-nolink` instead. And it means **byte-identity is not a usable
+regression gate on the Poisson path**, which is worth knowing since it is the gate this branch has
+leaned on all along for the read-likelihood arms -- where it does hold, exactly, across every one of
+the twenty runs above.
+
+### What this changes about how the earlier chr20 figure was reported
+
+"chr20: 328 s to 197 s" is in this file above, and as a description of the fix it was the wrong
+unit. The defect was quadratic in linkage-layer site count. chr20 holds 219,195 sites; chr6 holds
+381,612 and 489,028. Quoting seconds from the smallest of the three understated the fix by more than
+half and hid the thing that actually predicts its size. The ratio and the scaling term are the
+reportable pair.
+
 ## Redundancy
 
 **Comments are not duplicated.** Across the branch's eleven files, comment blocks of two or

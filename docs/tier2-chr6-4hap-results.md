@@ -25,14 +25,16 @@ Build: `vg version v1.4.0-18654-g648296d56`.
 
 The wall column is what the caller costs unaided, and the repeatability note below applies to it harder than to the memory column. It includes snarl decomposition, which is single-threaded — 46 s of a 197 s chr20 run — and which `vg call -r` skips for byte-identical output given `vg snarls -T -P <ref path>`. The whole-genome harness caches one snarl file per contig for exactly that reason; this matrix does not, so these figures include it.
 
-| arm | enumeration | pack? | variants | wall | peak RSS |
-|---|---|---|---|---|---|
-| `poisson` | support (Flow) | yes | 288,849 | 329 s | 6.1 GB |
-| `poisson-z` | panel (`-z`) | yes | 289,002 | 161 s | 5.9 GB |
-| `readlik-support` | support (`--enumerate-support`) | yes | 293,606 | 308 s | 8.0 GB |
-| `readlik-nomismap` | panel (default) | **no** | 296,674 | 267 s | 7.3 GB |
-| `readlik-nolink` | panel (default) | **no** | 293,633 | 255 s | 6.9 GB |
-| `readlik` | panel (default) | **no** | 295,204 | 282 s | 6.7 GB |
+| arm | enumeration | pack? | variants | wall | CPU | peak RSS |
+|---|---|---|---|---|---|---|
+| `poisson` | support (Flow) | yes | 288,849 | 329 s | 981 s (3.0x) | 6.1 GB |
+| `poisson-z` | panel (`-z`) | yes | 289,002 | 161 s | 366 s (2.3x) | 5.9 GB |
+| `readlik-support` | support (`--enumerate-support`) | yes | 293,606 | 308 s | 1,004 s (3.3x) | 8.0 GB |
+| `readlik-nomismap` | panel (default) | **no** | 296,674 | 267 s | 912 s (3.4x) | 7.3 GB |
+| `readlik-nolink` | panel (default) | **no** | 293,633 | 255 s | 875 s (3.4x) | 6.9 GB |
+| `readlik` | panel (default) | **no** | 295,204 | 282 s | 892 s (3.2x) | 6.7 GB |
+
+`CPU` is user+sys, with the multiple of wall clock beside it. It is the column that separates work from waiting: this caller has phases that run on one thread and phases that block on a subprocess, so a wall-clock change can come from either doing less or waiting less, and only CPU distinguishes them. A multiple well under `--threads` means the run spent its time parked rather than computing.
 
 ## Small variants (GIAB `smvar` benchmark)
 

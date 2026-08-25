@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -65,6 +66,7 @@ class Arm:
     # filled in by the run
     seconds: float = 0.0
     peak_rss_gb: float = 0.0
+    cpu_seconds: float = 0.0
     variants: int = 0
     metrics: dict = field(default_factory=dict)
 
@@ -123,8 +125,14 @@ def arms(readlik_extra: list[str] | None = None,
 
 
 def sh(cmd: list[str], out_path: Path | None = None, log: Path | None = None,
-       time_it: bool = False) -> tuple[int, float, float]:
-    """Run a command, optionally under /usr/bin/time -l. Returns (rc, seconds, peak_rss_gb)."""
+       time_it: bool = False) -> tuple[int, float, float, float]:
+    """Run a command, optionally under /usr/bin/time -l.
+
+    Returns (rc, wall_seconds, peak_rss_gb, cpu_seconds). CPU is user+sys, and it is the number
+    that says what the work cost as opposed to how long it took: this caller's phases differ far
+    more in how much of the machine they use than in how much they compute, so wall clock alone
+    cannot tell a genuine saving from a thread that stopped waiting.
+    """
     full = ["/usr/bin/time", "-l"] + cmd if time_it else cmd
     started = time.time()
     with open(out_path, "wb") if out_path else open("/dev/null", "wb") as out:
@@ -134,10 +142,15 @@ def sh(cmd: list[str], out_path: Path | None = None, log: Path | None = None,
     if log:
         log.write_text(stderr)
     peak = 0.0
+    cpu = 0.0
     for line in stderr.splitlines():
         if "maximum resident set size" in line:
             peak = int(line.split()[0]) / 1073741824
-    return proc.returncode, elapsed, peak
+        # "  223.24 real       591.28 user         6.08 sys" -- one line, three fields.
+        m = re.match(r"\s*([\d.]+)\s+real\s+([\d.]+)\s+user\s+([\d.]+)\s+sys", line)
+        if m:
+            cpu = float(m.group(2)) + float(m.group(3))
+    return proc.returncode, elapsed, peak, cpu
 
 
 def rename_contig(src: Path, dst: Path) -> int:
@@ -228,8 +241,8 @@ def main() -> None:
             if args.read_window:
                 cmd += ["--read-window", str(args.read_window)]
 
-        rc, secs, peak = sh(cmd, out_path=raw, log=out / f"{arm.name}.call.log", time_it=True)
-        arm.seconds, arm.peak_rss_gb = secs, peak
+        rc, secs, peak, cpu = sh(cmd, out_path=raw, log=out / f"{arm.name}.call.log", time_it=True)
+        arm.seconds, arm.peak_rss_gb, arm.cpu_seconds = secs, peak, cpu
         if rc != 0:
             print(f"  FAILED rc={rc}; see {arm.name}.call.log", flush=True)
             tail = (out / f"{arm.name}.call.log").read_text().splitlines()[-6:]
@@ -297,7 +310,8 @@ def main() -> None:
         vg_version = ""
     payload = [
         {"arm": a.name, "description": a.description, "variants": a.variants,
-         "seconds": round(a.seconds, 1), "peak_rss_gb": round(a.peak_rss_gb, 2),
+         "seconds": round(a.seconds, 1), "cpu_seconds": round(a.cpu_seconds, 1),
+         "peak_rss_gb": round(a.peak_rss_gb, 2),
          "vg_version": vg_version, "metrics": a.metrics}
         for a in selected
     ]
@@ -311,6 +325,22 @@ def main() -> None:
         for entry in json.loads(out_path.read_text()):
             merged[entry["arm"]] = entry
     for entry in payload:
+        # Keep the cost the arm had last time, so the next page can show a delta instead of
+        # asking someone to diff two git revisions of a markdown table by eye. Cost only --
+        # accuracy belongs to the build that measured it and a stale copy of it would invite
+        # exactly the mixed-vintage comparison the rest of this file guards against.
+        #
+        # One generation deep on purpose. A chain of every refresh ever would grow without
+        # bound and nobody reads the third one back; if a longer history is wanted, git has it.
+        prior = merged.get(entry["arm"])
+        if prior is not None and prior.get("vg_version") != entry.get("vg_version"):
+            entry["previous"] = {k: prior.get(k) for k in
+                                 ("seconds", "cpu_seconds", "peak_rss_gb", "variants",
+                                  "vg_version")}
+        elif prior is not None and "previous" in prior:
+            # Same build re-run: the arm's own numbers move with run-to-run variance, but the
+            # comparison point should stay the build it was recorded against.
+            entry["previous"] = prior["previous"]
         merged[entry["arm"]] = entry
     out_path.write_text(json.dumps(list(merged.values()), indent=2))
     print(f"\nwrote {out_path}")

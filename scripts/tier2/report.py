@@ -293,16 +293,57 @@ def main() -> None:
              "harness caches one snarl file per contig for exactly that reason; this matrix does "
              "not, so these figures include it.")
     L.append("")
-    L.append("| arm | enumeration | pack? | variants | wall | peak RSS |")
-    L.append("|---|---|---|---|---|---|")
+    # A cost delta where the previous refresh was a different build, because "is it getting
+    # slower" is a question this table gets asked and could not answer without diffing two git
+    # revisions of a markdown file by eye. Only shown where every arm has a comparison point, so
+    # the column is either meaningful for the whole table or absent from it.
+    prev = {a: small[a].get("previous") for a in ARM_ORDER if a in small}
+    show_delta = bool(prev) and all(p and p.get("seconds") for p in prev.values())
+    have_cpu = any(small[a].get("cpu_seconds") for a in ARM_ORDER if a in small)
+    head = "| arm | enumeration | pack? | variants | wall |"
+    if have_cpu:
+        head += " CPU |"
+    if show_delta:
+        head += " Δ wall |"
+        if have_cpu:
+            head += " Δ CPU |"
+    head += " peak RSS |"
+    L.append(head)
+    L.append("|---" * head.count("|") + "|" if False else "|" + "---|" * (head.count("|") - 1))
     for a in ARM_ORDER:
         if a not in small:
             continue
         e = small[a]
         enum, pack = META[a]
-        L.append(f"| `{a}` | {enum} | {pack} | {e['variants']:,} | {e['seconds']:.0f} s | "
-                 f"{e['peak_rss_gb']:.1f} GB |")
+        row = f"| `{a}` | {enum} | {pack} | {e['variants']:,} | {e['seconds']:.0f} s |"
+        if have_cpu:
+            cpu = e.get("cpu_seconds") or 0.0
+            mult = cpu / e["seconds"] if e["seconds"] else 0.0
+            row += f" {cpu:,.0f} s ({mult:.1f}x) |" if cpu else " — |"
+        if show_delta:
+            row += f" {e['seconds'] - prev[a]['seconds']:+.0f} s |"
+            if have_cpu:
+                was_cpu = prev[a].get("cpu_seconds")
+                cpu = e.get("cpu_seconds")
+                row += (f" {cpu - was_cpu:+,.0f} s |" if (was_cpu and cpu) else " — |")
+        row += f" {e['peak_rss_gb']:.1f} GB |"
+        L.append(row)
     L.append("")
+    if have_cpu:
+        L.append("`CPU` is user+sys, with the multiple of wall clock beside it. It is the column "
+                 "that separates work from waiting: this caller has phases that run on one thread "
+                 "and phases that block on a subprocess, so a wall-clock change can come from "
+                 "either doing less or waiting less, and only CPU distinguishes them. A multiple "
+                 "well under `--threads` means the run spent its time parked rather than computing.")
+        L.append("")
+    if show_delta:
+        was_builds = sorted({p.get("vg_version") or "?" for p in prev.values()})
+        L.append("`Δ wall` is against " + ", ".join(f"`{b}`" for b in was_builds)
+                 + ". Read it with the repeatability note below: run-to-run variance on this "
+                   "measurement is larger than most of these deltas, and the Poisson arms are the "
+                   "control -- their code is untouched by any read-likelihood change, so a Δ on "
+                   "those rows is the machine and not the caller.")
+        L.append("")
 
     L.append("## Small variants (GIAB `smvar` benchmark)")
     L.append("")
