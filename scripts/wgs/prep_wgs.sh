@@ -40,6 +40,26 @@ for CONTIG in $CONTIGS; do
         rm -f "$D/chunk_"*.gbz
     fi
 
+    # Snarls, cached. `vg call` decomposes the contig itself when it is not given any, and that
+    # decomposition is single-threaded: 46 s of a 197 s chr20 run, with four of five threads
+    # parked. Doing it once here and passing -r takes chr20 to 148.5 s.
+    #
+    # The two flags are both load-bearing, and the output is byte-identical only with both:
+    #
+    #   -T  include trivial snarls. `vg call`'s own SnarlManager has them and the symbolic
+    #       projection keys chain symbols on child chain boundaries, so omitting them changes the
+    #       nested structure. Measured: without -T, chr20 gained 236 records and 714 lines moved.
+    #   -P  upweight the reference path's tips. snarls_main.cpp and call_main.cpp apply the same
+    #       EXTRA_WEIGHT to the same first and last node of each reference path, so this
+    #       reproduces the caller's decomposition rather than merely a decomposition.
+    #
+    # Regenerated when the graph is newer, on the same reasoning as call_wgs.sh's .done marker: a
+    # stale snarl file would silently describe a different graph.
+    if [ ! -s "$D/$CONTIG.snarls.pb" ] || [ "$SUB" -nt "$D/$CONTIG.snarls.pb" ]; then
+        step "$CONTIG: snarls"
+        vg snarls -T -P "${REF_SAMPLE}#0#${CONTIG}" -t "$THREADS" "$SUB" > "$D/$CONTIG.snarls.pb"
+    fi
+
     if [ ! -s "$D/$CONTIG.fa.fai" ]; then
         step "$CONTIG: reference FASTA"
         vg paths -x "$SUB" -F -Q "${REF_SAMPLE}#0#${CONTIG}" \
@@ -59,6 +79,6 @@ for CONTIG in $CONTIGS; do
                 > "$D/truth.$CONTIG.$kind.bed"
         fi
     done
-    echo "  $CONTIG: $(du -h "$SUB" | cut -f1) subgraph, $(bcftools view -H "$D/truth.$CONTIG.smvar.vcf.gz" | wc -l | tr -d ' ') smvar truth records"
+    echo "  $CONTIG: $(du -h "$SUB" | cut -f1) subgraph, $(du -h "$D/$CONTIG.snarls.pb" | cut -f1) snarls, $(bcftools view -H "$D/truth.$CONTIG.smvar.vcf.gz" | wc -l | tr -d ' ') smvar truth records"
 done
 echo "PREP_DONE  total $(du -sh "$W" | cut -f1)"

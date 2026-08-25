@@ -50,6 +50,10 @@ call_one_bed() {   # contig ploidy outprefix [ploidy-bed]
     local D="$W/$C"
     local extra=()
     [ -n "$BED" ] && extra=(--ploidy-bed "$BED")
+    # Cached snarls if prep_wgs.sh made them. Not required: without -r the caller decomposes the
+    # contig itself, which is correct and 46 s slower on chr20. Byte-identical either way, which
+    # is what licenses making it optional rather than a hard dependency.
+    [ -s "$D/$C.snarls.pb" ] && extra+=(-r "$D/$C.snarls.pb")
     # ${extra[@]+"${extra[@]}"}, not "${extra[@]}". Under `set -u`, bash 3.2 -- which is what
     # /bin/bash still is on macOS -- treats an empty array expansion as an unbound variable and
     # aborts. Every diploid contig died this way on the first whole-genome rerun: only chrX passes

@@ -240,3 +240,80 @@ trusted on large ones:
 7. **S3** -- chain cutting, once R4 has given it one window loop to change.
 8. **S4** -- left explicitly unscheduled. The profile says the ratio is wrong by 5:1, but it is a
    read-path refactor and wants its own plan.
+
+
+---
+
+# Working the list: outcomes
+
+Recorded as each item was attempted, including the ones that did not survive contact.
+
+## Step 1 -- R5 done, R6 and R7 withdrawn
+
+**R5 done.** `WindowedSiteReadSource::get_cache_entries` and `AlleleReadLikelihoods::read_name`
+deleted. Their members stay: `cache_entries` sizes the per-thread cache and `read_names` is
+written into the likelihood dump directly, so only the accessors were dead.
+
+**R6 withdrawn.** `--read-min-mapq` is not dead. It has no use in the harness and none in the
+test suite, which is how it reached the list, but `SiteReadFilter::min_mapq` is compared in both
+read paths (`site_read_source.cpp:42` and `:172`). Deleting it would have removed a working
+filter on the strength of nobody having tested it. It now has a test instead: the fixture's
+mapping qualities run 0 to 60, so a floor of 61 must leave no record standing, and a floor of 30
+takes total DP from 1077 to 290. `t/18_vg_call.t` 309 -> 311.
+
+**R7 withdrawn.** The premise was that an invariant belongs in an assertion rather than a line of
+output. It already is one: `t/18_vg_call.t:806` asserts the literal text
+`0 carried on both parent strands (0 with a line), 0 on neither (0 with a line), 0 with no phased
+parent`, and its comment records that three of those were real populations on chr20 -- 440, 0 and
+19 -- each tracing to the same bug. The verbosity is the detector. Suppressing the zero clauses
+would have broken the test that catches the regression.
+
+Also wrong in the original item: "chain steps spaced along the settled parent traversal" is not
+an invariant at all. It is zero because every nested chain on this graph has a reference position;
+on a graph without a covering reference it is the path that fires.
+
+## Step 2 -- S2 done, and it works
+
+`vg snarls` reproduces the caller's decomposition exactly, but only with **both** flags:
+
+- `-P <ref path>` -- `snarls_main.cpp:284` and `call_main.cpp:1424` apply the same
+  `EXTRA_WEIGHT` to the same first and last node of each reference path.
+- `-T` -- include trivial snarls. Without it the top-level count still matches at 165,408, but the
+  nested structure does not: chr20 gained 236 records and 714 lines moved, because the symbolic
+  projection keys chain symbols on child chain boundaries.
+
+| chr20 | wall | peak RSS |
+|---|---|---|
+| decomposing in-process | 197.2 s | 3.93 GB |
+| `-r` with `vg snarls -T -P` | **148.5 s** | 3.78 GB |
+
+VCF body and mosaic byte-identical. `vg snarls -T -P` itself costs 44.6 s, so a single
+whole-genome pass breaks even; the gain is every run after the first, which is what the A/B loop
+is. Wired into `prep_wgs.sh`, and `call_wgs.sh` passes `-r` when the file is there -- optional,
+not required, which the byte-identity is what licenses.
+
+## Step 3 -- S6 and S7 dropped on arithmetic, S8 kept but inverted
+
+**S6 dropped.** `panel_alleles` does run twice for a respecified site, but respecify fires only
+where a chain's ploidy changes: 2,537 revised plus 518 gained on chr20, against about 222,000
+sites. That is 1.4% of the panel calls, and `panel_alleles` is 5.8% of the thread budget, so the
+item is worth **0.08% of the run**. Not worth threading the vector through `PendingRecord`.
+
+**S7 dropped.** The 3.39 billion reads considered sounds large and is not: the profile puts
+`deliver` and `touches` together at 61 samples, **1.2 thread-seconds of 319**. About one cycle an
+iteration, which is what a streaming two-compare loop over a compact bounds array should cost.
+Sorting and binary-searching would save on the order of a second.
+
+**S8 kept, in the opposite direction.** Packing the boundary node IDs instead of hashing the
+printed snarl is about 0.15 s faster, and the byte-identity gate rejected it: chr20's 19,472
+linkage-quality patches all stopped landing.
+
+The reason is a **seventh producer** that the review missed. `write_variants` recovers a buffered
+line's key by re-hashing the line's own ID column (`graph_caller.cpp:990`), which `emit_variant`
+set from `print_snarl`. That is what lets a compressed record find its linkage entry with nothing
+carried alongside it, and what makes the key survive `--translation`, where both sides print the
+translated form. A key in a file cannot be repacked.
+
+So the form is fixed by that site, and the six copies are centralised into
+`VCFOutputCaller::record_key_of` with the coupling written down once. No speed change; the point
+is that six copies of an expression that must agree with a string in a file cannot drift any more.
