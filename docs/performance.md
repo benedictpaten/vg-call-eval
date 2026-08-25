@@ -132,9 +132,15 @@ contig is called over and over.
 
 Every read fetch `posix_spawn`s `gbz-base query`, which opens a 6.8 GB graph database and a
 21 GB read database, extracts a subgraph, writes GAF to a temp file and exits; vg then parses
-the GAF back. chr20 does this 1,446 times. A single-node query -- pure startup -- measures
-0.05-0.10 s, and the profile puts about 0.19 s of blocked thread time on each spawn, so
-roughly half the cost is opening databases that were open a moment ago.
+the GAF back. chr20 does this 1,446 times, and the profile puts about 0.19 s of blocked thread
+time on each -- matching the 0.22 s that `planning/gbz-base-c-api-request.md` measured for a
+4,000-node query against the same 22 GB database.
+
+Startup is *not* most of that. A 380-node query costs 0.04 s and a single-node one 0.05-0.10 s,
+so opening the databases is roughly a fifth of a full window query rather than half; the rest
+scales with the reads returned. The same note breaks a query down as 3 ms to `fork`/`exec`,
+20 ms building a GFA subgraph that goes straight to `/dev/null`, and 41 ms decoding reads --
+so the wasted third is the subgraph, not the process.
 
 Three levers, and they do three different things. Only one of them reduces the spawn count:
 
@@ -154,8 +160,11 @@ Three levers, and they do three different things. Only one of them reduces the s
   doubling the window halves it, at the price of a larger cached window and a longer per-query
   scan. One-line experiment, no code.
 - **A persistent worker.** One `gbz-base` per thread, fed queries over a pipe, would remove the
-  per-spawn startup -- half the cost by the single-node measurement above -- but `gbz-base
-  query` is one-shot, so this needs a change in https://github.com/jltsiren/gbz-base.
+  per-spawn startup -- about a fifth of a window query, not half -- and `gbz-base query` is
+  one-shot, so it needs an upstream change. Worth less than it looks.
+- **The reads-only ask upstream.** A third of every query builds a GFA subgraph we discard.
+  `planning/gbz-base-c-api-request.md` already makes this case and is still unsent; sending it
+  is free and is the largest single reduction available in the query itself.
 
 **Prefetch only pays if there are cores to overlap into, and there are.** Measured two ways.
 Total CPU across `vg` and every `gbz-base` child, sampled once a second through the calling
