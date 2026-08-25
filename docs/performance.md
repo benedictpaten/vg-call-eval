@@ -136,17 +136,42 @@ the GAF back. chr20 does this 1,446 times. A single-node query -- pure startup -
 0.05-0.10 s, and the profile puts about 0.19 s of blocked thread time on each spawn, so
 roughly half the cost is opening databases that were open a moment ago.
 
-Three levers, cheapest first:
+Three levers, and they do three different things. Only one of them reduces the spawn count:
 
-- **Prefetch the next window.** Sites are visited in node-ID order, so the next window is known
-  before the current one is finished. Spawning its query into a second temp file and only
-  `waitpid`-ing when it is needed hides nearly all of the latency, and needs nothing from
-  `gbz-base`. Perhaps 40 s of chr20.
-- **Sweep `--read-window`.** 4096 today. Doubling halves the spawns and doubles both the cached
-  window and the per-query scan below. One-line experiment, no code.
+| | spawns | cost of each | thread blocked on it |
+|---|---|---|---|
+| prefetch the next window | unchanged | unchanged | hidden |
+| bigger `--read-window` | fewer | higher | roughly in proportion |
+| persistent worker | unchanged | much lower | lower |
+
+- **Prefetch the next window.** This does *not* reduce spawns. Today a worker thread issues its
+  query, sleeps in `waitpid` for ~0.19 s, parses the GAF and only then genotypes the window.
+  Because sites are visited in node-ID order the thread knows window N+1 before it starts
+  consuming window N, so it can spawn that query into a second temp file and `waitpid` only
+  once window N is exhausted. Same children doing the same work -- but running alongside the
+  genotyping instead of alternating with it.
+- **Sweep `--read-window`.** 4096 today. This is the lever that reduces the spawn count:
+  doubling the window halves it, at the price of a larger cached window and a longer per-query
+  scan. One-line experiment, no code.
 - **A persistent worker.** One `gbz-base` per thread, fed queries over a pipe, would remove the
-  startup entirely -- but `gbz-base query` is one-shot, so this needs a change in
-  https://github.com/jltsiren/gbz-base.
+  per-spawn startup -- half the cost by the single-node measurement above -- but `gbz-base
+  query` is one-shot, so this needs a change in https://github.com/jltsiren/gbz-base.
+
+**Prefetch only pays if there are cores to overlap into, and there are.** Measured two ways.
+Total CPU across `vg` and every `gbz-base` child, sampled once a second through the calling
+phase, runs at a **median 357% of a possible 1000%** -- between three and four of ten cores,
+with the rest idle. And raising the thread count, which is the crude version of the same
+overlap, works: chr20 at `-t 8` is **173.6 s against 197.2 s at `-t 5`**, with the top-level
+calling phase falling 81.0 s to 58.8 s while snarl decomposition sits unchanged at 48 s.
+
+That the children add so little CPU says they are I/O-bound on the 21 GB read database rather
+than compute-bound, so the ceiling here is the disk's tolerance for concurrent random reads,
+not the core count. `-t 8` is evidence that ceiling has not been reached.
+
+One caveat on where this matters. `schedule_wgs.py` already packs several contigs onto the
+machine at once, so a whole-genome run fills the cores by other means and would gain less than
+these figures suggest. The single-contig case -- the A/B loop, where the same chromosome is
+called over and over -- is where it is worth the most.
 
 ### c. Cutting the chain at pinned sites
 
