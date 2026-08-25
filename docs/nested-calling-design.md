@@ -9,6 +9,7 @@
 > built afterwards from the settled genotype -- so a genotype naming an allele the record has no ALT
 > for, and a record carrying a hom-ref genotype, are both impossible by construction rather than
 > flagged. Read the results tables as history: they were measured on the arm described here.
+> **For what the caller does today, read [nested-genotyping-algorithm.md](nested-genotyping-algorithm.md)**, which describes the implemented algorithm rather than the path taken to it.
 
 Design, implementation and results. Stages 0-3 and 5 are built and measured behind `vg call
 --nested`; Stage 4 is deliberately last and not started. Every claim is cited so it can be
