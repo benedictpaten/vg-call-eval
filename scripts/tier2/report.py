@@ -269,18 +269,29 @@ def main() -> None:
 
     L.append("## Cost")
     L.append("")
-    L.append("Every arm on this page was re-run together on one build, so the wall-clock column "
-             "compares runs made on the same machine in the same session rather than a mixture of "
-             "vintages.")
+    # The build that produced these numbers, read from the results rather than asserted. "One
+    # build, one pass" is the rule this harness exists to enforce, and it used to rest on procedure
+    # alone -- nothing in arms.json said which binary ran, so a page could claim it and be wrong.
+    builds = sorted({e.get("vg_version", "") for e in small.values() if e.get("vg_version")})
+    L.append("Every number on this page — accuracy and cost alike — comes from one `vg` build in "
+             "one pass, which is what the refresh harness exists to guarantee: a table whose rows "
+             "come from different builds is not a comparison, it is a mixture of vintages.")
     L.append("")
-    L.append("Two changes since the accuracy results were first produced left the calls untouched. "
-             "The read path was optimised (vg `44fd008`)" +
-             (" — on chr20 `readlik` went **506 s to under 100 s**, so the read-likelihood caller "
-              "is now near parity with the Poisson caller at matched enumeration rather than 5.9x, "
-              "and `readlik-support` is *faster* than `poisson`" if is_chr20 else "") +
-             ". Then `AD`, `BL`, `GQI` and the explained-share scaling of `GQ` were added — which "
-             "rescales a quality and does not change a genotype. Both are confirmed by the variant "
-             "counts below, which are unchanged to the record.")
+    if len(builds) == 1:
+        L.append(f"Build: `{builds[0]}`.")
+    elif len(builds) > 1:
+        L.append("**These rows come from more than one build and are not comparable**: "
+                 + ", ".join(f"`{b}`" for b in builds) + ". Re-run the matrix.")
+    else:
+        L.append("The build is not recorded in these results, so the guarantee above rests on "
+                 "procedure rather than on a recorded fact. A refresh from here on records it.")
+    L.append("")
+    L.append("The wall column is what the caller costs unaided, and the repeatability note below "
+             "applies to it harder than to the memory column. It includes snarl decomposition, "
+             "which is single-threaded — 46 s of a 197 s chr20 run — and which `vg call -r` skips "
+             "for byte-identical output given `vg snarls -T -P <ref path>`. The whole-genome "
+             "harness caches one snarl file per contig for exactly that reason; this matrix does "
+             "not, so these figures include it.")
     L.append("")
     L.append("| arm | enumeration | pack? | variants | wall | peak RSS |")
     L.append("|---|---|---|---|---|---|")

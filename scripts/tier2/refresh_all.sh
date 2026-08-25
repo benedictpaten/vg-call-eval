@@ -115,7 +115,13 @@ if [ "$JOBS" -gt 1 ]; then
 fi
 
 echo "### pages"
-for contig in chr20 chr6; do
+# The contigs this run actually measured, not a fixed list. Regenerating a page whose results
+# were not re-run rewrites it from cached numbers -- which is harmless for the tables, and not
+# harmless for the hand-added staleness banners that mark those numbers as old: the banner is
+# deleted and the stale figures are left looking current. That is the same class of error as a
+# table whose rows come from different builds, which is what this harness exists to prevent.
+CONTIGS_RUN=$(while IFS=: read -r _l _s contig _g _r; do [ -n "$contig" ] && echo "$contig"; done <<< "$DATASETS" | sort -u)
+for contig in $CONTIGS_RUN; do
     # Headline page: the 34-haplotype graph, which report.py now defaults to.
     python3 "$REPO/scripts/tier2/report.py"         --contig "$contig"
     # The thin-panel reference, from the same script so the two pages cannot drift apart in

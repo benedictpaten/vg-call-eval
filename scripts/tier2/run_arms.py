@@ -113,7 +113,7 @@ def arms(readlik_extra: list[str] | None = None,
         # visible in the same table as the rest rather than buried in a planning note.
         Arm("readlik-nolink", ["--read-likelihood", "--linkage-weight", "0"] + extra,
             False, True,
-            "as readlik, linkage HMM disabled, to measure the transition model's contribution"),
+            "as readlik, the whole linkage layer off -- transition model, phasing and the settled\n            genotypes that follow from it"),
         # The like-for-like caller comparison, and the only read-likelihood arm that needs a
         # flag to get its enumeration: it holds enumeration fixed against `poisson` so the
         # difference between them is the genotyper alone.
@@ -278,10 +278,27 @@ def main() -> None:
               file=sys.stderr)
         sys.exit(1)
 
+    # Which vg produced these numbers, recorded rather than assumed.
+    #
+    # "One build, one pass" is the rule this harness exists to enforce, and until now it rested on
+    # procedure: nothing in the results said which binary ran, so a page could claim it and be
+    # wrong. It has already happened once here. Recorded per arm, not per file, because a run with
+    # --only merges into an existing arms.json and a single top-level field would then describe
+    # whichever run wrote last.
+    #
+    # `vg version` is the git describe baked in at *build* time, so a binary built from a dirty
+    # tree names the last commit rather than what was compiled. That happened on the run this was
+    # added for. It is the right field to record anyway -- it is what the binary says about itself
+    # -- but a page claiming a commit is claiming the build, not the working tree.
+    try:
+        vg_version = subprocess.run([args.vg, "version"], capture_output=True, text=True,
+                                    timeout=60).stdout.strip().splitlines()[0]
+    except Exception:
+        vg_version = ""
     payload = [
         {"arm": a.name, "description": a.description, "variants": a.variants,
          "seconds": round(a.seconds, 1), "peak_rss_gb": round(a.peak_rss_gb, 2),
-         "metrics": a.metrics}
+         "vg_version": vg_version, "metrics": a.metrics}
         for a in selected
     ]
     # Merge rather than overwrite. A run restricted to --only would otherwise delete

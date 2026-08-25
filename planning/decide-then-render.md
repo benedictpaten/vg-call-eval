@@ -1588,8 +1588,11 @@ Re-measured against decide-then-render:
 - `docs/tier2-chr20-results.md` -- the 34-haplotype chr20 arm, which its own text calls the primary
   subject because it is the configuration the caller is tuned for.
 
-**Left stale, and bannered as such in each file**: `tier2-chr6-results.md`,
-`tier2-chr6-4hap-results.md`, `tier2-chr20-4hap-results.md`, both graph-comparison pages,
+**chr6 has since been re-measured** -- see "The chr6 refresh" below. The list that follows is what
+remains stale.
+
+**Left stale, and bannered as such in each file**: `tier2-chr20-4hap-results.md`,
+`tier2-chr20-graph-comparison.md`,
 `tier2-sv-errors.md`, `sv-residual-errors.md`, `sv-quality-gates.md`, `sv-delta.md`, `coverage.md`.
 These use their own reads, truth sets and graphs, so the whole-genome run does not touch them and
 re-measuring is hours of runs. Two distinct kinds of staleness are worth separating: the *figures*
@@ -1602,6 +1605,64 @@ regression: the existing pages record nested calling as flat to 0.0005 *down* on
 the linkage transition and the frequency prior are panel-size effects with little to work with on a
 thin panel. A flat or slightly negative decide-then-render result on 4 haplotypes would be consistent
 with that and should not be read as a defect without checking the panel-size axis first.
+
+## The chr6 refresh, and how the prediction above held
+
+All six arms, both chr6 datasets, one build (`v1.4.0-18654-g648296d56`), in one serial pass. The
+delta is against the 08-19 pages, so it covers decide-then-render, the nested-strand and frame work,
+and block emission becoming the default -- not any one of them.
+
+| | 4-haplotype | 34-haplotype |
+|---|---|---|
+| small variants, ALL GT F1 | 0.9598 -> 0.9575 (**-0.0023**) | 0.9750 -> 0.9775 (**+0.0025**) |
+| SV F1, truvari | 0.5766 -> 0.5825 (**+0.0059**) | 0.5672 -> 0.5837 (**+0.0165**) |
+
+**The prediction was right, and it was made in advance.** The thin panel is where this looks worst,
+and it is a panel-size effect rather than a defect. It is also narrower than feared: only the small
+variants regress there. SVs improve on both graphs, and by three times as much on the rich one.
+
+The mechanism shows up cleanly in which arms moved. On 4 haplotypes the whole loss is precision --
+recall +0.0007, precision **-0.0057** -- and it falls only on the arms that carry the linkage layer:
+
+| arm | 4-hap ALL GT F1 | linkage? |
+|---|---|---|
+| `poisson`, `poisson-z` | identical to the digit | no |
+| `readlik-support` | -0.0000 | no (support enumeration) |
+| `readlik-nolink` | -0.0001 | no (`--linkage-weight 0`) |
+| `readlik-nomismap` | **-0.0026** | yes |
+| `readlik` | **-0.0023** | yes |
+
+So the layer's own contribution on the thin panel went from **+0.0017 to -0.0006** -- it now costs
+slightly more than it earns there. On the rich panel it went the other way, **+0.0076 to +0.0101**.
+The graph-comparison page's central split widens with it: `readlik`'s gain from 4 to 34 haplotypes
+goes from +0.0152 to **+0.0200**, and its margin over the Poisson caller from 3.3x to **4.2x**.
+
+The Poisson arms are identical to the digit on both datasets, which is the canary this harness is
+built around and is worth stating: nothing in the shared path moved.
+
+**No speed claim is made from this run.** Wall clock is within the variance the pages already
+document -- the same page records 956 s cold against 260 s warm for one arm -- and the 08-19
+comparison cannot separate the render-pass regression from its fix, because both landed between the
+two measurements. The place that regression was actually measured is `docs/performance.md`, on the
+whole-genome harness.
+
+**Two harness defects found while doing this**, both fixed:
+
+- `refresh_all.sh` generated pages for a fixed `chr20 chr6` list regardless of which datasets it
+  ran. A chr6-only refresh therefore rewrote the chr20 pages from 08-19 cached results and, because
+  the staleness banners are hand-added markdown rather than generator output, **deleted the banners
+  while leaving the stale figures looking current**. The page list now follows `DATASETS`.
+- Nothing in `arms.json` recorded which `vg` produced it, so "one build, one pass" rested on
+  procedure -- and this file already records that mixing builds "has already happened once here".
+  `run_arms.py` now records `vg version` per arm and `report.py` prints it, or says plainly that it
+  is absent. Note the caveat written beside it: `vg version` is baked in at build time, so a binary
+  built from a dirty tree names the last commit rather than what was compiled.
+
+**And one description that was wrong.** `readlik-nolink` was documented as isolating "the transition
+model's contribution". `--linkage-weight 0` disables the whole layer -- `call_main.cpp:1900` says why,
+"phasing is the linkage layer's Viterbi path, so without the layer there is no path to emit" -- and
+the output confirms it: that arm writes **zero** phase sets. It measures the transition model,
+phasing and the settled genotypes together, and now says so.
 
 ## A harness gap found while doing this
 
