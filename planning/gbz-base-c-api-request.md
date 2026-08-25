@@ -1,69 +1,98 @@
-# Draft: request to gbz-base upstream for a C interface
+# Request to gbz-base upstream: a reads-only query
 
-**Status: DRAFT, still not sent.** Intended as a GitHub issue on
-<https://github.com/jltsiren/gbz-base>, or as the basis for an email/Slack message to Jouni.
-Nothing has been posted.
+**Status: REWRITTEN AND READY, NOT SENT.** Intended as a GitHub issue on
+<https://github.com/jltsiren/gbz-base>, or as the basis for a message to Jouni. Nothing has been
+posted. The ask below supersedes the C-interface draft kept at the bottom of this file, which was
+written before we built the subprocess backend and measured it.
 
-**IMPORTANT: the ask below is now wrong, and needs rewriting before it is sent.** The subprocess backend
-described at the end as an interim measure has since been *built and measured*
-([vgteam/vg#4990](https://github.com/vgteam/vg/pull/4990)), and the measurement contradicts the premise of
-the letter.
+---
 
-Timing one realistic query (1024 nodes, 5512 reads returned) on a 400 kb graph:
+**Title:** A reads-only query mode for `gbz-base query`
+
+Hi Jouni,
+
+`vg call` now has a read-level genotyping model -- an explicit reads x alleles likelihood matrix per
+snarl, scored as `P(reads | genotype)` rather than the aggregate-support Poisson model it used to
+use. That needs random access to the reads overlapping a snarl, and GAF-Base is what we use for it,
+through `gbz-base query`. It works well and we are not blocked on anything. This is a request for one
+flag, plus a small robustness note.
+
+**First, three things worth saying because they are good.** Run at scale on HG002, 596,017,764
+alignments against a 100 M-node HPRC v2.1 MC CHM13 graph:
+
+- **The build performs very well.** `gaf-base sort` did 596 M records in 47 min at 6.5 GB peak,
+  single-threaded, and `gaf-base construct` in 51 min at 15 GB, running concurrently through a FIFO,
+  so 51 min wall in total. The database is 20.74 GB -- **36.5 bytes per alignment**, about 3x smaller
+  than the equivalent sorted GAM. For comparison `vg gamsort` needed 249 s on 8 M records where
+  `gaf-base sort` needed 17 s.
+- **Queries are fast.** Against that 22 GB database, 0.04 s for a 380-node query and 0.22 s for a
+  4,000-node one, near-linear in reads returned. Nothing here needs apologising for.
+- **The graph-consistency check is enforced, and that is the right call.** Querying the whole-genome
+  GAF-Base with a GBZ-Base built from one extracted chromosome fails with `The graph is not a valid
+  reference for the alignments`. That is exactly the mismatch we expected to have to police
+  ourselves, and we would rather you kept policing it.
+
+**The ask: a query that returns reads without building a subgraph.**
+
+We only ever want the reads. `gbz-base query` is a subgraph tool that can also return the overlapping
+alignments, so every query we make builds a GFA subgraph and we send it to `/dev/null`. Timing one
+realistic query -- 1,024 nodes, 5,512 reads returned, on a small graph so the constant costs are
+visible:
 
 | component | cost |
 |---|---|
-| `fork`/`execvp` | **3 ms** |
+| `fork`/`exec` of the subprocess | 3 ms |
 | subgraph extraction, output to `/dev/null` | **20 ms** |
 | read decode | 41 ms |
-| total | 62 ms |
 
-So **the subprocess is 5% of the cost and is not worth a letter.** The thing that is worth asking about is
-the 20 ms: `gbz-base query` is a subgraph tool that can also return overlapping reads, and we only ever
-want the reads, so a third of every query builds a GFA subgraph we send straight to `/dev/null`.
+So about a third of every query is work we discard. Over a chromosome that is 1,446 queries for
+chr20 alone and roughly 24,000 for a genome.
 
-**Update after optimising our side (design §6.5).** With vg's own read path fixed — the whole-chromosome
-run went 570 s to 99 s — the subprocess is even less of the remaining cost than the table above
-suggests. Two further data points for the letter:
+`--reference-only` looked like an existing route to this and is not: on a node-based query it exits
+101 with `Reference-only output is not supported for node-based queries` and writes nothing. Either
+supporting it for `-n` queries, or a dedicated reads-only mode, would give us what we want.
 
-- `gbz-base query` is **fast**: 0.04 s for a 380-node query and 0.22 s for 4,000 nodes against the
-  22 GB whole-genome GAF-Base, near-linear in reads returned. Nothing here needs apologising for.
-- **`--reference-only` panics on node-based queries**: "Reference-only output is not supported for
-  node-based queries", exit 101, no output written. It looked at first like an existing route to the
-  reads-only query below, and it is not. Either supporting it for `-n` queries, or a dedicated
-  reads-only mode, would give us what we want.
+Whether it arrives as a CLI flag, a Rust API or an `extern "C"` symbol matters much less to us than
+that it exists -- and a **CLI flag is the cheapest thing for you to provide and for us to adopt**,
+since we already parse the GAF you write. We would then be staying on the binary by choice rather
+than as a compromise, which is the position we would prefer to be in anyway.
 
-**The ask should therefore become: a reads-only query that does no subgraph construction.** Whether it
-arrives as an `extern "C"` symbol, a Rust API, or simply a flag on the existing CLI matters far less than
-that it exists — and a CLI flag would be much cheaper for upstream to provide and for us to adopt, since
-we already parse the GAF it writes. Most of the ABI-stability reasoning below then becomes irrelevant,
-because we would stay on the binary by choice rather than as a compromise.
+**A second, smaller request: skip unknown node IDs instead of failing the query.**
 
-Two things below are still worth keeping: the explanation of why we will not hand-maintain a decoder of
-the on-disk format, and the questions about MAPQ/base qualities and about whether the schema is meant to
-be third-party-readable. Both stand on their own.
+`gbz-base query` errors on a node ID that is not in the graph rather than ignoring it. With a sparse
+ID space -- 100 M nodes across a 224 M ID range here -- a caller has to pre-filter every query
+against the graph, and one stray ID aborts the whole thing. A flag to skip unknown nodes would be a
+small and genuinely useful addition.
 
-**Three further data points from running this at scale** (HG002, 596,017,764 alignments on a 100 M-node
-HPRC v2.1 MC CHM13 graph), all worth mentioning to Jouni because two are compliments and one is a
-usability trap:
+**Why we are not reading the SQLite ourselves.** Not a complaint, just so the ask makes sense. The
+integer codecs are already byte-identical to what vg links today -- `ByteCode`
+(`MASK 0x7F / FLAG 0x80 / SHIFT 7`) and `RLE` (`value + sigma*(len-1)`) match `gbwt`'s `internal.h`
+and `Run::encodeBasic` exactly, and `Nodes.edges || Nodes.bwt` parses directly as a
+`gbwt::CompressedRecord`. But decoding an `AlignmentBlock` means reproducing the conditional column
+layout, the LF-walk through `Nodes` to recover target paths, and rANS 4x16 for quality strings. The
+formats are documented as able to change without warning and are version-checked exactly, so a
+hand-maintained reader is something we would rather not own. Going through a supported interface is
+what we would choose even if the format were frozen.
 
-- **It performs very well.** `gaf-base sort` did 596 M records in 47 min at 6.5 GB peak, single-threaded,
-  and `gaf-base construct` in 51 min at 15 GB — running *concurrently* through a FIFO, so 51 min wall in
-  total. The database is 20.74 GB, i.e. **36.5 bytes per alignment**, about 3× smaller than the
-  equivalent sorted GAM. For comparison `vg gamsort` needed 249 s on 8 M records where `gaf-base sort`
-  needed 17 s.
-- **The graph-consistency check is enforced, and that is the right call.** Querying the whole-genome
-  GAF-Base with a GBZ-Base built from a single extracted chromosome fails with
-  `The graph is not a valid reference for the alignments`. Worth saying we regard that as correct
-  behaviour — it is exactly the mismatch we were expecting to have to police ourselves.
-- **`gbz-base query` errors on a node ID that is not in the graph**, rather than ignoring it. With sparse
-  ID spaces (100 M nodes across a 224 M ID range here) a caller must pre-filter every query against the
-  graph, and a single stray ID aborts the whole query. A flag to skip unknown nodes would be a small,
-  genuinely useful addition — this is probably the one concrete request worth making alongside the
-  reads-only query.
+**One question that stands on its own:** is the on-disk schema intended to be third-party-readable at
+any point, or should we assume it stays an internal detail? A clear "internal only" is a perfectly
+good answer -- it just tells us to go through a supported interface, which is what we want regardless.
 
-Also, when rewriting: the count of format-breaking releases reads as a complaint when its purpose is only
-to explain why we will not hand-maintain a decoder. Keep the fact, lose the tallying tone.
+**Two notes, not requests.**
+
+- **MAPQ and base qualities both survive**, so this question does not need asking: the GAF that comes
+  back carries MAPQ in column 12 and per-base qualities as `bq:Z:`, plus a `cs:Z:` difference string.
+  The quality-aware scoring path is the normal case for us and the no-quality fallback stays an edge
+  case.
+- **The `--alignments` default is a trap for a consumer like us.** It defaults to `clipped`, which can
+  return one read as several fragments; anything computing per-read statistics needs `overlapping`.
+  On a 9-node query: `overlapping` -> 290 records and 290 distinct names, `clipped` -> 289,
+  `contained` -> 0. We pass `--alignments overlapping` everywhere for this reason.
+
+Thanks -- and thanks for gaf-base generally. The snarl-boundary query is a really good fit for what
+variant callers actually need, and it is the reason this model is practical at all.
+
+---
 
 What follows is the original draft, kept for the parts still worth reusing.
 

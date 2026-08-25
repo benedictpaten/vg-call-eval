@@ -317,3 +317,97 @@ translated form. A key in a file cannot be repacked.
 So the form is fixed by that site, and the six copies are centralised into
 `VCFOutputCaller::record_key_of` with the coupling written down once. No speed change; the point
 is that six copies of an expression that must agree with a string in a file cannot drift any more.
+
+## Step 4 -- R1, R2 and R4 all done, and R1 was worth 10 s
+
+**R2.** The three copies of the PhaseCall pair split -- diploid chain, nested-strand pass, haploid
+pass -- folded into `finish_phase_call`. They had drifted: only the diploid copy widened
+`order_arbitrary` on a fallback. The other two are ploidy-1 populations where the pair is one allele
+twice and the test cannot fire, so folding it in changes nothing. Byte-identical.
+
+**R1.** `record()` and `respecify()` shared 42 lines building the compact space; `CompactSite` makes
+their agreeing structural rather than maintained by hand. The unexpected part is the lookup: both
+built a `map<int, int>` from candidate traversal to compact allele and threw it away -- one map and
+up to 127 node allocations **per site, on every site of the contig**. `compact_allele_space` already
+returns its space sorted, so a binary search answers the same question with no allocation.
+
+**chr20 197.3 s -> 187.2 s.** A tidy-up worth 10 s, which is more than S6, S7 and S8 put together
+were.
+
+**R4.** The four windowing wrappers fold into two templates, not one -- which is the point. A
+marginal is a per-site quantity so its windows are independent; a path's are not and each has to be
+pinned to what the previous one decided. Two shapes, each written once, with the reason it is that
+shape attached to it. Byte-identical.
+
+## Step 5 -- S1 measured, and the measurement changes the recommendation
+
+The ceiling on overlapping the subprocess wait is what concurrency alone can recover:
+
+| threads | wall | CPU multiple | peak RSS |
+|---|---|---|---|
+| 5 | 187.6 s | 3.04 | 4.19 GB |
+| 8 | **159.1 s** | 4.06 | 4.98 GB |
+| 10 | 157.5 s | 4.69 | 5.09 GB |
+
+Identical output at all three. The whole overlap is worth about 30 s, and it **saturates at 8** --
+beyond that the limit is the read database's tolerance for concurrent random reads, not cores.
+
+So prefetching is a **memory** optimisation, not a speed one: `-t 8` already buys the 28 s, for
+0.8 GB of extra per-thread cache. Prefetch would buy the same for one extra in-flight query per
+thread, which matters where memory binds -- `schedule_wgs.py` packing contigs against 24 GB -- and
+not otherwise. **Not built.** The actionable finding is `-t 8` for single-contig work, and leave the
+whole-genome scheduler at 5, where packing contigs fills the machine anyway.
+
+## Step 6 -- S5 rewritten, NOT sent
+
+`planning/gbz-base-c-api-request.md` said its own ask was wrong and needed rewriting. It has been
+rewritten: the C-interface proposal is superseded by a request for a **reads-only query**, since a
+third of every `gbz-base query` builds a GFA subgraph we send to `/dev/null`, plus a second small
+ask to skip unknown node IDs rather than fail the query. The two questions that building it answered
+-- MAPQ and base qualities both survive; `--alignments` defaults to a trap -- are now notes rather
+than questions.
+
+**Sending it is not mine to do.** It is a message to an upstream maintainer, and it needs a decision
+on whether it goes as a GitHub issue or a direct message.
+
+## Step 7 -- S3 sized, not built
+
+The caller now reports how much of each generation's decode is live, because assuming was what got
+the previous guard's reasoning wrong:
+
+| generation | sites decoded | live | pinned |
+|---|---|---|---|
+| 1 | 209,244 | 17,199 | 192,045 |
+| 2 | 211,480 | 2,236 | 209,244 |
+| 3 | 211,930 | 450 | 211,480 |
+| 4 | 211,952 | 22 | 211,930 |
+
+Generations 1-4 cost 24.4 s of 187.6, and sub-chaining at the pins would take that to about 2 s.
+
+The original framing was wrong in a way worth recording: it assumed only a handful of non-nested
+sites arrive after generation 0, because nested sites are held out of the diploid runs. Generation 1
+has 17,199 of them, so the sub-chains at that generation would be many and short rather than few.
+
+Not built. Two things have to be right and neither is free: the phase set is the chain's first
+position and has to keep coming from the whole chain rather than from a piece of it, and the
+severing rests on every pin being *accepted*, where `window_phasing` declines one whose pair cannot
+spell the site's constrained genotype. The gate available is one chromosome.
+
+## Step 8 -- S4 left where it was
+
+Unscheduled by the plan and still unscheduled. The profile says the caller spends five times longer
+building protobuf `Alignment` objects than scoring them, which is worth acting on, but it is a
+read-path refactor and wants its own plan rather than a slot at the end of a cleanup.
+
+## Where chr20 ended up
+
+| | wall |
+|---|---|
+| before any of this | 328.3 s |
+| after the two profile fixes | 197.2 s |
+| after the cleanup pass | 187.6 s |
+| with cached snarls | **148.5 s** |
+| with cached snarls, at `-t 8` | untested, expected near 120 s |
+
+Every step byte-identical on the VCF body and the mosaic. `vg test` 12,547,761 assertions in 858
+cases; `t/18_vg_call.t` 311/311.

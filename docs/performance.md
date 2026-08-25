@@ -103,10 +103,28 @@ Fixed with a per-chain guard on whether any site in it belongs to this generatio
 The VCF body and the mosaic TSV are **byte-identical**. `vg test` 12,547,761 assertions in 858
 cases, `t/18_vg_call.t` 309/309.
 
+## Where it stands after the cleanup pass
+
+chr20, `-t 5`, byte-identical output at every step:
+
+| | wall |
+|---|---|
+| before any of this | 328.3 s |
+| key index + clamped-chain guard | 197.2 s |
+| compact space built once, searched not mapped | **187.6 s** |
+| ... with cached snarls (`-r`) | **148.5 s** |
+| ... at `-t 8` rather than `-t 5`, no `-r` | **159.1 s** |
+
+**A caution on peak RSS.** Across six runs that produced byte-identical output, `maximum resident
+set size` ranged from 3.66 to 4.77 GB. That is allocator variance, and it is wider than several of
+the RSS differences quoted earlier in this file and in the commit messages. Read those as noise
+unless the change is structural -- the clamped-chain guard, which stopped building 192,045 `Site`
+objects five times over, is; the rest are not.
+
 ## What is left, in order
 
-Re-profiled after the two fixes, same method. `__psynch_mutexwait` is gone from the profile
-entirely, and the subprocess wait is now the single largest consumer of the thread budget:
+Re-profiled after the first two fixes. `__psynch_mutexwait` is gone from the profile entirely and
+the subprocess wait is now the largest single consumer:
 
 | | before | after |
 |---|---|---|
@@ -115,88 +133,88 @@ entirely, and the subprocess wait is now the single largest consumer of the thre
 | `__psynch_mutexwait` | 20.9% | **absent** |
 | working | 32.4% | 35.4% |
 
+### a. Snarl decomposition -- DONE, 45 s
 
-### a. Snarl decomposition, 46 s on one thread (23% of the run now)
+`IntegratedSnarlFinder::find_snarls_parallel` parked four of five threads for 46 s. `vg snarls`
+reproduces the caller's decomposition byte-for-byte, but only with **both** flags: `-P <ref path>`,
+because `snarls_main.cpp:284` and `call_main.cpp:1424` apply the same `EXTRA_WEIGHT` to the same
+first and last node of each reference path; and `-T`, because the symbolic projection keys chain
+symbols on child chain boundaries and omitting trivial snarls changes the nested structure -- chr20
+gained 236 records and 714 lines moved without it.
 
-`IntegratedSnarlFinder::find_snarls_parallel` parks four of five threads for 46 s. It is
-upstream code and the same on master.
+chr20 187.6 s -> 148.5 s. Wired into `prep_wgs.sh`, with `call_wgs.sh` passing `-r` when the file is
+there. `vg snarls` itself costs 44.6 s, so one whole-genome pass breaks even and every run after the
+first is ahead.
 
-`vg call -r snarls.pb` skips it, but not for free: the caller builds the finder with
-`extra_node_weight` biasing the decomposition towards the reference path's endpoints, and
-`vg snarls` does not do that, so a cached file from `vg snarls` is not the same decomposition.
-Worth checking whether the difference reaches the calls before adopting it -- if it does not,
-this is 46 s per contig for a one-off cost, which matters most for the A/B loop where the same
-contig is called over and over.
+### b. `gbz-base` subprocess round-trips -- bounded, and smaller than it looked
 
-### b. `gbz-base` subprocess round-trips, about 29% of thread time in the calling phases
+33.5% of the thread budget is a worker asleep in `waitpid`. The obvious fix is to prefetch the next
+window, since sites are visited in node-ID order. But the ceiling on *any* overlap is what
+concurrency alone can recover, and a thread sweep finds it:
 
-Every read fetch `posix_spawn`s `gbz-base query`, which opens a 6.8 GB graph database and a
-21 GB read database, extracts a subgraph, writes GAF to a temp file and exits; vg then parses
-the GAF back. chr20 does this 1,446 times, and the profile puts about 0.19 s of blocked thread
-time on each -- matching the 0.22 s that `planning/gbz-base-c-api-request.md` measured for a
-4,000-node query against the same 22 GB database.
-
-Startup is *not* most of that. A 380-node query costs 0.04 s and a single-node one 0.05-0.10 s,
-so opening the databases is roughly a fifth of a full window query rather than half; the rest
-scales with the reads returned. The same note breaks a query down as 3 ms to `fork`/`exec`,
-20 ms building a GFA subgraph that goes straight to `/dev/null`, and 41 ms decoding reads --
-so the wasted third is the subgraph, not the process.
-
-Three levers, and they do three different things. Only one of them reduces the spawn count:
-
-| | spawns | cost of each | thread blocked on it |
+| threads | wall | CPU multiple | peak RSS |
 |---|---|---|---|
-| prefetch the next window | unchanged | unchanged | hidden |
-| bigger `--read-window` | fewer | higher | roughly in proportion |
-| persistent worker | unchanged | much lower | lower |
+| 5 | 187.6 s | 3.04 | 4.19 GB |
+| 8 | **159.1 s** | 4.06 | 4.98 GB |
+| 10 | 157.5 s | 4.69 | 5.09 GB |
 
-- **Prefetch the next window.** This does *not* reduce spawns. Today a worker thread issues its
-  query, sleeps in `waitpid` for ~0.19 s, parses the GAF and only then genotypes the window.
-  Because sites are visited in node-ID order the thread knows window N+1 before it starts
-  consuming window N, so it can spawn that query into a second temp file and `waitpid` only
-  once window N is exhausted. Same children doing the same work -- but running alongside the
-  genotyping instead of alternating with it.
-- **Sweep `--read-window`.** 4096 today. This is the lever that reduces the spawn count:
-  doubling the window halves it, at the price of a larger cached window and a longer per-query
-  scan. One-line experiment, no code.
-- **A persistent worker.** One `gbz-base` per thread, fed queries over a pipe, would remove the
-  per-spawn startup -- about a fifth of a window query, not half -- and `gbz-base query` is
-  one-shot, so it needs an upstream change. Worth less than it looks.
-- **The reads-only ask upstream.** A third of every query builds a GFA subgraph we discard.
-  `planning/gbz-base-c-api-request.md` already makes this case and is still unsent; sending it
-  is free and is the largest single reduction available in the query itself.
+Output identical at all three. So the whole overlap is worth about **30 s of 187.6**, and it
+**saturates at 8** -- past that the limit is not cores but the read database's tolerance for
+concurrent random reads, plus the ~60 s of serial phases Amdahl leaves behind.
 
-**Prefetch only pays if there are cores to overlap into, and there are.** Measured two ways.
-Total CPU across `vg` and every `gbz-base` child, sampled once a second through the calling
-phase, runs at a **median 357% of a possible 1000%** -- between three and four of ten cores,
-with the rest idle. And raising the thread count, which is the crude version of the same
-overlap, works: chr20 at `-t 8` is **173.6 s against 197.2 s at `-t 5`**, with the top-level
-calling phase falling 81.0 s to 58.8 s while snarl decomposition sits unchanged at 48 s.
+That makes prefetching a **memory** lever rather than a speed one: `-t 8` buys the 28 s for 0.8 GB
+of extra per-thread window cache, where prefetching would buy the same with one extra in-flight
+query per thread. Worth building where memory is the binding constraint, which under
+`schedule_wgs.py` packing contigs against a 24 GB budget it is. Not worth building to make a single
+contig faster, because raising `-t` already does that for free.
 
-That the children add so little CPU says they are I/O-bound on the 21 GB read database rather
-than compute-bound, so the ceiling here is the disk's tolerance for concurrent random reads,
-not the core count. `-t 8` is evidence that ceiling has not been reached.
+**Actionable now:** use `-t 8` for single-contig work. Leave the whole-genome scheduler at 5 and let
+it pack contigs, which fills the machine the same way.
 
-One caveat on where this matters. `schedule_wgs.py` already packs several contigs onto the
-machine at once, so a whole-genome run fills the cores by other means and would gain less than
-these figures suggest. The single-contig case -- the A/B loop, where the same chromosome is
-called over and over -- is where it is worth the most.
+Independently, a third of every query builds a GFA subgraph that goes to `/dev/null`.
+`planning/gbz-base-c-api-request.md` now carries a finished ask for a reads-only query. It has not
+been sent.
 
-### c. Cutting the chain at pinned sites
+### c. Cutting the chain at pinned sites -- sized, not built
 
-Generations 1-4 still decode, because each has at least one non-nested site and one such site
-keeps its whole 192,045-site chain alive. A per-site pin zeroes every state but one, so it
-severs the path: a free site's answer depends only on the sites between its bracketing pins.
-Decoding only those sub-chains would take generations 1-4 to near zero -- about 24 s -- but it
-is a change to the model's windowing, where `phasing()` chains its windows sequentially, and it
-wants its own measurement rather than being folded into a cleanup.
+A per-site pin zeroes every state but one, so it severs the path: a site of this generation depends
+only on the sites between its bracketing pins, and the chain could be cut there and decoded in
+pieces. The caller now reports how much of each decode is live:
 
-### d. `WindowedSiteReadSource::deliver` scans the whole window per site query
+| generation | sites decoded | live | pinned |
+|---|---|---|---|
+| 1 | 209,244 | 17,199 | 192,045 |
+| 2 | 211,480 | 2,236 | 209,244 |
+| 3 | 211,930 | 450 | 211,480 |
+| 4 | 211,952 | 22 | 211,930 |
 
-3.39 billion reads considered to deliver 24.5 million, 138 rejected for every one kept. The
-bounds array is compact and the loop is already the cheap version of this, so it is only about
-0.3% of samples -- but sorting a window's bounds once on fetch and binary-searching per query
-would remove most of it. Small, and the least risky thing on this list.
+Generations 1-4 cost 24.4 s of the 187.6, and sub-chaining would take that to roughly 2 s.
+
+Not built, and the reason is in the details rather than the idea. The phase set is
+`sites.front().position`, so it has to keep coming from the whole chain rather than from a piece of
+it. And the severing rests on every pin being *accepted*, where `window_phasing` declines one whose
+pair cannot spell the site's constrained genotype. Both are checkable and neither is free, and the
+gate available is one chromosome.
+
+Note also that the original framing of this was wrong: it assumed only a handful of non-nested sites
+arrive after generation 0. Generation 1 has 17,199 of them.
+
+### d. `WindowedSiteReadSource::deliver` -- dropped
+
+3.39 billion reads considered to hand over 24.5 million sounds large and is not. The profile puts
+`deliver` and `touches` together at 61 samples, **1.2 thread-seconds of 319** -- about one cycle an
+iteration, which is what a streaming two-compare loop over a compact bounds array should cost.
+Sorting and binary-searching would save on the order of a second. Not worth the code.
+
+### e. The read ingestion path -- unscheduled, and the largest working cost
+
+~12% of thread time against 2.1% for the scoring it feeds. Every read fetched -- 14.2 M on chr20 --
+is parsed from GAF text into a protobuf `Alignment` with a `Path` of `Mapping`s and `Edit`s, cached,
+then destroyed; the allocator attribution puts 21.7% of its samples inside `gaf_to_alignment` and
+17.5% inside `get_next_record_from_gaf`. A leaner record -- node-id run, offsets, sequence, quality
+-- would cut the parse, the allocation and the destruction together. Listed because the profile says
+the ratio is 5:1 the wrong way, not because it should be done next: it is a read-path refactor and
+wants its own plan.
 
 ## Redundancy
 
