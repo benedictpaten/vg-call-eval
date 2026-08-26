@@ -96,8 +96,15 @@ through `update_vcf_info`, flattening and merging.
 - Per cluster: cut the reference span; cut each haplotype's aligned span via `alt_before_ref`; borrow
   one anchor base to the left if any allele would be empty (one base, matching what
   `flatten_common_allele_ends` leaves, so the two agree on how an indel is spelled); dedup by string;
-  inherit the site's phase by mapping slots through `trav_to_allele`, and drop `PS` where phase
-  cannot be established rather than leaving `PS` beside an unphased GT.
+  and carry the site's phase across. **Three GT shapes carry a phase set and two of them are
+  haploid**: a diploid pair `a|b` transfers its orientation by slot (mapped through
+  `trav_to_allele`, since the site's GT is in site-allele space and the block's slots are in
+  genotyper order); a nested chain called at ploidy 1 transfers its **strand**, `a|.` or `.|a`,
+  which is the only place the VCF can say which haplotype the allele sits on; and a genuinely
+  haploid locus keeps `PS` as a block label with no orientation to inherit. Only a slash-separated
+  GT is unphased, and only there is `PS` dropped. Testing for the diploid pair first is what made
+  every haploid block come out as a bare `a` with `PS` erased — 3,452 lines genome-wide, from 1,517
+  snarls, losing the strand and the phase set the unsplit record would have carried.
 - `AD` and `GL` are looked up through `site_of_block`, so **every block of a snarl reports the same
   evidence**. That is honest only about arity; `INFO/SB` marks the replicated set so a consumer can
   avoid double-counting it.
