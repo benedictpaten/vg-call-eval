@@ -104,3 +104,120 @@ into by bundling a model change with a speedup.
 No accuracy today. Every chain currently in a linkage chain has a reference position, and reference
 distance has twice measured as the better predictor. The payoff is the 478 parents whose children the
 reference cannot order, and those are unreachable until `--nested-pseudo-ref` descends into them.
+
+---
+
+## RESULT: built in seven commits; ordering is free, distances are free except on SV
+
+vg `245058e97..c711e97fa` on `read-likelihood-genotyping`. Four of the seven are defect fixes, three
+of those found by an adversarial review panel rather than by the author.
+
+| | commit | gate | outcome |
+|---|---|---|---|
+| A | `245058e97` | byte-identity | per-strand `rho_a`/`rho_b` plumbing — **passed** |
+| B | `88a47ab03` | accuracy | frame spacing behind `VG_LINKAGE_FRAME_GAPS`, **off by default** |
+| C | `af95aba9a` | reorder count | **0 of 18,097**, byte-identical |
+| B′ | `a6fb73e45` | accuracy | start-to-start convention — supersedes B's numbers |
+| D | `d51972cd4` | byte-identity | rank carried into `record()` — 897 chains recovered |
+| E | `1832d794d` | byte-identity | comparator was undefined behaviour — 204 cycles removed |
+| F | `c711e97fa` | byte-identity | frame replay (1,255 → 0 lost) + `site_gap` unknown distance |
+
+Final gates: chr20 **and** chr6 byte-identical, VCF and mosaic; `test/t/18_vg_call.t` **315/315**;
+652 `linkage_model` and 86 `symbolic_allele`/`symbolic_diff` assertions.
+
+### The answer the plan was written to get
+
+**Ordering costs nothing.** 0 of 18,097 same-parent adjacent pairs reorder under the alignment key,
+on chr20 and again on chr6, so the output is byte-identical. Where both orders exist they agree
+exactly — which the plan predicted from the earlier 0-of-5,540 instrumentation and which now holds
+with the alignment key rather than the frame key.
+
+**Distances cost nothing on small variants and something on SV.**
+
+|  | chr20 m1 | chr20 m2 | chr6 m1 | chr6 m2 |
+|---|---|---|---|---|
+| ALL / SNV / JointIndel / Ins / Del | **0** | **0** | **0** | **0** |
+| SV F1 | −3.1e-3 | **−2.2e-3** | −5.5e-4 | −5.5e-4 |
+
+Every small-variant class moves by exactly zero, to five decimals, across 1,586–2,318 differing VCF
+lines. SV loses on both contigs, as +3 to +4 false positives.
+
+**And the reason the effect is small at all is measured, not argued: 90.2% of the traversal distances
+on chr20, and 88.0% on chr6, are EXACTLY the reference difference.** Two adjacent siblings share a
+boundary node, so wherever the parent's settled traversal follows the reference through them the two
+measures coincide to the base. Only the residual tenth can move anything, and what it moves is SVs.
+
+### Two measurement errors this plan's own formula would have avoided
+
+The plan says `gap[slot] = frame_offset_next - frame_offset_prev` — start to start. `Entry`'s doc
+comment says `offset(next) - frame_end(prev)` — end to start. The implementation followed the comment,
+and it was wrong twice:
+
+- **It changed the convention as well as the metric.** `site_gap`'s reference fallback differences two
+  `position` values, and a snarl's position is where it begins. So the arm tested two things at once,
+  and the first reported result — small variants losing 5e-6 of ALL and 2e-5 of JointIndel — was the
+  convention, not the metric.
+- **It made most steps unmeasurable.** A span is inclusive of its closing boundary node and adjacent
+  siblings share that node, so end-to-start is negative for every adjacent pair: 10,103 of chr20's
+  18,235 same-parent steps read as "no frame" and were exempted.
+
+That second error also hid the per-strand population. End-to-start found **85** steps where the two
+strands' distances differ; start-to-start finds **1,650** on chr20 and **1,899** on chr6 — nineteen
+times more, because the refused adjacent-sibling pairs are exactly the ones where the two haplotypes'
+spans differ. With them included, **the per-strand form beats the single scalar** (chr20 −2.2e-3
+against −3.1e-3, one true positive recovered), which is the first evidence the split earns anything.
+The earlier claim that the per-strand form had almost nothing to act on was an artefact.
+
+A separate direction bug — frame offsets run in traversal order while sites are sorted in reference
+order — is real but inert: 92 steps on chr20, 130 on chr6, byte-identical on both. Kept because it
+looked like the explanation for the negative steps and was not.
+
+### Three defects the review found, and one it correctly rejected
+
+- **`set_align_rank` and `set_frame` wrote to entries that did not exist yet.** The barrier computes
+  these facts ~200 lines before a revise block that `record()`s a chain the sweep never filed, and
+  both setters are fail-quiet. 897 chains lost their rank; 1,255 slot-writes lost their frame, and
+  were *misattributed* to "the settled traversal does not cross". The rank now travels as an argument
+  to `record` (as `parent_trav` already did); the frames are staged and replayed.
+- **Both sibling comparators were undefined behaviour.** "Compare on this key only if both operands
+  have it, else fall through" is intransitive: 204 cycles over small triples with the alignment rank,
+  and **81 in the frame-and-position form that predates it**, so this was latent before this work. A
+  sentinel is transitive but displaces the unplaced chain and moved 241 chr20 lines; the key is now
+  chosen once per group, which is transitive, moves nobody, and degrades to the previous behaviour.
+  Only 10 groups on chr20 and 17 on chr6 fall back entire.
+- **`site_gap` called 1 bp "no distance".** At the shipped parameters 1 bp gives rho = 1e-12 and
+  stay = 1.0 — two sites about which nothing is known asserted to be *perfectly linked*. `SIZE_MAX`
+  gives rho = 1.0 and a uniform transition. Guarded on a new `Site::unpositioned` rather than on
+  `position == 0`, since zero is a legitimate coordinate.
+- **Rejected:** that the affected chains were the reference-invisible population. They are not — those
+  never reach the layer. They are chains no *called* parent allele reached during the sweep.
+
+### What remains, for the pseudo-reference work
+
+**Reference-invisible chains are not genotyped at all.** The descent gate `continue`s before
+`call_snarl_internal`, so nothing is computed for chr20's 12,486 of them. A blast-radius map
+established that removing the gate alone is a no-op — `call_snarl_internal` returns false at the
+`common_names.empty()` check — and that relaxing that check *without* also relaxing
+`use_parent_interval` hard-aborts: `get_ref_interval` is handed the parent's path, both step maps come
+back empty, and `assert(start_steps.size() > 0 && end_steps.size() > 0)` is live, with no `-DNDEBUG`
+anywhere in the Makefile. Both must be relaxed together.
+
+The load-bearing fact for that work: **the genotyper needs no reference.** `ref_path_name` and
+`ref_range` are parameters `read_likelihood_caller.cpp` never reads again — reads are reached through
+merged node-ID ranges. A no-reference site is fully genotypable.
+
+Two gaps must be closed first, and the larger is not the one this plan named:
+
+- **Intra-chain snarl order: 3,650 pairs on chr20.** `align_rank` identifies a *chain* —
+  `chain_bounds_of` returns the enclosing chain's boundary pair — while the entries are *snarls*, so
+  two siblings in one chain share a rank and the alignment orders neither. The frame offset is
+  per-snarl and can close this without the reference, giving a two-level key: the chain by the
+  alignment, the snarl by its offset along the settled traversal.
+- **The 154 ambiguous chains** (shared but unmatched, or crossed twice). With the fallback removed,
+  the all-or-nothing rule sends any group containing one of them back to reference order entire —
+  which is what removing the reference forbids.
+
+And the position must be **supplied as absent, never borrowed from the parent**:
+`have_reference = (prev.position > 0 && e.position > 0)` gates the frame-derived gap, so a borrowed
+non-zero position makes that test true, the frame is never consulted, and the model differences two
+identical values.
