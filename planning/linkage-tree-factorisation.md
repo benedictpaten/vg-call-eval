@@ -123,6 +123,26 @@ FP 444->442, FN 321->322 -- one true positive lost and two false positives remov
 flat at -2e-5. On a 765-SV benchmark that is a single call, not a mechanism. **It is not evidence of
 SV neutrality**; chr6 or the whole genome is what would settle the direction.
 
+### chr6 confirms it, on an independent contig
+
+Both arms from one binary, `VG_LINKAGE_NO_GROUPING` the only difference.
+
+| chr6, 34-hap panel | baseline | tree |
+|---|---:|---:|
+| linkage, generations >= 1 | 41.33 s | **1.38 s (30x)** |
+| wall clock | 369.4 s | **331.0 s (-10.4%)** |
+| ALL F1 (small) | 0.9774661 | **0.9774734** |
+| **SV F1** | 0.5836963 | **0.5847463 (+1.05e-3)** |
+
+SVs: TP 938 -> 938, FP 729 -> **724**, FN unchanged. Recall identical to seven decimal places; the
+entire gain is five false positives removed. That is the cleanest shape an SV result can have, and
+it is twice the magnitude of chr20's loss in the opposite direction -- so chr20's -5.7e-4 was the
+single true positive its decomposition showed (TP -1, FP -2 on a 765-SV benchmark), not a mechanism.
+
+The deletion/insertion asymmetry also FLIPPED between contigs -- chr20 had deletions down and
+insertions up, chr6 the reverse, both at ~3e-5. The flip is the evidence for calling both noise
+rather than reading a mechanism into either.
+
 858/858 unit assertions, 315/315 TAP, `test/` clean afterwards.
 
 ### Two things the implementation had to learn
