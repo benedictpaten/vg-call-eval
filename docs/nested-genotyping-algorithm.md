@@ -39,7 +39,10 @@ for 7.4% of chr20's sites.
 Unresolvable means projection degenerates to a bare node list with no symbols. Every consumer gates
 on `symbolic_site_resolvable` separately rather than assuming, because the failure is silent: with no
 symbols, every child reads as "not matched" and a whole subtree gets dropped instead of delegated.
-On chr20 this population is 9,279 sites, reported by the run itself.
+**On chr20 that population is now zero.** The run reports `0 sites where projection is inert because
+the snarl does not resolve, 9279 resolved as the reversal flip_snarl produces` — accepting the
+reversed pairing retired the whole population rather than shrinking it, and the 9,279 figure quoted
+in older notes is the set that now resolves, not the set that fails.
 
 ### 2. Project each traversal
 
@@ -109,7 +112,25 @@ through `update_vcf_info`, flattening and merging.
   evidence**. That is honest only about arity; `INFO/SB` marks the replicated set so a consumer can
   avoid double-counting it.
 - **Every refusal returns −1, meaning "the site record stands."** A case this does not understand
-  degrades to the behaviour it was going to have anyway, not to a wrong record.
+  degrades to the behaviour it was going to have anyway, not to a wrong record. There are ten such
+  refusals; measured on chr20, over 219,316 calls, only four of them ever fire:
+
+  | why it declined | sites | share |
+  |---|---:|---:|
+  | one block, saying what the site record already says | 114,257 | 52.1% |
+  | no difference blocks: every called haplotype takes the reference route here | 104,053 | 47.4% |
+  | no genotype | 512 | 0.23% |
+  | every block flattened to no ALT | 6 | 0.003% |
+  | **declined** | **218,828** | **99.78%** |
+  | **split into blocks** | **488** | **0.22%** |
+
+  The other six — no reference traversal, the snarl not resolving, an empty reference projection, a
+  degraded alignment, and both anchor-base guards — never fired. The first of those two live reasons
+  is the design rather than a failure to understand: one block is one record, which is what the site
+  record already is, so taking over would spell the same call in different bytes. The exception is
+  `collapses`, where a single block *is* taken over because it shrinks the allele set — two
+  haplotypes reaching the same sequence by different routes, coming out homozygous instead of as two
+  near-identical ALTs.
 
 ---
 
