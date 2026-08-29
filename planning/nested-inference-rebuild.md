@@ -247,6 +247,28 @@ reasons counted apart -- no PhaseCall, wrong message width, wildcard strand -- a
 first version lacked: `WILDCARD` is `(size_t)-1`, so `first * m + second` wraps and can land inside
 the array, writing a delta at a pair the panel never chose.
 
+## Step 8, scored: emission was deciding what got inferred, and it cost a structural variant
+
+Under `--atomize-blocks` -- ON by default with `--read-likelihood` -- a chain whose variation an
+enclosing difference block has already spelled out gets no record of its own. That rule was applied
+by SKIPPING the descent, so the chain was never genotyped, never recorded, and could not inform its
+own parent's phase. It now descends, and only the line is suppressed, at the render hand-off beside
+the off-reference population that already had exactly this shape.
+
+391 chains on chr20, 137 on chr6, 311 on chr17:
+
+| | chr20 | chr6 | chr17 |
+|---|---|---|---|
+| ALL / SNV / Indel / Deletion | identical, same TP/FP/FN | identical | identical |
+| SV | identical (434/445/322) | identical (939/724/609) | **+8.4e-4: TP 466 -> 467, FN 344 -> 343** |
+
+One structural variant gained, nothing lost on any contig. Small, but one-directional, and it is the
+change the design argues for independently: what a block already printed is a fact about the OUTPUT,
+and it has no business deciding what the model gets to see.
+
+`VG_CALL_INLINE_SKIPS_DESCENT` keeps the old behaviour, which is what lets everything else in the
+run be gated on byte-identity while this one step deliberately moves.
+
 ## The conditioning arms: a delta is as good as the posterior
 
 A child chain is conditioned on a message from its parent, and that message is by default the
