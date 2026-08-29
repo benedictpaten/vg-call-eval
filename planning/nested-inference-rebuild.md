@@ -313,6 +313,74 @@ about a switch that changes 184 records -- and the tell had been in every log fo
 printed its own output, which was filtered out as leftover instrumentation instead of being
 explained.
 
+## What it cost, measured
+
+Baseline `faedeb9e4` against the final tree, both pinned, run alone, and each verified byte-identical
+to the arm it was scored as. chr20 twice per arm because peak RSS on this workload is noisy.
+
+**Wall clock: no resolvable change.**
+
+| | base | final | |
+|---|---|---|---|
+| chr20 | 176.3, 167.4 -> **171.9** | 171.3, 172.5 -> **171.9** | +0.0% |
+| chr6 | 335.2 | 337.5 | +0.7% |
+
+The base's own two chr20 runs differ by 8.9 s, so nothing here clears its own noise. Step 8 isolated
+(`VG_CALL_INLINE_SKIPS_DESCENT=1`, 172.5 s) is indistinguishable as well.
+
+**Peak RSS: unreadable.** chr20 base 4.13 and 3.49 GB across two runs of ONE binary; final 3.65 /
+3.94 / 3.84. chr6 9.01 against 9.12. The spread within an arm exceeds any delta, exactly as the
+deferred-descent work found when it tried to size retention this way.
+
+**What is exact, because it counts objects instead of measuring them:**
+
+| | chr20 | chr6 |
+|---|---|---|
+| linkage layer | 48.9 -> **44.0 MB** | 108.2 -> **97.0 MB** |
+| per site | 233.9 -> **209.9 B** (-24.0) | 232.4 -> **208.4 B** (-24.0) |
+| retained records | 413.3 -> 410.5 MB | 718.9 -> 711.7 MB |
+| the linkage pass itself | 8.47 -> **8.02 s** (-5.3%) | 18.35 -> **17.80 s** (-3.0%) |
+
+`Entry` lost exactly 24 bytes -- `align_rank`, `chain_index`, `chain_backward`, `frame_offset[2]`
+and their padding -- and `PendingRecord` 16. The identical -24.0 B/site on two contigs is the
+deletion appearing as arithmetic rather than as a measurement. Roughly 8 MB on chr20 and 18 MB on
+chr6, against 3.8 and 9.1 GB peaks: **0.2%**.
+
+**So this bought no speed and no meaningful memory, and the case for it was never that.** The
+linkage pass did get 3-5% faster -- the per-parent O(|h1| x |h2|) alignment and the traversal walks
+for the frame were real work -- but that pass is 5% of the run, so 0.45 s of 172. Read scoring
+dominates and none of this touched it.
+
+One number is worth keeping for its own sake. Step 8 descends into 391 extra chains on chr20 and
+fetches **4,111 FEWER reads** (14,219,698 -> 14,215,587, cache hit 99% either way). The extra
+genotyping is free because those windows are already resident, which is the claim the whole
+collect-then-settle design rests on -- observed here rather than asserted.
+
+## Accuracy, before and against after
+
+Every small-variant class, all three contigs: identical to six decimals with identical TP/FP/FN.
+
+| chr20 | F1 | precision | recall | TP | FP | FN |
+|---|---|---|---|---|---|---|
+| ALL | 0.972410 | 0.978673 | 0.966227 | 91,493 | 2,003 | 3,198 |
+| SNV | 0.985190 | 0.995048 | 0.975526 | 73,181 | 355 | 1,836 |
+| JointIndel | 0.928314 | 0.925869 | 0.930772 | 18,312 | 1,648 | 1,362 |
+| Insertion | 0.917328 | 0.914699 | 0.919971 | 8,932 | 896 | 777 |
+| Deletion | 0.938743 | 0.936206 | 0.941295 | 9,380 | 687 | 585 |
+| SV >=50 bp | 0.533020 | 0.493743 | 0.579085 | 434 | 445 | 322 |
+
+| chr6 | F1 | precision | recall | TP | FP | FN |
+|---|---|---|---|---|---|---|
+| ALL | 0.977475 | 0.982903 | 0.972107 | 272,156 | 4,742 | 7,809 |
+| SNV | 0.988036 | 0.996188 | 0.980017 | 219,117 | 815 | 4,468 |
+| JointIndel | 0.939460 | 0.938183 | 0.940741 | 53,039 | 3,927 | 3,341 |
+| Insertion | 0.928627 | 0.926578 | 0.930686 | 26,129 | 2,207 | 1,946 |
+| Deletion | 0.949913 | 0.949113 | 0.950715 | 26,910 | 1,543 | 1,395 |
+| SV >=50 bp | 0.584746 | 0.564642 | 0.606335 | 939 | 724 | 609 |
+
+The one moving cell in the whole matrix is chr17 SV: 0.532955 -> **0.533795**, TP 466 -> 467,
+FN 344 -> 343, from step 8.
+
 ## Where this run ended
 
 **657 lines net removed from `src/`** (293 added, 950 deleted), every one of them gated:
