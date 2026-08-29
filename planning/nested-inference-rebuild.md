@@ -190,7 +190,29 @@ parent still conditions the child, through the context message; what is worth no
 containment as a DISTANCE on top of that message. Which retires the last surviving distance in the
 nested tree: between chains there is none, and now above them there is none either.
 
-chr6 is the confirmation the step's gate asks for.
+**chr6 confirms it, by disagreeing.**
+
+| chr6 | uniform (no link) | reference-position gap (default) | minimal (zero separation) |
+|---|---|---|---|
+| ALL F1 | 0.977469 | 0.977475 | **0.977481** |
+| SNV | 0.988020 | 0.988036 | **0.988041** |
+| JointIndel | **0.939489** | 0.939460 | 0.939469 |
+| SV | **0.586195** | 0.584746 | 0.584096 |
+| records | 296,688 | 296,777 | 296,807 |
+
+On SV both alternatives change sign between the contigs: uniform is -3.2e-4 on chr20 and +1.4e-3 on
+chr6, minimal is +6.6e-4 on chr20 and -6.5e-4 on chr6. ALL stays inside +/-7e-6 everywhere. Two
+contigs, two arms, and the winner is different every time.
+
+**So the parent-to-child distance is unmeasurable, and the default already spends nothing on it.**
+Mode 0 lets `site_gap` fall back to the reference difference, which costs no frame, no measurement
+and no branch -- adopting either arm would ADD code to express a distinction the data does not
+support. The default stands.
+
+What this does retire is `VG_LINKAGE_FRAME_GAPS` and the diploid frame-gap block behind it, about 80
+lines that are off by default and whose every arm is now known to buy nothing: mode 1 and mode 2
+measure a distance along the settled traversal for the same step these three arms just showed is not
+a step worth measuring.
 
 **The hard-parent conditioning arm did not run.** It reported "0 context messages replaced" at every
 generation, so the delta was never substituted and the arm measured nothing. Re-run with the decline
