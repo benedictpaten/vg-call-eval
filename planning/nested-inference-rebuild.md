@@ -113,7 +113,7 @@ is answered separately at 8b. | none needed |
 | SC | **DONE.** `record()`'s ten trailing parameters became one `SiteContext` with named initialisers. They were all bool, int and size_t -- which convert to one another silently -- so a call site that dropped one still compiled with every later argument shifted. That happened three times on this branch and the compiler caught none of them. | byte-identical |
 | H | **DONE, ~90 lines.** Housekeeping, before 6c. Eight empty conditional bodies and one wholly dead loop remain in `linkage_model.cpp` where 6d removed the counters but left their conditions, and their comments describe instruments that no longer exist. ~40 lines. Worth clearing before the restructure carries them through it. | byte-identical |
 | 6c | **RE-SCOPED by M4, not started.** The generation loop becomes a recursion for the DIPLOID groups only; `respecify`, `Entry::generation` and `max_generation` go with it; the per-strand haploid pass stays as a final contig-wide phase because M4 says it earns its keep. `Entry::ploidy` stays -- it is the arity of the stored likelihoods, not a cache. | byte-identical |
-| 7 | **ARMS BUILT, measuring.** `VG_LINKAGE_PARENT_GAP` gives the parent-to-child step its own switch, independent of `frame_gap_mode`: 1 is UNIFORM (no transition between a parent and its children) and 2 is MINIMAL (containment read as zero separation). The two bracket the space and the frame arms sit between them, so a frame arm that beats neither bracket is measuring nothing. `VG_LINKAGE_HARD_PARENT` is the conditioning arm: a delta at the parent's settled pair in place of its posterior over pairs. | accuracy, chr20 and chr6 |
+| 7 | **DONE, and every arm came back a wash.** The parent-to-child distance is unmeasurable -- three arms spanning no-link to perfect-link, and on SV both alternatives change sign between chr20 and chr6. The hard-clamp conditioning is worth one false positive across two contigs. Neither is adopted: the default already spends nothing on the distance, and the conditioning arm's value is the machinery it shows to be unnecessary rather than the switch itself. See the two sections above. | accuracy, chr20 and chr6 |
 | 8 | **DONE.** `chain_reported_inline` suppresses the LINE and no longer skips the descent: the chain is genotyped, recorded and phased, and held back at the render hand-off beside the off-reference population, which already had exactly this shape. The rule it encodes -- an enclosing block's ALT already spells this chain out -- is a fact about EMISSION, and it was deciding what got INFERRED. Inert outside block emission, where `chain_reported_inline` returns false, so the byte-identity gate is the whole default-path check and its effect under `--atomize-blocks` is unmeasured. | byte-identical on the default path |
 | 8b | ~~Remove the reference gate~~ -- **declined, and it was already measured.** Admitting off-reference chains (`VG_CALL_NO_REF_NESTED`) adds 12,486 chains on chr20, never improved recall in any arm, and changes the record set, so it cannot be gated on record identity the way step 8 can. The gate stays on by default and the flag stays as an arm. | -- |
 | 9 | **DONE.** The mosaic already reported each strand as a sequence of segments on panel haplotypes, so a recombination -- including one inside a nested chain -- was already a segment boundary. What it could not say is WHICH, and the nested ones are what nested calling is for. `PhaseCall::depth` and two columns, `nested_sites` and `max_depth`, appended at the end of the row with the version bumped to 4 so a positional consumer reads it unchanged. | VCF byte-identical; mosaic identical once the two columns are stripped |
@@ -219,6 +219,37 @@ generation, so the delta was never substituted and the arm measured nothing. Re-
 reasons counted apart -- no PhaseCall, wrong message width, wildcard strand -- and with a guard the
 first version lacked: `WILDCARD` is `(size_t)-1`, so `first * m + second` wraps and can land inside
 the array, writing a delta at a pair the panel never chose.
+
+## The conditioning arms: a delta is as good as the posterior
+
+A child chain is conditioned on a message from its parent, and that message is by default the
+parent's POSTERIOR over ordered haplotype pairs -- the normalised alpha*beta harvested from the
+parent's own decode. `VG_LINKAGE_HARD_PARENT` replaces it with a delta at the pair the parent
+SETTLED on, which is what the greedy story says out loud: a decided parent has no residual
+uncertainty to pass down.
+
+Clamped 1,744 to 2,306 messages a generation on chr20 and 2,990 to 3,418 on chr6, with nothing
+declined:
+
+| | chr20 | chr6 |
+|---|---|---|
+| ALL / SNV / Indel / Insertion / Deletion F1 | identical to six decimals, same TP/FP/FN | identical, same TP/FP/FN |
+| SV | -3.3e-4 (one extra FP, 445 -> 446) | identical, 939/724/609 |
+
+**One false positive across two contigs.** The parent's residual uncertainty carries essentially
+nothing to its children, and the owner's greedy story is empirically true here rather than merely
+convenient.
+
+**What that licenses is the largest deletion still on the table**, and it is not the arm itself --
+it is the machinery that exists to produce the message the arm replaces. `posteriors_with_context`,
+the sparse mask threaded through `segment_posteriors`, the alpha/beta harvest and its normalisation,
+`wanted_parents`, and `parent_context` itself, which holds 16.4 MB on chr20 at generation 0 alone.
+All of it computes a distribution that a one-hot built from the parent's `PhaseCall` reproduces to
+six decimals.
+
+It is not taken here: it moves one call, it is a redesign of the decode's interface rather than a
+deletion behind a gate, and it should be a decision made deliberately. But it is measured, and it is
+where the next real simplification is.
 
 ## A gate that could not fail
 
