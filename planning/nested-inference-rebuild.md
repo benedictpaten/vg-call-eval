@@ -313,6 +313,33 @@ about a switch that changes 184 records -- and the tell had been in every log fo
 printed its own output, which was filtered out as leftover instrumentation instead of being
 explained.
 
+## Where this run ended
+
+**657 lines net removed from `src/`** (293 added, 950 deleted), every one of them gated:
+
+| gate | scope |
+|---|---|
+| chr20 / chr6 / chr17 VCF byte-identical | the alignment deletion, the frame deletion, SiteContext, the housekeeping, the `ref_ploidies` fix, six switches |
+| mosaic identical once step 9's two columns are stripped | the same, plus step 9 |
+| `test/t/18_vg_call.t`, 317 assertions, PASS, run alone | all of it |
+| full `vg test`, 12,547,761 assertions | all of it |
+
+Step 8 is the one deliberate behaviour change, scored separately: one structural variant gained on
+chr17, nothing lost on any contig, with `VG_CALL_INLINE_SKIPS_DESCENT` keeping the old arm so
+everything else could be gated on identity.
+
+**What is left, in the order it should be taken:**
+
+1. **The conditioning simplification.** A delta at the parent's settled pair reproduces its posterior
+   to six decimals, which makes `posteriors_with_context`, the sparse mask through
+   `segment_posteriors`, the alpha/beta harvest and `parent_context` unnecessary. It moves one call
+   and it is a redesign of the decode's interface, so it is a decision rather than a gated step --
+   but it is the largest deletion still available.
+2. **6c**, re-scoped by M4: a recursion for the diploid groups, `respecify` and the generation loop
+   with it, and the per-strand haploid sweep left standing.
+3. `ref_offsets` uses `operator[]` at 19 read sites from worker threads, the same defect just fixed
+   for `ref_ploidies`.
+
 ## Expected size
 
 Roughly 2,600-3,200 lines removed against 900-1,200 added, plus 31 functions, ~97 struct fields, 18
