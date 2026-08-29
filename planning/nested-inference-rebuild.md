@@ -108,11 +108,11 @@ is answered separately at 8b. | none needed |
 | 5 | **DONE.** `relate()` landed as a CHECK. 19,979 derivations on chr20, 52,800 over three contigs, **zero** disagreements and zero unanswerable. | byte-identical |
 | 6a | **DONE.** The strand pass consumes the derivation instead of reading the stored field. The step-5 check passed and was still insufficient: it validated the derivation from the parent's ENTRY, the substitution takes it from the parent's PHASE CALL, and the `ploidy == 2` guard before consulting `trav_second` lived only in the first. The gate caught it on the first run. | byte-identical |
 | 6b | **DONE.** `Entry::parent_trav` deleted, with `set_parent_trav`, the descent-time computation and the parameter from `record`/`respecify`. Three positional argument shifts in the tests, all caught by them and none visible to chr20. | byte-identical |
-| M3 | **OPEN.** M2's switch is not symmetric: it drops the alignment rank in both comparators but the chain INDEX only in the per-strand one, so the diploid groups still order their snarls by the chain. `VG_LINKAGE_NO_CHAIN_ORDER` drops the index in both, which is what has to be inert before `chain_backward` -- and with it the alignment that computes it -- can go. | byte-identity, three contigs |
-| M4 | **OPEN, and it is the one that blocks 6c.** The per-strand haploid pass keys on `(phase set, strand)`, so a group spans a whole contig on one haplotype: it is INTER-CHAIN LINKAGE for the haploid nested population, the exact thing step 2 measured worthless for the diploid one, and it was never asked. It is also why 6c cannot simply become a recursion -- a recursion decodes one chain at a time and this pass decodes many at once. `VG_LINKAGE_PER_CHAIN_STRAND` adds the chain's identity to the key, so each haploid nested chain is decoded alone. | accuracy, three contigs |
+| M3 | **DONE. INERT on all three contigs, byte-for-byte.** The chain index, and the backward flip that reverses it, order nothing anything reads either. Together with M2 this retired `symbolic_columns`, the barrier's alignment block, `set_align_rank` and three `Entry` fields -- 387 lines. | byte-identity, three contigs |
+| M4 | **DONE, and the answer is NO.** Pooling haploid nested chains across a (phase set, strand) is worth two structural variants on chr20 and two on chr6, none lost anywhere; small variants are a wash. The pooling stays, and 6c is re-scoped accordingly -- see the section above. | accuracy, three contigs |
 | SC | **DONE.** `record()`'s ten trailing parameters became one `SiteContext` with named initialisers. They were all bool, int and size_t -- which convert to one another silently -- so a call site that dropped one still compiled with every later argument shifted. That happened three times on this branch and the compiler caught none of them. | byte-identical |
 | H | **DONE, ~90 lines.** Housekeeping, before 6c. Eight empty conditional bodies and one wholly dead loop remain in `linkage_model.cpp` where 6d removed the counters but left their conditions, and their comments describe instruments that no longer exist. ~40 lines. Worth clearing before the restructure carries them through it. | byte-identical |
-| 6c | Replace the barrier with the recursion; delete generations, `PendingRecord` and `respecify`. **`Entry::ploidy` STAYS.** It is not a stale cache like `parent_trav` was: it records the arity of the likelihoods held in `gl_arena` for that entry and is read at ~30 sites, from `final_j` to the chainability runs to the emitted `PhaseCall`. `respecify` does go, and for the reason that names the whole step -- it rebuilds an entry at a ploidy discovered after the fact, and a recursion knows the copy count BEFORE it genotypes, so `record()` is called once at the right arity. | byte-identical |
+| 6c | **RE-SCOPED by M4, not started.** The generation loop becomes a recursion for the DIPLOID groups only; `respecify`, `Entry::generation` and `max_generation` go with it; the per-strand haploid pass stays as a final contig-wide phase because M4 says it earns its keep. `Entry::ploidy` stays -- it is the arity of the stored likelihoods, not a cache. | byte-identical |
 | 7 | **ARMS BUILT, measuring.** `VG_LINKAGE_PARENT_GAP` gives the parent-to-child step its own switch, independent of `frame_gap_mode`: 1 is UNIFORM (no transition between a parent and its children) and 2 is MINIMAL (containment read as zero separation). The two bracket the space and the frame arms sit between them, so a frame arm that beats neither bracket is measuring nothing. `VG_LINKAGE_HARD_PARENT` is the conditioning arm: a delta at the parent's settled pair in place of its posterior over pairs. | accuracy, chr20 and chr6 |
 | 8 | **DONE.** `chain_reported_inline` suppresses the LINE and no longer skips the descent: the chain is genotyped, recorded and phased, and held back at the render hand-off beside the off-reference population, which already had exactly this shape. The rule it encodes -- an enclosing block's ALT already spells this chain out -- is a fact about EMISSION, and it was deciding what got INFERRED. Inert outside block emission, where `chain_reported_inline` returns false, so the byte-identity gate is the whole default-path check and its effect under `--atomize-blocks` is unmeasured. | byte-identical on the default path |
 | 8b | ~~Remove the reference gate~~ -- **declined, and it was already measured.** Admitting off-reference chains (`VG_CALL_NO_REF_NESTED`) adds 12,486 chains on chr20, never improved recall in any arm, and changes the record set, so it cannot be gated on record identity the way step 8 can. The gate stays on by default and the flag stays as an arm. | -- |
@@ -130,6 +130,45 @@ a single contig-long run, across parents and across chains. Until that pooling i
 nothing -- as the diploid pooling was -- there is no recursion to write, only a recursion with a
 whole-contig pass bolted to the end of it. M2 and M3 cost nothing and delete code; M4 decides whether
 6c is a restructure or a redesign.
+
+## M4 says no, and that is what bounds 6c
+
+The haploid analogue of step 2: decode each haploid nested chain alone instead of pooling every chain
+on one (phase set, strand) into a contig-long run.
+
+| | chr20 | chr6 | chr17 |
+|---|---|---|---|
+| ALL F1 | -1.5e-5 | 0 | +8.3e-6 |
+| SNV | -6.8e-6 | 0 | +5.8e-6 |
+| JointIndel | -4.2e-5 | 0 | +1.5e-5 |
+| **SV** | **-1.1e-3 (TP 434 -> 432)** | **-5.8e-4 (TP 939 -> 937)** | 0 |
+
+Small variants are a wash and the sign changes with the contig, as it did for every arm so far. SV
+does not: two structural variants lost on chr20, two on chr6, none gained anywhere. The sign never
+reverses.
+
+**So the pooling stays.** And the reason it differs from the diploid case is visible in the run: 352
+of chr20's 649 strand groups are groups of ONE, and 393 of chr17's 728. A haploid nested chain is
+routinely a single site with no internal linkage at all, so pooling is the only thing that gives it a
+neighbour; a diploid nested chain is bigger and already has its own structure. The two populations
+are not symmetric and the same answer does not apply to both.
+
+**6c has to be re-scoped.** The plan says "replace the barrier with the recursion", and a recursion
+settles one chain at a time. That is available for the diploid nested groups -- each is already
+decoded alone -- and it is NOT available for the haploid ones, whose decode is a contig-wide sweep
+that must run after every parent is phased. So the restructure is:
+
+- the generation loop over a flat pending list becomes a recursion over the tree, for the diploid
+  groups only;
+- `respecify` goes, because a recursion knows the copy count before it genotypes and can `record()`
+  once at the right arity;
+- `Entry::generation`, `max_generation` and `PendingRecord::generation` go with the loop;
+- the per-strand pass stays exactly as it is, as a final phase, and `Entry::ploidy` stays because it
+  describes the arity of the stored likelihoods rather than caching a derivable fact.
+
+That is a smaller and less elegant 6c than the one written above, and it is the one the measurements
+allow. It is a restructure of two large functions with a byte-identity gate, and it should be started
+from a clean tree with the owner present rather than at the end of an unattended run.
 
 ## Step 7, chr20: the parent-to-child distance is worth nothing either
 
