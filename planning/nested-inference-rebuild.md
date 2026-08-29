@@ -131,6 +131,33 @@ nothing -- as the diploid pooling was -- there is no recursion to write, only a 
 whole-contig pass bolted to the end of it. M2 and M3 cost nothing and delete code; M4 decides whether
 6c is a restructure or a redesign.
 
+## Three ordering keys, three inert answers, and the frame goes with them
+
+The comparators carried three keys an entry could LACK, and each needed an all-or-nothing decision
+per group to stay a strict weak ordering. Each was measured on chr20, chr6 and chr17, and each came
+back byte-for-byte inert:
+
+| switch | what it drops | result |
+|---|---|---|
+| `VG_LINKAGE_NO_ALIGN_ORDER` | the alignment of the parent's two settled traversals | identical, x3 |
+| `VG_LINKAGE_NO_CHAIN_ORDER` | the snarl's index within its chain, and the backward flip | identical, x3 |
+| `VG_LINKAGE_NO_FRAME` | the offset along the parent's settled traversal | identical, x3 |
+
+With all three gone both comparators are TOTAL on every entry, so the all-or-nothing machinery has
+nothing left to decide and goes too. And the frame's other use -- forming a distance -- was already
+covered: its every arm had been measured worth nothing, including the default, which never entered
+the block at all.
+
+**~850 lines removed across the two deletions**, and `site_gap` loses two thirds of itself. What
+survives in it is the case that matters: a pair where either site is unpositioned gets a uniform
+transition, because differencing an anchor against a real coordinate is not a distance.
+
+The pattern across every measurement in this rebuild is worth stating plainly. **Nothing about WHERE
+a nested chain sits is observable** -- not its order among its siblings, not its order within itself,
+not its distance from its parent, not its distance from the previous chain. The only thing the decode
+needs of a chain is its IDENTITY, so that it can be told apart from its siblings, and that comes free
+from the graph.
+
 ## M4 says no, and that is what bounds 6c
 
 The haploid analogue of step 2: decode each haploid nested chain alone instead of pooling every chain
