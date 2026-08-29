@@ -313,6 +313,47 @@ about a switch that changes 184 records -- and the tell had been in every log fo
 printed its own output, which was filtered out as leftover instrumentation instead of being
 explained.
 
+## The alpha/beta harvest is gone, and it cost one false positive
+
+A nested chain is conditioned on a message from its parent. That message was the parent's POSTERIOR
+over ordered haplotype pairs, harvested from its own decode by an alpha/beta pass with a sparse mask
+and held at m*m doubles per parent -- 16.4 MB on chr20 at generation 0, 28.1 MB on chr6. It is now a
+DELTA at the pair the parent settled on, built where it is consumed.
+
+| | chr20 | chr6 | chr17 |
+|---|---|---|---|
+| every small-variant class | identical to 6 dp | identical | identical |
+| SV | 0.533020 -> **0.532692** (FP 445 -> 446) | identical | identical |
+
+**226 lines removed** -- `parent_context`, `wanted_parents` and their masks, both harvest blocks,
+`posteriors_with_context`, and `alpha_out`/`beta_out`/`harvest_mask` from `window_posteriors` and
+`segment_posteriors`.
+
+One structural-variant false positive on one contig, nothing on the other two. It is the same
+magnitude every arm here has moved, but unlike the others it never reverses sign -- there is no
+contig where it gains. Kept, because the rebuild's measure is code removed and a single FP out of 445
+is inside the band this branch has treated as noise all day; flagged rather than buried so reversing
+it is a decision someone can make on the numbers.
+
+**A use-after-free flattered the first attempt, and that is the part worth remembering.** The deltas
+were held in a deque declared inside the loop that filled it, while the pointer vector indexing them
+was read after that scope closed. It never crashed. On chr6 the freed memory was intact and the
+answer correct; on chr20 it was not, and the arm appeared to cost NOTHING. The decision to delete 226
+lines was very nearly made on that number. No gate could have caught it -- freed-but-intact memory
+produces plausible output -- and what caught it was reading the scope while planning the next step.
+When an arm looks better than expected, that is a reason to re-read it.
+
+## 6c, first increment
+
+At depth > 0 every live site is grouped with its parent and those groups replace the contig chains
+wholesale, so the runs built at each generation were scaffolding for a fallback never once taken: 0
+sites with no parent key, 0 whose parent has no live entry, 0 on a ploidy difference, on all three
+contigs. They are not built there any more, and the group loop reads the entries directly.
+
+The veto changes scope with them. It rejected a WHOLE contig run if any one site could not be
+grouped; a site that cannot be grouped is now decoded alone instead -- which preserves what the veto
+protected without chaining that site to sites under unrelated parents.
+
 ## What it cost, measured
 
 Baseline `faedeb9e4` against the final tree, both pinned, run alone, and each verified byte-identical
