@@ -131,6 +131,47 @@ nothing -- as the diploid pooling was -- there is no recursion to write, only a 
 whole-contig pass bolted to the end of it. M2 and M3 cost nothing and delete code; M4 decides whether
 6c is a restructure or a redesign.
 
+## Step 7, chr20: the parent-to-child distance is worth nothing either
+
+Three arms over the step from a parent to its nested children, spanning the whole range the model
+can express -- no transition at all, the reference-position difference the default uses, and
+containment read as zero separation, which is the strongest link there is:
+
+| chr20 | uniform (no link) | reference-position gap (default) | minimal (zero separation) |
+|---|---|---|---|
+| ALL F1 | 0.972403 | **0.972410** | 0.972405 |
+| SNV | 0.985156 | **0.985190** | 0.985183 |
+| JointIndel | **0.928397** | 0.928314 | 0.928314 |
+| SV | 0.532701 | 0.533020 | **0.533675** |
+| records | 115,159 | 115,343 | 115,375 |
+
+Every movement is a handful of calls -- 5 of 91,493 true positives on ALL -- and the winner changes
+with the class. This is the shape M1 had: **the parent-to-child transition is not measurable.** The
+parent still conditions the child, through the context message; what is worth nothing is expressing
+containment as a DISTANCE on top of that message. Which retires the last surviving distance in the
+nested tree: between chains there is none, and now above them there is none either.
+
+chr6 is the confirmation the step's gate asks for.
+
+**The hard-parent conditioning arm did not run.** It reported "0 context messages replaced" at every
+generation, so the delta was never substituted and the arm measured nothing. Re-run with the decline
+reasons counted apart -- no PhaseCall, wrong message width, wildcard strand -- and with a guard the
+first version lacked: `WILDCARD` is `(size_t)-1`, so `first * m + second` wraps and can land inside
+the array, writing a delta at a pair the panel never chose.
+
+## A gate that could not fail
+
+Every `cmp` in the measurement scripts was `$SCRATCHPAD/cmp`, a compiled one-off probe from earlier
+work, because those scripts prepend the scratchpad to PATH to reach a pinned `vg`. It ignores its
+arguments and exits 0, so **every byte-identity check reported PASS unconditionally** -- including
+for two arms that differ by 26 kB. Three results were stated as byte-identical before this surfaced.
+
+All of them were re-checked with `/usr/bin/cmp` and all of them hold: M2 is inert on three contigs,
+and both housekeeping gates pass. But one claim was flatly wrong -- "this switch reaches nothing"
+about a switch that changes 184 records -- and the tell had been in every log for an hour: the probe
+printed its own output, which was filtered out as leftover instrumentation instead of being
+explained.
+
 ## Expected size
 
 Roughly 2,600-3,200 lines removed against 900-1,200 added, plus 31 functions, ~97 struct fields, 18
