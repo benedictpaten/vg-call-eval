@@ -87,21 +87,23 @@ Steps V1-V3 are validations the plan itself needs before it can be executed.
 
 | | step | gate |
 |---|---|---|
-| V1 | Verify the margin correlation figure: 250 sites is said to retain 55% pair correlation at the shipped `--linkage-weight`, needing ~1,237 for 0.05. Load-bearing for step 4 and taken from a reading, not a measurement. | the number, measured, on chr20 and chr6 |
-| V2 | Settle enumeration breadth. Settling needs no reads only if collect scored everything settling might select. Today descent follows the PRE-linkage genotype, and the barrier later reaches chains the settled parent touches that it did not -- 897 on chr20. Greedy recursion has no barrier to catch those, so collect must descend into every child of every CANDIDATE traversal. | the count of chains reachable from a candidate but not from the pre-linkage call |
+| V1 | **DONE, and it refuted the figure.** 250 sites was said to retain 55% pair correlation, needing ~1,237 for 0.05. Measured on chr20: mean -log P(no switch) = 0.0121 per step, so **4.8% retained at 250 sites and 247 needed for 0.05**. The shipped margin is almost exactly right. (Per strand rather than per pair it is 22% retained and ~494 needed; the pair is what the window decodes, so 250 is correct on the measure that matches the model.) **Step 4 is therefore deleted.** | measured; instrument arm byte-identical |
+| V2 | **DONE, settled by reading.** Descent already visits EVERY child of every snarl: a child no called allele reaches is not skipped, it sets `retain_only` and descends anyway, precisely because linkage may move the parent onto it. So collect's enumeration is already broad enough for greedy recursion. The one narrowing is the reference gate (12,486 chains on chr20), which step 8 removes. | none needed |
 | V3 | Restate step 5's gate. "Zero disagreements" is unachievable on current code because the `ploidy == 2 && parent_trav >= 0` population is a known defect. The gate becomes zero AFTER that fix, making it a prerequisite rather than an aside. | plan text only |
 | 0 | Instruments: pin declines, read-evidence split, copy-count histogram | published, no logic change |
-| 1 | Delete the dead fields: `frame_reversed`, `frame_end`, `frame_total`, `n_reads` | byte-identical |
+| 1 | Retire the stage-14 frame instrumentation, THEN delete `frame_reversed`, `frame_end`, `frame_total`, `n_reads`. The three frame fields are not dead as claimed: `frame_end`/`frame_total` are read in the cross-parent branch of that instrumentation, into a `frame_gap` the next line discards. `frame_offset` STAYS -- it is the parent-to-child distance. | byte-identical |
 | 2 | Delete inter-chain ordering and spacing | byte-identical with per-chain grouping on |
 | 3 | Split `panel_alleles` out of record time | byte-identical; expect a speedup |
-| 4 | Expand the margin per V1 | **first output-changing step**; accuracy on chr20/chr6/chr17 |
+| ~~4~~ | ~~Expand the margin~~ -- **deleted**, V1 shows 250 is correct | -- |
 | 5 | `relate()` -- copy count, carrier and strand derived from the parent's settled pair -- landed as a CHECK | zero disagreements, after the V3 prerequisite |
 | 6 | Replace the barrier with the recursion; delete generations, `PendingRecord`, `respecify` | byte-identical if 5 reads zero |
 | 7 | Strand composition in the parent's frame; the two conditioning arms; the three parent-to-child distance arms | accuracy, chr20 and chr6 |
 | 8 | Emission split: `chain_reported_inline` stops gating descent | record set identical in CHROM/POS/ID |
 | 9 | The mosaic as the product: strands as recombination sequences, including inside nested chains | new output; no gate on old behaviour |
 
-Steps 1-3 and 6 should be byte-identical. Only 4 and 7 move numbers.
+Steps 1-3 and 6 should be byte-identical. With step 4 deleted, **only step 7 moves numbers** --
+the two conditioning arms and the three parent-to-child distance arms. Everything else in the
+rebuild is gated on producing the identical answer.
 
 ## Expected size
 
