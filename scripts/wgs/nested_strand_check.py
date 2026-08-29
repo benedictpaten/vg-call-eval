@@ -90,11 +90,11 @@ def wildcard_intervals(mosaic, contig):
         for line in fh:
             if line.startswith("#mosaic-version"):
                 seen_version = line.rstrip("\n").split("\t")[1]
-                if seen_version != "3":
+                if seen_version not in ("3", "4"):
                     raise SystemExit(
-                        f"{mosaic}: mosaic-version {seen_version}, need 3 -- in version 2 the "
+                        f"{mosaic}: mosaic-version {seen_version}, need 3 or 4 -- in version 2 the "
                         "haplotype column conflated 'panel cannot explain' with 'no sequence here', "
-                        "so this measurement would over-report"
+                        "so this measurement would over-report. Version 4 only appends columns."
                     )
             if not line.startswith("H\t"):
                 continue
