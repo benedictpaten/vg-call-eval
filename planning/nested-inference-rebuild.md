@@ -359,6 +359,38 @@ The veto changes scope with them. It rejected a WHOLE contig run if any one site
 grouped; a site that cannot be grouped is now decoded alone instead -- which preserves what the veto
 protected without chaining that site to sites under unrelated parents.
 
+## Whole genome, 24 contigs: confirmed
+
+Two fresh arms, `faedeb9e4` (this session's starting point) against the current tree, same inputs,
+same scheduler. A fresh baseline rather than the `wgs-tt` arm on disk, which predates the session and
+would have credited today with two days' work.
+
+| autosomes, chr1-22 | base | final | |
+|---|---|---|---|
+| ALL F1 | 0.972941 | **0.972942** | +8.2e-7 |
+| SNV | 0.984909 | 0.984909 | -1.5e-7 |
+| JointIndel | 0.927538 | **0.927542** | +4.4e-6 |
+| Insertion | 0.917687 | **0.917690** | +3.4e-6 |
+| Deletion | 0.940780 | **0.940785** | +5.4e-6 |
+| SV >=50 bp | **0.562112** | 0.561987 | -1.25e-4 |
+
+All 24 contigs give the same picture: ALL 0.970507 -> 0.970508, SV 0.559939 -> 0.559817.
+
+Small variants come out very slightly ahead -- 7 fewer false positives across the autosomes, 4.04 M
+true positives unchanged. SV comes out slightly behind: 14,066 -> 14,064 true positives and 12,511 ->
+12,517 false positives, which is **8 calls out of about 27,000**.
+
+**And it answers the question the three-contig work left open.** chr20's single SV false positive is
+NOT representative -- it is a coin flip. Per contig:
+
+- **11 of 24 contigs are identical on every metric.**
+- 8 contigs move on SV, and the signs disagree: chr19 +1.2e-3, chr17 +8.4e-4 and chr5 +3.7e-4 gain,
+  while chr3 -1.8e-3, chr8 -7.3e-4, chr1 -5.8e-4, chr21 -5.2e-4, chr7 -4.3e-4 and chr20 -3.3e-4 lose.
+
+That is the same shape every arm in this rebuild produced: a handful of calls, moving in both
+directions, with the aggregate landing wherever the individual contigs happen to sum. The rebuild is
+accuracy-neutral genome-wide, which is what it was supposed to be.
+
 ## What it cost, measured
 
 Baseline `faedeb9e4` against the final tree, both pinned, run alone, and each verified byte-identical
