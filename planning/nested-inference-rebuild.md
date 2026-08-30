@@ -442,17 +442,21 @@ Step 8 is the one deliberate behaviour change, scored separately: one structural
 chr17, nothing lost on any contig, with `VG_CALL_INLINE_SKIPS_DESCENT` keeping the old arm so
 everything else could be gated on identity.
 
-**What is left, in the order it should be taken:**
+**What is left.** Two pieces of 6c, and one unrelated defect. Nothing else in the table is open.
 
-1. **The conditioning simplification.** A delta at the parent's settled pair reproduces its posterior
-   to six decimals, which makes `posteriors_with_context`, the sparse mask through
-   `segment_posteriors`, the alpha/beta harvest and `parent_context` unnecessary. It moves one call
-   and it is a redesign of the decode's interface, so it is a decision rather than a gated step --
-   but it is the largest deletion still available.
-2. **6c**, re-scoped by M4: a recursion for the diploid groups, `respecify` and the generation loop
-   with it, and the per-strand haploid sweep left standing.
-3. `ref_offsets` uses `operator[]` at 19 read sites from worker threads, the same defect just fixed
-   for `ref_ploidies`.
+1. **`respecify`**, 87 lines. It is retract-plus-record in principle -- but it PRESERVES
+   `explained_share` and five other fields `record` would reset, and both take the collector's mutex,
+   so a naive unification either deadlocks or silently changes `explained_share` on 2,378 chains.
+   Doable with the fields threaded explicitly and a lock-free inner; byte-identity is the gate.
+2. **The generation loop.** Thin now that 6c's two increments have landed: `resolve_generation` at
+   depth > 0 is already "group by parent, decode each group". Converting the loop to a recursion
+   changes decode ORDER, not content, so it buys shape and nothing measurable. Lowest value of
+   anything remaining.
+3. **`ref_offsets` uses `operator[]` at 19 read sites from worker threads** -- inserts on a missing
+   key, so it is a data race on the std::map, the same defect fixed for `ref_ploidies`. Unrelated to
+   the rebuild and independently gateable.
+
+The conditioning simplification that used to head this list is **done** -- see the section above.
 
 ## Expected size
 
