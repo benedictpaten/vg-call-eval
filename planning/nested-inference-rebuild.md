@@ -442,19 +442,26 @@ Step 8 is the one deliberate behaviour change, scored separately: one structural
 chr17, nothing lost on any contig, with `VG_CALL_INLINE_SKIPS_DESCENT` keeping the old arm so
 everything else could be gated on identity.
 
-**What is left.** Two pieces of 6c, and one unrelated defect. Nothing else in the table is open.
+**What is left.** Nothing in the table. All three items below landed; the whole-genome confirmation
+is running.
 
-1. **`respecify`**, 87 lines. It is retract-plus-record in principle -- but it PRESERVES
-   `explained_share` and five other fields `record` would reset, and both take the collector's mutex,
-   so a naive unification either deadlocks or silently changes `explained_share` on 2,378 chains.
-   Doable with the fields threaded explicitly and a lock-free inner; byte-identity is the gate.
-2. **The generation loop.** Thin now that 6c's two increments have landed: `resolve_generation` at
-   depth > 0 is already "group by parent, decode each group". Converting the loop to a recursion
-   changes decode ORDER, not content, so it buys shape and nothing measurable. Lowest value of
-   anything remaining.
-3. **`ref_offsets` uses `operator[]` at 19 read sites from worker threads** -- inserts on a missing
-   key, so it is a data race on the std::map, the same defect fixed for `ref_ploidies`. Unrelated to
-   the rebuild and independently gateable.
+**`respecify` is gone**, 126 lines, byte-identical. It is retract-plus-record with the six fields it
+silently preserved passed explicitly. Two things had to be got right for that to be equivalent:
+`explained_share` is captured BEFORE the ploidy swap releases the original CallInfo (the alternate
+does not copy it), and a chain that had no entry still gets the hard 1.0 the old fallback passed
+rather than its real share -- the two old paths disagreed, the layer hands that value to
+`apply_linkage_quality` where it discounts GQ, and it moved 5 chr20 records. Invisible to F1, which
+does not read quality fields; caught by byte-identity.
+
+**`ref_offsets` and `ref_ploidies` read through `ref_offset_of` / `ref_ploidy_of`.** Eighteen reads
+used `operator[]`, which inserts on a miss, from OpenMP worker threads.
+
+**The generation loop stays a loop, and now says why.** A recursion is not available: each group's
+decode depends only on its parent's settled state, so level-order and depth-first would agree --
+except that the per-strand haploid pass pools a whole contig's nested haploid sites on one strand,
+which M4 measured worth two structural variants on chr20 and two on chr6. Depth-first would hand it
+one subtree at a time. What the loop lost instead is the duplicated `has_entry` query and a counter
+still named after `respecify`.
 
 The conditioning simplification that used to head this list is **done** -- see the section above.
 
