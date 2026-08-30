@@ -331,9 +331,14 @@ DELTA at the pair the parent settled on, built where it is consumed.
 
 One structural-variant false positive on one contig, nothing on the other two. It is the same
 magnitude every arm here has moved, but unlike the others it never reverses sign -- there is no
-contig where it gains. Kept, because the rebuild's measure is code removed and a single FP out of 445
-is inside the band this branch has treated as noise all day; flagged rather than buried so reversing
-it is a decision someone can make on the numbers.
+contig where it gains.
+
+**No switch, and that was decided rather than overlooked.** Every other output-moving change on this
+branch keeps both arms in one binary -- `VG_CALL_INLINE_SKIPS_DESCENT`, `VG_LINKAGE_PER_CHAIN_STRAND`,
+`VG_CALL_NO_REF_NESTED`. This one does not: the posterior path is gone, `git revert` of it conflicts
+with the 6c increments that followed, and restoring it behind a flag was offered and declined. The
+whole value of the change is the 226 lines, and a flag keeps them. Simpler wins; the cost is on the
+record above, and the way back is this document plus commit `e7f7a27f9`.
 
 **A use-after-free flattered the first attempt, and that is the part worth remembering.** The deltas
 were held in a deque declared inside the loop that filled it, while the pointer vector indexing them
