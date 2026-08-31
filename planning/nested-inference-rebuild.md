@@ -556,7 +556,7 @@ that fills it. The strand derivation, its counters and the `hap_contradicted` fi
 | D1 | The chain loop's haploid branch takes the context. Inert: no haploid chain has one yet. | byte-identical |
 | D2 | Strand derivation moves ahead of the grouping; the per-strand pass consumes the result instead of deriving it. | byte-identical |
 | D3 | Behind a switch, route nested haploid sites into the (parent, chain) grouping with ploidy 1 and a single-haplotype delta, instead of into the strand buckets. | accuracy, three contigs then genome-wide -- expected neutral |
-| D4 | Make it the default and delete the per-strand decode. | byte-identical against D3 with the switch on |
+| D4 | Make it the default and delete the per-strand decode. | byte-identical against D3 with the switch on -- **done**, and it exposed three mosaic-only regressions the VCF gate could not see |
 | D5 | The parent POSTERIOR, for both populations: harvest the per-strand marginal (`m` = 35 doubles per parent, against the `m*m` = 1,225 of the pair message deleted earlier) and use it in place of the delta. | accuracy |
 
 D5 is the experiment the owner asked for and the one none of the five conditioning arms actually
@@ -599,3 +599,56 @@ current code in which the top-level chain is (mostly) haploid?" -- which is exac
 asking that question is what replaced a haploid special case with the ploidy-match rule that fixed
 it. The rule I had written, "a haploid group does not contain its parent", would have excluded chrX's
 parents for no reason and kept the bug.
+
+## D4: deleting the pass was free, but three of its jobs were not the decode
+
+The per-strand pass is unreachable once the grouping handles nested haploid chains, so D4 deleted it
+along with `deferred_nested`, the two collectors that filled it, the dead ploidy-difference decline
+counter, and the emission-masking arm behind `VG_LINKAGE_HAPLOID_PARENT` together with the two
+`Site` fields nothing writes any more. Net **-731 lines**.
+
+It was not free. The pass did three things besides decoding, and the grouping replaced none of them.
+All three were caught by the unit tests and **none of them by the VCF**, which came out
+byte-identical on chr20, chr6 and chrX with identical small-variant and SV F1 on all three.
+
+**Haplotype slots are indexed by STRAND.** A haploid decode returns one haplotype and the render put
+it in `hap_first` unconditionally; the mosaic reads `strand == 0 ? hap_first : hap_second` and calls
+the other slot empty (`.`) rather than unexplained (`*`). So a chain on the parent's second strand
+was reported carried on the strand it is not on and unexplained on the strand it is.
+
+| chr20 mosaic | before | after |
+|---|---|---|
+| strand 0 named | 11,264 sites | 10,199 |
+| strand 0 empty | 0 | 1,065 |
+| strand 1 named | 8,958 | 10,023 |
+| strand 1 **unexplained** | **1,066** | **1** |
+
+20,222 named sites either way: a pure relocation, which is the signature to check for. 98 sites on
+chrX, the same shape.
+
+**The phasing was unconditioned while the posteriors were conditioned.** `haploid_posteriors` took
+the entering message and `haploid_phasing` did not, so the genotype was settled against the parent
+and the mosaic then named a haplotype chosen in complete ignorance of it. Both take it now, applied
+to the Viterbi start of the chain's first window, falling back to uniform where the message and the
+emission share no state. Seven chrX sites that had fallen to the wildcard now name a haplotype.
+
+**A missing strand has two causes that want opposite renderings.** Under a haploid parent there is
+no strand to choose because there is only one, and the haplotype is nameable -- that is all 44,139 of
+chrX's, reproduced exactly by the new counter. Under a diploid parent whose settled pair does not
+reach the chain there is no strand because the sample has no copy of the locus, and naming a
+haplotype asserts a mosaic path through sequence the parent record does not carry.
+
+**And a correction that belongs in the record.** The entering message is a prior in *form*, and both
+this file and the header described it as one the emission could argue back against. It cannot: the
+collector supplies a point mass, so a state the message excludes is unreachable. What the reads can
+do is recombine away from it over the chain -- which means on a **one-site** chain the message
+decides the answer outright. That is not a defect (79, 71 and 97 extra genotypes moved on chr20,
+chr6 and chr17, and 2,599 on chrX, where it took SV F1 up 2.0e-2), but it is a stronger operation
+than "prior" suggests and D5 should be read with it in mind.
+
+**Gating note.** Three of these were invisible to VCF byte-identity and to F1 alike, because the
+haplotype slots feed the mosaic only. The unit tests were the only gate that caught them -- and two
+of the three fixtures had been recording nested sites at generation 0, a state the caller cannot
+produce, which the deleted pass serviced and the grouping (gated to `generation > 0`) cannot. Any
+future change to nested rendering wants the mosaic's per-strand accounting in the gate set, not just
+the VCF.
