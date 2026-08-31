@@ -698,3 +698,52 @@ The plumbing is reverted rather than shipped behind `VG_LINKAGE_PARENT_POSTERIOR
 it re-introduces a per-site retention that has no bound (which site is a parent is not known until
 the next generation descends -- the deleted `wanted_parents` mask existed to answer exactly that),
 and its value is the measurement, which is recorded here.
+
+## Ploidy as a parameter: the premise, measured
+
+"If done correctly the diploid/haploid property should be a simple parameter that simply gates
+ploidy." Measured against the code rather than argued, and the answer is half yes.
+
+| pair | diploid | haploid | identical lines | longest common run |
+|---|---|---|---|---|
+| `build_emission` / `haploid_emission` | 47 | 26 | 21% | 8 |
+| `window_posteriors` / `window_haploid_posteriors` | 170 | 134 | 40% | 5 |
+| `window_phasing` / `window_haploid_phasing` | 135 | 130 | 37% | 8 |
+| `posteriors` / `haploid_posteriors` | 11 | 13 | **69%** | -- |
+| `phasing` / `haploid_phasing` | 22 | 15 | 27% | -- |
+
+**The cores are not duplicated.** They share their shape -- build emissions, apply the constraint,
+forward, backward, reduce to genotype space -- and almost none of their code, because m against m*m
+changes every index and the reduction is a different function. The "identical" lines are mostly
+closing braces; no shared run exceeds 8 lines in 800. Merging them means a ploidy branch in the
+innermost loop of the hot path, bought with the deletion of boilerplate. Not taken.
+
+**The wrappers are duplicated, and they are where the damage was.** Both drift bugs this layer has
+had were a parameter added to one ploidy and forgotten on the other: `haploid_posteriors` had no
+`alpha_in` at all, and the haploid phasing had none while the haploid posteriors did -- which is how
+the mosaic came to name haplotypes chosen in ignorance of the parent the genotype had just been
+settled against. Neither is reachable through a single entry point. So `posteriors` and `phasing`
+now take the ploidy and pick their own state space, `haploid_posteriors` and `haploid_phasing` are
+gone, and so is the collector's adapter loop, since `phasing` returns `Phase` at both ploidies.
+
+Line count is a wash (-3) and that is the design: the win is one door, not fewer lines.
+
+Generalising to arbitrary ploidy was considered and rejected as speculative -- `-d` is rejected
+outside {1, 2} at the CLI, at `graph_caller.cpp:720` and `:4883`, and asserted in
+`snarl_caller.cpp:512`.
+
+Inert: chr20 and chrX byte-identical, VCF and mosaic. `vg test` 12,547,771 assertions;
+`18_vg_call.t` 318 alone.
+
+## A gate that missed, again, and in a new way
+
+D4 shipped failing `18_vg_call.t` 139. The test pattern-matches the wording of the
+`[vg call] nested strands: ...` progress line; D4 replaced that line; and the gating had pinned the
+binary and run TAP *before* the replacement went in, checking only VCF and mosaic byte-identity
+afterwards -- which a stderr line does not touch.
+
+The rule that would have caught it is not "check stderr too". It is that **a pinned binary
+invalidates on any later source edit**, however inert the edit looks, because "inert" was only ever
+established for the outputs that were compared. Fixed in `2c041db50`, with a second assertion added:
+the old awk was vacuously true if the report never printed, so a report that stops being emitted now
+fails loudly instead of passing every run.
