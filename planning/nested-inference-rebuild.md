@@ -779,3 +779,58 @@ by a unit test and by `18_vg_call.t` 139, not by any observed population.
 
 **Nothing has been proposed upstream.** The work is on `benedictpaten/vg`
 `read-likelihood-genotyping`, pushed through `3b96e258d`.
+
+## `nameable == false`: the comment named the one cause that cannot happen
+
+The guard exists so a nested haploid chain under a diploid parent names no panel haplotype when it
+sits on no strand. `nested_strand_of` returns -1 for three situations that `relate_to_parent` spells
+apart, and the comment justified the guard with the only one that cannot arrive:
+
+| `carrying` | meaning | reachable here? |
+|---|---|---|
+| -1, `copies == 0` | neither settled traversal carries the chain | **no** -- the barrier calls `drop_subtree` and the whole subtree is retracted before the generation is grouped |
+| -2, `copies == 2` | BOTH carry it | yes, but only when the chain kept a ploidy of 1 its parent contradicts, because the barrier could not re-render it (387 such chains on chr20, 1,812 on chrX) |
+| -1, `!known` | the settled pair could not be read | yes |
+
+Naming nothing is *conservative* rather than right for `copies == 2`: both haplotypes carry the
+chain, so both could be named, and the per-strand pass did exactly that. Not reproduced, because the
+population is empty on every contig measured -- 0 under the old pass's `carried_on_both` on chr20,
+chr6, chr17 and chrX, and 0 under the new counters on chr20 and chrX -- and inventing a rendering for
+a case nobody has observed is how three of the D4 regressions got their behaviour wrong in the first
+place. The counter is split into `carried on both parent strands` and `whose parent's settled pair
+could not be read` so a nonzero says which, `18_vg_call.t` asserts both are zero, and a unit test
+now exercises the reachable path rather than leaving the branch untested outside production.
+
+## The depth-first recursion, costed: it is a rewrite, not a cleanup
+
+D4 removed the reason the generation loop had to be level-order. Measuring before writing it shows
+the recursion is not available at this interface at all.
+
+`resolve_generation` does O(all recorded sites) of work **per call**, independent of how many sites
+that call decodes -- it rebuilds `pinned_phase` from the whole accumulated phasing, and it used to
+scan every entry twice more to find the ones belonging to this generation. On chr20:
+
+| gen | entries scanned | live | |
+|---|---|---|---|
+| 0 | 219,082 | 192,045 | |
+| 1 | 220,571 | 21,796 | |
+| 3 | 221,940 | 896 | |
+| 6 | 221,971 | **2** | |
+
+**75.2 ms across the seven calls**, 0.9% of the 8.0 s linkage layer and 0.04% of the run. A
+per-subtree recursion makes one call per subtree root -- thousands on chr20 -- so that same preamble
+runs thousands of times: order 20 s, against 75 ms now and against an 8 s linkage layer. Making the
+recursion viable means rewriting `resolve_generation` to be subtree-scoped, and what that rewrite
+buys is the 75 ms.
+
+Taken instead, because it is the honest part and the prerequisite for any later scoping:
+`by_generation` indexes entry indices by generation at `record()` time, in append order, so the three
+full scans become walks of exactly the entries they were selecting. Preamble **75.2 ms -> 50.3 ms**,
+byte-identical by construction -- `Entry::generation` is set before the push and never mutated, so
+the index holds the same indices in the same order.
+
+**Not taken:** making `pinned_phase` incremental, which is the remaining 49.6 ms of the 50.3. An
+append cursor into `phasing_out` would do it, but a `last` call sorts that vector in place and the
+caller may call again afterwards when a deeper chain grows the generation bound -- so the cursor
+would be silently invalidated by a reorder, to save 50 ms of a 170 s run. Recorded at both sites so
+the next reader does not have to re-derive it.
