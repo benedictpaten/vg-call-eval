@@ -557,7 +557,7 @@ that fills it. The strand derivation, its counters and the `hap_contradicted` fi
 | D2 | Strand derivation moves ahead of the grouping; the per-strand pass consumes the result instead of deriving it. | byte-identical |
 | D3 | Behind a switch, route nested haploid sites into the (parent, chain) grouping with ploidy 1 and a single-haplotype delta, instead of into the strand buckets. | accuracy, three contigs then genome-wide -- expected neutral |
 | D4 | Make it the default and delete the per-strand decode. | byte-identical against D3 with the switch on -- **done**, and it exposed three mosaic-only regressions the VCF gate could not see |
-| D5 | The parent POSTERIOR, for both populations: harvest the per-strand marginal (`m` = 35 doubles per parent, against the `m*m` = 1,225 of the pair message deleted earlier) and use it in place of the delta. | accuracy |
+| D5 | The parent POSTERIOR, for both populations: harvest the per-strand marginal (`m` = 35 doubles per parent, against the `m*m` = 1,225 of the pair message deleted earlier) and use it in place of the delta. | accuracy -- **done and reverted**: byte-identical on chr20 and chrX, so the delta is sufficient |
 
 D5 is the experiment the owner asked for and the one none of the five conditioning arms actually
 ran: every one of them handed the child the parent's ARGMAX, which discards what the Li-Stephens
@@ -652,3 +652,49 @@ of the three fixtures had been recording nested sites at generation 0, a state t
 produce, which the deleted pass serviced and the grouping (gated to `generation > 0`) cannot. Any
 future change to nested rendering wants the mosaic's per-strand accounting in the gate set, not just
 the VCF.
+
+## D5: the parent's posterior changes nothing, and the machinery is not kept
+
+D5 was the last item: condition a child on its parent's POSTERIOR over panel haplotypes rather than
+on the argmax of it. Built, measured, and **reverted** -- the arm is byte-identical to D4 on chr20
+and chrX, VCF and mosaic, across 994 + 5,682 = 6,676 conditioned haploid groups. Not within noise:
+not one record.
+
+**Scoped to the haploid population, because the diploid half was already answered.** The diploid arm
+ran the other way round earlier in this rebuild: the parent's exact posterior over ordered PAIRS was
+the default and `VG_LINKAGE_HARD_PARENT` replaced it with the delta, which came out identical to six
+decimals on every small-variant class on chr20 and chr6 at the cost of one SV false positive. A
+strand marginal is a strictly lossier summary of that same distribution, so there was nothing there
+to find. The haploid population is the one that had no parent message at all before D3.
+
+**The first version of the arm was wrong, and the way it was wrong is the interesting part.** "The
+parent's marginal on this strand" is not a strand-specific object. A top-level diploid site starts
+from a uniform 1/(m*m), its emission is symmetric in the pair because `genotype_index` sorts, and its
+two per-strand switch probabilities are equal, so the joint is invariant under swapping the strands
+and the two marginals come out the same. Measured rather than assumed once the suspicion was there:
+**673 of 887 diploid parents on chr20 have the two marginals equal to 1e-9, and 201 of 241 on chrX**
+-- so it is most of them, not all, and the asymmetric quarter comes from steps where the parent's two
+traversals have different lengths.
+
+What IS strand-specific is the **allele** the parent settled on for the traversal the chain hangs
+off. So the message became the posterior over which panel haplotype is carrying that allele: the
+marginal restricted to haplotypes spelling it, renormalised. The argmax of exactly that distribution
+is the delta, which makes the arm a clean softening rather than a different message.
+
+**And that is why it is a null.** Once the parent's allele is conditioned on, the residual spread is
+over haplotypes that all spell the same allele at the parent site -- and haplotypes agreeing there
+tend to agree at the child, because that is what linkage is. The distribution's shape inside an
+allele class carries nothing the child can use.
+
+So the delta is not an approximation waiting to be improved. It is sufficient, now measured from
+both directions:
+
+| | message | result |
+|---|---|---|
+| diploid nested | exact pair posterior -> delta | identical to six decimals, one SV FP |
+| haploid nested | delta -> allele-restricted posterior | **byte-identical** |
+
+The plumbing is reverted rather than shipped behind `VG_LINKAGE_PARENT_POSTERIOR`: it is 203 lines,
+it re-introduces a per-site retention that has no bound (which site is a parent is not known until
+the next generation descends -- the deleted `wanted_parents` mask existed to answer exactly that),
+and its value is the measurement, which is recorded here.
