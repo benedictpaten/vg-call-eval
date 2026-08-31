@@ -509,3 +509,58 @@ rest.
 It is not a performance or accuracy project. Everything measured today that survived was a deletion:
 inter-chain linkage is worthless, and the off-reference population costs slightly more than it gives.
 The value here is the code that stops existing, and that should not be read as anything else.
+
+## Design pass: one decode path for both nested populations
+
+Authorised after the genome-wide measurement showed the two treatments are indistinguishable
+(ALL +6e-8, SV -3.7e-4; 37 truth SVs lost against 30 gained, P = 0.46). The choice is therefore
+free, and it is being made on simplicity.
+
+### Target state
+
+`resolve_generation` groups every live nested site of the current generation by (parent, chain),
+**regardless of ploidy**. A group's ploidy is its sites'. Its context is a delta built from the
+parent's PhaseCall -- over PAIRS for a diploid group, over SINGLE haplotypes for a haploid one -- and
+the existing chain loop decodes both, because it already dispatches on `chain_ploidy`:
+
+```
+if (chain_ploidy == 1)      haploid_posteriors(sites)              <- gains the context
+else if (context != null)   segment_posteriors(sites, ..., context)
+else                        posteriors(sites)
+```
+
+One pointer serves both messages: `haploid_posteriors` accepts one of size `m`, `window_posteriors`
+one of size `m*m`, and each already ignores a wrongly sized message. No dispatch on ploidy is needed
+to build or pass it.
+
+### What moves rather than merges
+
+**Strand derivation.** A haploid group's strand is a property of the group -- one parent, one chain,
+one carrying traversal -- and it is needed twice: to choose which of the parent's two haplotypes
+conditions the chain, and to fill `PhaseCall::nested_strand`. It has to run before the grouping. It
+is also the genuinely nested-specific logic and the part worth keeping intact: it carries the
+`ploidy == 2` guard that chrX's haploid interior needs (0.94939 -> 0.93643 when it was missing) and
+the nested-haploid-parent case that the identity match cannot find.
+
+### What is deleted
+
+The per-strand pass is 754 lines. Roughly 250 of them -- `by_strand`, the bucket sort, the site
+build, the `haploid_posteriors` call, the settle loop, the `haploid_phasing` call and the PhaseCall
+emission -- duplicate what the chain loop does. Those go, with `deferred_nested` and the hold-out
+that fills it. The strand derivation, its counters and the `hap_contradicted` fixup stay.
+
+### Increments, each with its own gate
+
+| | step | gate |
+|---|---|---|
+| D1 | The chain loop's haploid branch takes the context. Inert: no haploid chain has one yet. | byte-identical |
+| D2 | Strand derivation moves ahead of the grouping; the per-strand pass consumes the result instead of deriving it. | byte-identical |
+| D3 | Behind a switch, route nested haploid sites into the (parent, chain) grouping with ploidy 1 and a single-haplotype delta, instead of into the strand buckets. | accuracy, three contigs then genome-wide -- expected neutral |
+| D4 | Make it the default and delete the per-strand decode. | byte-identical against D3 with the switch on |
+| D5 | The parent POSTERIOR, for both populations: harvest the per-strand marginal (`m` = 35 doubles per parent, against the `m*m` = 1,225 of the pair message deleted earlier) and use it in place of the delta. | accuracy |
+
+D5 is the experiment the owner asked for and the one none of the five conditioning arms actually
+ran: every one of them handed the child the parent's ARGMAX, which discards what the Li-Stephens
+process computed about how certain that haplotype is. A constant-strength prior was swept (w = 0.5
+to 1.0, 35x to infinity in prior odds) and was flat, which says calibration is not the issue -- but a
+constant cannot emulate a per-site confidence, so it does not answer the question.
