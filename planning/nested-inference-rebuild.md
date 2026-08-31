@@ -112,7 +112,7 @@ is answered separately at 8b. | none needed |
 | M4 | **DONE, and the answer is NO.** Pooling haploid nested chains across a (phase set, strand) is worth two structural variants on chr20 and two on chr6, none lost anywhere; small variants are a wash. The pooling stays, and 6c is re-scoped accordingly -- see the section above. | accuracy, three contigs |
 | SC | **DONE.** `record()`'s ten trailing parameters became one `SiteContext` with named initialisers. They were all bool, int and size_t -- which convert to one another silently -- so a call site that dropped one still compiled with every later argument shifted. That happened three times on this branch and the compiler caught none of them. | byte-identical |
 | H | **DONE, ~90 lines.** Housekeeping, before 6c. Eight empty conditional bodies and one wholly dead loop remain in `linkage_model.cpp` where 6d removed the counters but left their conditions, and their comments describe instruments that no longer exist. ~40 lines. Worth clearing before the restructure carries them through it. | byte-identical |
-| 6c | **TWO INCREMENTS DONE, both byte-identical on three contigs; the rest NOT started.** Done: (1) at depth > 0 the contig runs are not built and every live site is grouped with its parent straight from the entries -- the veto that walked those runs had never fired on any contig, and its scope was wrong anyway, so a site that cannot be grouped is now decoded alone rather than chained to sites under unrelated parents; (2) the by-contig collection and its per-contig sort no longer run below the top level at all -- `deferred_nested` is gathered directly and sorted on the same key. **Not done: `respecify` and the generation loop.** `respecify` (87 lines) is retract-plus-record in principle, but it PRESERVES `explained_share` and five other fields that `record` would reset, and both take the collector's mutex -- so a naive unification deadlocks or silently changes 2,378 chains' `explained_share`. The loop is thin now that (1) and (2) have landed: converting it to a recursion changes decode ORDER, not content, and buys shape rather than anything measurable. | byte-identical, three contigs, plus TAP |
+| 6c | **TWO INCREMENTS DONE, both byte-identical on three contigs; the rest NOT started.** Done: (1) at depth > 0 the contig runs are not built and every live site is grouped with its parent straight from the entries -- the veto that walked those runs had never fired on any contig, and its scope was wrong anyway, so a site that cannot be grouped is now decoded alone rather than chained to sites under unrelated parents; (2) the by-contig collection and its per-contig sort no longer run below the top level at all -- `deferred_nested` is gathered directly and sorted on the same key. **`respecify` and the generation loop have since landed too** -- `respecify` is gone (126 lines, byte-identical) and the loop stays a loop deliberately, see below.  Originally recorded as not done: `respecify` (87 lines) is retract-plus-record in principle, but it PRESERVES `explained_share` and five other fields that `record` would reset, and both take the collector's mutex -- so a naive unification deadlocks or silently changes 2,378 chains' `explained_share`. The loop is thin now that (1) and (2) have landed: converting it to a recursion changes decode ORDER, not content, and buys shape rather than anything measurable. | byte-identical, three contigs, plus TAP |
 | 7 | **DONE, and every arm came back a wash.** The parent-to-child distance is unmeasurable -- three arms spanning no-link to perfect-link, and on SV both alternatives change sign between chr20 and chr6. The hard-clamp conditioning is worth one false positive across two contigs. Neither is adopted: the default already spends nothing on the distance, and the conditioning arm's value is the machinery it shows to be unnecessary rather than the switch itself. See the two sections above. | accuracy, chr20 and chr6 |
 | 8 | **DONE, and it is NOT inert -- the earlier row had that wrong.** `chain_reported_inline` does return false without `atomize_blocks`, and `--atomize-blocks` is ON by default under `--read-likelihood`: the rule holds back 391 chains on chr20, every one of which is now genotyped, recorded and phased. The line is still suppressed, at the render hand-off, beside the off-reference population that already had that shape. An emission rule was deciding what got inferred. `VG_CALL_INLINE_SKIPS_DESCENT` restores the old behaviour so both arms come from one binary. | scored against the old arm on three contigs |
 | 8b | ~~Remove the reference gate~~ -- **declined, and it was already measured.** Admitting off-reference chains (`VG_CALL_NO_REF_NESTED`) adds 12,486 chains on chr20, never improved recall in any arm, and changes the record set, so it cannot be gated on record identity the way step 8 can. The gate stays on by default and the flag stays as an arm. | -- |
@@ -747,3 +747,35 @@ invalidates on any later source edit**, however inert the edit looks, because "i
 established for the outputs that were compared. Fixed in `2c041db50`, with a second assertion added:
 the old awk was vacuously true if the report never printed, so a report that stops being emitted now
 fails loudly instead of passing every run.
+
+## What is actually left
+
+Every row of every table above is done. What remains is three decisions and one known gap, none of
+them work in progress.
+
+**The depth-first recursion is unblocked, and is not being taken.** 6c's original ambition was to
+replace the barrier with a recursion, and M4 blocked it: the per-strand haploid pass pooled a whole
+contig's nested haploid sites on one strand, worth two structural variants on chr20 and two on chr6,
+and depth-first cannot hand a whole-contig pass one subtree at a time. D4 deleted that pass. Every
+group is now keyed on a single parent and depends only on that parent's settled state, so the two
+orders would agree.
+
+It stays a loop because a recursion changes the order groups are decoded in and nothing about their
+content, and generation 0 is a contig-wide run either way so it would not even be uniform. The
+comment at the loop says so now; the constraint that used to justify it is recorded as gone rather
+than left to be rediscovered.
+
+**No whole-genome confirmation since D1.** The last 24-contig run was `faedeb9e4` against the
+pre-D1 tree, and it is what "accuracy-neutral" rests on for everything before the design pass.
+D1-D5, the ploidy unification and the cleanup are gated on chr20 and chrX only, at the owner's
+instruction -- chr20 and chrX being sufficient for iteration, and chrY not benchmarkable. chr6 and
+chr17 were in the gate set through D4 and byte-identical there. Everything since D4 is byte-identical
+on chr20 and chrX, so the accuracy claim propagates by identity rather than by re-measurement, but
+it has not been re-measured genome-wide and should not be described as if it had.
+
+**`nameable == false` is never reached on real data.** Zero on chr20 and zero on chrX: no nested
+chain is unreached by its parent's settled pair. It is a guard for a state that can occur, held up
+by a unit test and by `18_vg_call.t` 139, not by any observed population.
+
+**Nothing has been proposed upstream.** The work is on `benedictpaten/vg`
+`read-likelihood-genotyping`, pushed through `3b96e258d`.
