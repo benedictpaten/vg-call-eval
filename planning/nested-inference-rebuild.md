@@ -564,3 +564,38 @@ ran: every one of them handed the child the parent's ARGMAX, which discards what
 process computed about how certain that haplotype is. A constant-strength prior was swept (w = 0.5
 to 1.0, 35x to infinity in prior odds) and was flat, which says calibration is not the issue -- but a
 constant cannot emulate a per-site confidence, so it does not answer the question.
+
+## D3 found a real bug on chrX, and it was the uniform rule that exposed it
+
+Four contigs, switch off against on. The autosomes behave as the genome-wide conditioning arm
+predicted -- a wash. chrX does not.
+
+| chrX | off | on | |
+|---|---|---|---|
+| ALL F1 | 0.956487 | **0.958307** | +1.8e-3 |
+| SNV | 0.968728 | 0.969484 | +7.6e-4 |
+| JointIndel | 0.917183 | **0.922148** | +5.0e-3 |
+| SV >=50 bp | 0.456872 | **0.476471** | **+2.0e-2** |
+| small-variant FP | 4,409 | **4,095** | -314 |
+| SV FP | 318 | **281** | -37 |
+
+Fifty times any other movement in this rebuild, and the 1,120 records chrX "loses" are almost all
+false positives. Autosomes for comparison: chr20 ALL -1.5e-5, chr6 +2.2e-5, chr17 +3.9e-6.
+
+**The cause is structural.** chrX's 40,301 nested sites were bucketed by (phase set, strand) on a
+contig that HAS no strand: `nested_strand_of` correctly returns -1 for a top-level haploid parent, so
+they came out "on neither strand", unplaced, and whatever handled them then was emitting hundreds of
+spurious calls. Under the uniform rule they are haploid children of a HAPLOID parent, the ploidies
+match, and they join their parent's group and are decoded as part of a chain like anything else.
+
+Two lessons, both about how this was gated rather than about the code:
+
+**Three autosomes could not see it.** All 44,139 no-strand sites on chr20/chr6/chr17/chrX are chrX's,
+and 95,339 more are chrY's; the 22 autosomes have zero. Every gate in this session ran on three
+autosomes.
+
+**The owner predicted it from the design, not the data.** "Surely chrX is just a special case of the
+current code in which the top-level chain is (mostly) haploid?" -- which is exactly what it is, and
+asking that question is what replaced a haploid special case with the ploidy-match rule that fixed
+it. The rule I had written, "a haploid group does not contain its parent", would have excluded chrX's
+parents for no reason and kept the bug.
