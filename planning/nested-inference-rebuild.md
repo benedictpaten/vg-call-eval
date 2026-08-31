@@ -773,9 +773,36 @@ chr17 were in the gate set through D4 and byte-identical there. Everything since
 on chr20 and chrX, so the accuracy claim propagates by identity rather than by re-measurement, but
 it has not been re-measured genome-wide and should not be described as if it had.
 
-**`nameable == false` is never reached on real data.** Zero on chr20 and zero on chrX: no nested
-chain is unreached by its parent's settled pair. It is a guard for a state that can occur, held up
-by a unit test and by `18_vg_call.t` 139, not by any observed population.
+**`nameable == false` is never reached on real data** -- resolved, see the section on it below. The
+guard stays, its comment now names the causes that can actually reach it, the counter is split so a
+nonzero says which, and a unit test exercises the reachable path.
+
+**chrX's pseudoautosomal calling is entirely unmeasured, and this was not noticed until it was
+challenged.** Every chrX F1 in this file is the HAPLOID INTERIOR only. Both T2T-Q100 benchmark BEDs
+cover **0 bp of PAR1 and 0 bp of PAR2**, and both scorers are restricted to them -- aardvark through
+`regions_bed`, truvari through `--includebed` (`scripts/wgs/bench_wgs.py:79` and `:116`). The truth
+VCF does contain the PAR variants -- 11,209 + 474 small and 11,970 + 495 structural, all diploid --
+so it is the confident-region BED that excludes them, not the truth.
+
+Meanwhile the caller is emitting there, and none of it is scored as anything:
+
+| chrX region | records | diploid | SV >=50 bp | scored |
+|---|---|---|---|---|
+| PAR1, 0-2.39 Mb | 9,177 | 9,177 | 421 | **no** |
+| interior | 102,010 | 0 | 652 | yes |
+| PAR2, 153.93-154.26 Mb | 305 | 305 | 3 | **no** |
+
+Two consequences. chrX's SV genotype concordance of **1.000** is not a result: there is no diploid
+genotype in the scored set to get wrong, and chr20's 0.903 on the same metric is a diploid contig
+being compared against a haploid one. Any chrX-to-autosome comparison in this file that reads as
+like-for-like is not -- including "chrX carries twice chr20's small-variant FP rate", which is a
+haploid interior against a diploid autosome. Before-and-after comparisons WITHIN chrX are unaffected,
+because both arms are scored on the same region: D3's 4,409 -> 4,095 stands.
+
+`--ploidy-bed` exists specifically so the PARs are called diploid, and nothing in the benchmark
+checks that it is right. Same shape as the 44,139 no-strand sites: a whole population outside every
+gate. Fixing it needs a benchmark region the truth set deliberately does not provide, so it is a
+statement of what is unknown rather than a task.
 
 **Nothing has been proposed upstream.** The work is on `benedictpaten/vg`
 `read-likelihood-genotyping`, pushed through `3b96e258d`.
