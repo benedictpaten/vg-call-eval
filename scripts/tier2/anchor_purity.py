@@ -50,7 +50,7 @@ def main():
             elif not line.startswith("#"):
                 break
     if not id_name:
-        sys.exit(f"{args.anchors} has no #read table; expected an anchors-version 2 file")
+        sys.exit(f"{args.anchors} has no #read table; expected an anchors-version 4 file")
 
     anchors = []           # (node, snarl, slot, gqn, [(hap, score), ...])
     current = None
@@ -69,7 +69,8 @@ def main():
             if f[0] == "A":
                 flush()
                 members = []
-                gqn = None if f[4] == "." else float(f[4])
+                # anchors-version 3 inserted `allele` at index 4, moving gqn to 5.
+                gqn = None if f[5] == "." else float(f[5])
                 current = (int(f[1]), f[2], int(f[3]), gqn)
             elif f[0] == "R" and current is not None:
                 m = truth_re.match(id_name.get(f[1], ""))
