@@ -1,5 +1,16 @@
 # Whole-genome results: HG002 against T2T-Q100
 
+> **Re-measured 2026-09-12** against `ae68ffd08` — 24 contigs in 61.4 min under the scheduler, then
+> scored per contig. **The short-read whole-genome result is unchanged**: ALL F1 0.9726 and SNV
+> 0.9846 to four decimals, Indel 0.9272 -> 0.9273, SV 0.5620 -> 0.5625. That is the intended
+> reading, not a null result — a long-read preset, read-backed phasing and phase-driven
+> re-genotyping all landed since the previous measurement, and every one of them is **off by default**
+> on short reads. This run is the check that they are.
+>
+> For what those features do when they *are* on, see the long-read sections of
+> [tier2-chr20-results.md](tier2-chr20-results.md) and [tier2-chr6-results.md](tier2-chr6-results.md).
+> There are **no whole-genome long-read numbers**: see the note at the end of this page.
+
 Called per contig on the 34-haplotype HPRC graph, `--read-likelihood` with panel
 enumeration, phasing and mosaic on. chrY haploid; chrX haploid outside the
 pseudoautosomal regions and diploid inside them, in one run via --ploidy-bed.
@@ -17,8 +28,8 @@ coordinate mismatch and not the caller. The calls remain in the VCF and the mosa
 
 **Compared against PanGenie on the same graph and reads**: see
 [pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on every
-small-variant class on both recall and precision (ALL F1 0.9703 against 0.9505) and PanGenie is
-ahead on structural variants (0.5739 against 0.5488). What is inside that SV gap, and whether
+small-variant class on both recall and precision (ALL F1 0.9729 against 0.9505) and PanGenie is
+ahead on structural variants (0.5739 against 0.5643). What is inside that SV gap, and whether
 nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).
 
 **The mosaic** this run also emits: 180,858 segments over 5,037,872 sites, 14 MB.
@@ -53,9 +64,9 @@ comparison rests on it being the same binary, reads and scoring path.
 
 | | block emission (current) | decide-then-render | previous (inline) |
 |---|---|---|---|
-| **ALL** | TP 4,127,286  FP 93,089  FN 139,533  recall 0.9673  precision 0.9779  **F1 0.9726** | F1 0.9725 | F1 0.9699 |
-| **SNV** | TP 3,305,121  FP 22,450  FN 81,066  recall 0.9761  precision 0.9933  **F1 0.9846** | F1 0.9846 | F1 0.9833 |
-| **Indel** | TP 822,165  FP 70,639  FN 58,467  recall 0.9336  precision 0.9209  **F1 0.9272** | F1 0.9269 | F1 0.9191 |
+| **ALL** | TP 4,127,291  FP 92,779  FN 139,528  recall 0.9673  precision 0.9780  **F1 0.9726** | F1 0.9726 | F1 0.9699 |
+| **SNV** | TP 3,305,130  FP 22,351  FN 81,057  recall 0.9761  precision 0.9933  **F1 0.9846** | F1 0.9846 | F1 0.9833 |
+| **Indel** | TP 822,161  FP 70,428  FN 58,471  recall 0.9336  precision 0.9211  **F1 0.9273** | F1 0.9272 | F1 0.9191 |
 | Insertion | recall 0.9228  precision 0.9122  **F1 0.9174** | F1 0.9179 | F1 0.9102 |
 | Deletion | recall 0.9443  precision 0.9370  **F1 0.9406** | F1 0.9409 | F1 0.9333 |
 
@@ -73,7 +84,7 @@ and none of the SV movement.
 
 | | block emission (current) | decide-then-render | previous (inline) |
 |---|---|---|---|
-| SV >= 50 bp | TP 14,449  FP 12,857  FN 9,668  **F1 0.5620** | F1 0.5577 | F1 0.5470 |
+| SV >= 50 bp | TP 14,452  FP 12,814  FN 9,665  **F1 0.5625** | F1 0.5620 | F1 0.5470 |
 
 **This is where block emission pays, and it is the only place it does.** F1 0.5577 -> 0.5620,
 **+0.0043**, from 48 more true SVs and 266 fewer false ones -- so unlike the previous step's
@@ -118,3 +129,20 @@ figure in this repository is unrefined and a refined number would compare to non
 | chr21 | 0.9762 | 0.5561 | 0.9734 |  |
 | chr22 | 0.9710 | 0.5260 | 0.9676 |  |
 | chrX | 0.9567 | 0.4699 | 0.9494 | haploid outside PAR |
+
+
+## Whole-genome long reads: what it would take
+
+Not measured, and the reason is disk rather than time. ONT alignments exist genome-wide —
+`data/alignments-combined.processed.gaf.gz`, 68.5 GB, 4,017,467 reads against the 16-haplotype
+`E821-16-sampled.gbz` — but `gaf-base sort` is an external merge sort and the whole file is roughly
+**480 GB sorted, against 169 GB free**. That is why chr20 and chr6 were each filtered to their own
+component first and built separately, and it is the only way this machine can do it.
+
+So a whole-genome long-read run needs a **per-contig build**: one pass over the 68.5 GB GAF
+splitting it 24 ways on the first node of each alignment's path (exact here — a Minigraph-Cactus
+graph numbers each component contiguously), then 24 `gaf-base sort | construct` pairs, then the
+calls. Rough cost: a few hours for the split, and the final databases total roughly 47 GB by
+extrapolation from chr20's 1.0 GB for 85,373 reads.
+
+Until then the long-read evidence is two contigs, chr20 and chr6, and both are in the tier-2 pages.

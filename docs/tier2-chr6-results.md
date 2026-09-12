@@ -1,5 +1,51 @@
 # Tier 2 results: HG002 chr6 on HPRC v2.1 MC CHM13, 34-haplotype graph
 
+> **Re-measured 2026-09-12** against `ae68ffd08`, on the pinned binary, arms run serially. The two
+> tables in this block are current; everything further down the page is from the previous run.
+>
+> ### Short reads — Illumina 28.6x, 34-haplotype graph
+>
+> | arm | variants | wall | peak RSS | ALL F1 | SNV F1 | Indel F1 |
+> |---|---|---|---|---|---|---|
+> | `poisson` | 294,626 | 535 s | 7.0 GB | **0.9297** | 0.9685 | 0.7972 |
+> | `poisson-z` | 294,835 | 190 s | 6.2 GB | **0.9318** | 0.9703 | 0.8005 |
+> | `readlik` | 296,858 | 274 s | 11.2 GB | **0.9775** | 0.9880 | 0.9395 |
+> | `readlik-nomismap` | 303,758 | 274 s | 11.1 GB | **0.9726** | 0.9830 | 0.9352 |
+> | `readlik-nolink` | 299,881 | 252 s | 10.7 GB | **0.9674** | 0.9859 | 0.9030 |
+> | `readlik-support` | 299,877 | 315 s | 10.8 GB | **0.9672** | 0.9858 | 0.9023 |
+>
+> ### Long reads — ONT, 16-haplotype E821 graph
+>
+> Same truth and confident regions as above; **a different graph**, 16 sampled haplotypes against
+> 34, with the reads aligned to it. So compare down the column pair, not across to the table above.
+>
+> | arm | short-read defaults | `--preset ont` | delta |
+> |---|---|---|---|
+> | `readlik` ALL F1 | 0.9372 | **0.9596** | **+0.0224** |
+> | `readlik` SNV F1 | 0.9872 | **0.9880** | +0.0008 |
+> | `readlik` Indel F1 | 0.7768 | **0.8602** | **+0.0834** |
+> | `readlik-nolink` ALL F1 | 0.9242 | 0.9293 | +0.0051 |
+> | `readlik-nomismap` ALL F1 | 0.9372 | 0.9596 | +0.0224 |
+>
+> Indel precision 0.7384 -> 0.8455 and recall 0.8194 -> 0.8755.
+>
+> **chr6 is the held-out contig, and all three of chr20's findings reproduce on it**:
+>
+> | | chr20 | chr6 |
+> |---|---|---|
+> | `--preset ont`, ALL F1 | +0.0252 | +0.0224 |
+> | `--preset ont`, Indel F1 | +0.0886 | +0.0834 |
+> | MAPQ mismap term on ONT | +0.0000 | −0.0000 |
+> | MAPQ mismap term on Illumina | +0.0120 | +0.0049 |
+> | linkage layer on ONT, short-read defaults | +0.0143 | +0.0130 |
+> | linkage layer on ONT, `--preset ont` | +0.0340 | +0.0303 |
+>
+> The MAPQ term being worth **nothing** on ONT and something on Illumina is the sharpest of these:
+> it is not harmful, it is inert, because these ONT alignments carry no MAPQ signal the model can
+> use. `--mismap-min`, a floor rather than a MAPQ-derived quantity, does that job instead. And the
+> linkage layer roughly doubles in value under the preset because `--read-phasing` and
+> `--regenotype` both live in it, so `readlik-nolink` removes them too.
+
 Real reads, real benchmark, run on a 32 GB laptop.
 
 This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from haplotype sampling. It is the primary subject because it is what the caller is tuned for -- both the linkage transition and the panel frequency prior are panel-size effects and have little to work with on a thin panel -- and because it is the better-performing configuration. The 4-haplotype graph has its own page at [tier2-chr6-4hap-results.md](tier2-chr6-4hap-results.md), and the two are put side by side in [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md).

@@ -1,26 +1,57 @@
 # Tier 2 results: HG002 chr20 on HPRC v2.1 MC CHM13, 34-haplotype graph
 
-> **Small-variant arms re-measured 2026-08-23 against decide-then-render.** The figures immediately
-> below are current. **Everything further down this page is from the previous run** -- the raw
-> per-arm dumps, the SV sections and every analysis built on them -- because the re-run was truncated
-> after the small-variant arms (a script edit applied while the script was executing; bash reads
-> scripts incrementally, so it resumed at a shifted offset). The seven small-variant arms themselves
-> completed cleanly with no failures.
+> **Re-measured 2026-09-12** against `ae68ffd08`, on the pinned binary, arms run serially. The
+> short-read table below is current; **a long-read section follows it**, which is new. Everything
+> further down this page (the raw per-arm dumps, the SV sections and the analyses built on them) is
+> from the previous run and is marked where it matters.
+>
+> ### Short reads — Illumina 28.6x, 34-haplotype graph
 >
 > | arm | variants | wall | peak RSS | ALL F1 | SNV F1 | Indel F1 |
 > |---|---|---|---|---|---|---|
-> | `poisson` | 124,445 | 257 s | 2.83 GB | **0.9101** | 0.9563 | 0.7447 |
-> | `poisson-z` | 124,769 | 107 s | 3.13 GB | **0.9119** | 0.9582 | 0.7466 |
-> | `readlik-support` | 118,132 | 152 s | 4.7 GB | **0.9591** | 0.9823 | 0.8744 |
-> | `readlik-nomismap-support` | 121,476 | 173 s | 2.82 GB | **0.9396** | 0.9620 | 0.8573 |
-> | `readlik` | 115,038 | 310 s | 4.03 GB | **0.9722** | 0.9853 | 0.9234 |
-> | `readlik-nomismap` | 136,161 | 304 s | 3.92 GB | **0.9601** | 0.9735 | 0.9102 |
-> | `readlik-nolink` | 118,306 | 126 s | 3.87 GB | **0.9594** | 0.9824 | 0.8754 |
+> | `poisson` | 124,445 | 306 s | 3.1 GB | **0.9107** | 0.9558 | 0.7639 |
+> | `poisson-z` | 124,769 | 107 s | 2.6 GB | **0.9124** | 0.9576 | 0.7659 |
+> | `readlik` | 115,411 | 139 s | 6.1 GB | **0.9724** | 0.9852 | 0.9283 |
+> | `readlik-nomismap` | 136,690 | 133 s | 6.4 GB | **0.9604** | 0.9731 | 0.9168 |
+> | `readlik-nolink` | 118,734 | 122 s | 6.6 GB | **0.9596** | 0.9823 | 0.8842 |
+> | `readlik-support` | 118,697 | 141 s | 7.5 GB | **0.9592** | 0.9821 | 0.8830 |
 >
-> The shipped arm, `readlik`, is TP 91,470 FP 2,007 FN 3,221 on ALL -- which is the same measurement
-> as the chr20 gate used throughout `planning/decide-then-render.md`, so the two agree by construction
-> rather than by coincidence. Previous values for this arm were ALL 0.9699, SNV 0.9833, Indel 0.9191.
-
+> The shipped arm moved from ALL 0.9722 / SNV 0.9853 / Indel 0.9234 — so **indel F1 is up 0.0049**
+> and the rest is flat. `readlik` also runs in **139 s against 310 s**: the per-read work rewritten
+> for long reads (walk the site overlap, not the whole alignment) pays off at 151 bp too.
+>
+> ### Long reads — ONT 44x, 16-haplotype E821 graph
+>
+> Same truth and same confident regions as above, so the arm-to-arm comparison is clean. **The graph
+> is not the same one**: 16 sampled haplotypes against 34, and the reads are aligned to it, so a
+> figure here is not comparable to a figure in the short-read table. What *is* comparable is the
+> column pair, which is the question this section exists to answer — what the long-read defaults buy
+> on long-read data.
+>
+> | arm | short-read defaults | `--preset ont` | delta |
+> |---|---|---|---|
+> | `readlik` ALL F1 | 0.9264 | **0.9515** | **+0.0252** |
+> | `readlik` SNV F1 | 0.9849 | **0.9858** | +0.0009 |
+> | `readlik` Indel F1 | 0.7486 | **0.8372** | **+0.0886** |
+> | `readlik-nolink` ALL F1 | 0.9120 | 0.9175 | +0.0055 |
+> | `readlik-nomismap` ALL F1 | 0.9263 | 0.9515 | +0.0252 |
+>
+> Indel precision is where it lands: **0.7051 -> 0.8172**, with recall also up 0.7980 -> 0.8583. The
+> preset is `--gap-open 1 --gap-extend 1 --mismap-min 0.05 --read-phasing --regenotype`; the scorer
+> values do the indel work and the two read-phase flags do the rest.
+>
+> **Two things this table says that the short-read one does not.**
+>
+> *The MAPQ mismapping term is worth nothing on ONT.* `readlik` minus `readlik-nomismap` is
+> **+0.0000** under short-read defaults and **+0.0001** under the preset, against **+0.0120** on
+> Illumina. The term is not harmful, it is inert — these ONT alignments carry no MAPQ signal the
+> model can use, and `--mismap-min` (a floor, not a MAPQ-derived quantity) is doing the work the
+> term does on short reads.
+>
+> *The linkage layer is worth more here, and only under the preset.* `readlik` minus
+> `readlik-nolink` is **+0.0143** on ONT at short-read defaults, close to Illumina's +0.0128 — but
+> **+0.0340** under the preset. `--read-phasing` and `--regenotype` both live in that layer, so
+> turning it off removes them too; the extra 0.0197 is what the read-phase work is worth.
 
 Real reads, real benchmark, run on a 32 GB laptop.
 

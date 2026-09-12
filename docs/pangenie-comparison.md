@@ -8,6 +8,46 @@ Both were run on the HPRC v2.1 MC CHM13 graph with HG002 held out of the panel, 
 30x NovaSeq PCR-free reads, and scored against T2T-Q100. The vg numbers are the shipped default:
 symbolic-allele nested calling and panel phasing both on ([nested-calling-design.md](nested-calling-design.md)).
 
+## Long reads, added 2026-09-12
+
+PanGenie is a short-read k-mer genotyper, so there is no long-read PanGenie arm to compare against.
+What can be asked is the other question: **where does `vg call` on ONT sit relative to both?** That
+is answerable on chr20 and chr6, the two contigs with ONT alignments, and all three columns below
+are scored against the same T2T-Q100 truth and the same confident-region BED.
+
+| chr20 | ALL F1 | SNV F1 | Indel F1 |
+|---|---|---|---|
+| PanGenie, 30x Illumina | 0.9492 | 0.9726 | 0.8672 |
+| `vg call`, 28.6x Illumina | **0.9724** | 0.9852 | **0.9283** |
+| `vg call`, ONT 44x, `--preset ont` | 0.9515 | **0.9858** | 0.8372 |
+
+| chr6 | ALL F1 | SNV F1 | Indel F1 |
+|---|---|---|---|
+| PanGenie, 30x Illumina | 0.9572 | 0.9764 | 0.8872 |
+| `vg call`, 28.6x Illumina | **0.9775** | 0.9880 | **0.9395** |
+| `vg call`, ONT, `--preset ont` | 0.9596 | **0.9880** | 0.8602 |
+
+**Three things worth reading off this.**
+
+*vg on ONT has the best SNV F1 of the three*, on both contigs — 0.9858 and 0.9880, ahead of vg's own
+short-read arm and well ahead of PanGenie. Long reads place SNVs better than either short-read
+method here.
+
+*and the worst indel F1 of the three.* 0.8372 against PanGenie's 0.8672 on chr20, 0.8602 against
+0.8872 on chr6. ONT indels remain the weak class even after `--preset ont` moves them +0.083 to
++0.089; the residual is homopolymer, which is where both the reads and the benchmark are least
+reliable.
+
+*Overall vg-on-ONT edges PanGenie* (0.9515 vs 0.9492; 0.9596 vs 0.9572) but is well behind vg on
+short reads. Nothing here says long reads beat short reads for this caller — on these two contigs
+they do not.
+
+**The caveat that matters.** The ONT arm runs on a **16-haplotype** graph (`E821-16-sampled`), the
+other two on the 34-haplotype HPRC graph, because the ONT reads are aligned to the former and
+alignments are graph-specific. Panel size is exactly what the linkage layer and the frequency prior
+feed on, so the ONT column is handicapped by an amount this comparison cannot separate out. Read it
+as a floor on what ONT does here, not as a like-for-like.
+
 ## The result in one table
 
 Autosomes, summed counts, rates recomputed from them:
@@ -18,11 +58,11 @@ Autosomes, summed counts, rates recomputed from them:
 | SNV F1 | **0.9849** | 0.9722 |
 | SNV recall | **0.9762** | 0.9659 |
 | Indel F1 | **0.9275** | 0.8687 |
-| SV ≥50 bp F1 | 0.5642 | **0.5739** |
+| SV ≥50 bp F1 | 0.5643 | **0.5739** |
 
 vg leads every small-variant class on both recall and precision; PanGenie leads structural variants
-on both, now by 0.0097 — down from 0.0143, because block emission became the default and took vg's
-autosomal SV F1 from 0.5596 to 0.5642.
+on both, now by 0.0096 — down from 0.0143, because block emission became the default and took vg's
+autosomal SV F1 from 0.5596 to 0.5643.
 
 **The vg column moved with decide-then-render** -- genotypes settled before records are built. It was
 ALL 0.9703, SNV 0.9837, Indel 0.9195, SV 0.5488. PanGenie's column is unchanged: same run, same
