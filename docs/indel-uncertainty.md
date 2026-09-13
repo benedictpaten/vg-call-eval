@@ -190,3 +190,91 @@ calibrated gap cost, which has no gap_open/gap_extend structure to coalesce.
 3. **Then test the falsification**: does the floor's SNV/indel conflict collapse? If it does, the
    floor was a proxy, confirmed, and it can return to 0.02 for every class.
 4. **Panel AF as a separate orthogonal term** -- explicitly a precision instrument, not a recall fix.
+
+## Phase 2, done: --insertion-nats, and why no existing knob could do it
+
+The flat affine gap charges one constant whichever side carries the extra bases. Two
+reasons neither existing flag can correct that:
+
+**`--gap-open` couples the ratio to the scale.** The flat model forces
+`A/|B| = (gap_open + match)/gap_open`, so the preset's `gap_open 1` gives exactly 2.00
+against an empirical 1.24-1.51, and the two-allele decision boundary sits at 1/3 where the
+data want 0.40-0.46. Moving gap_open to fix the ratio also moves the absolute weight of
+indel evidence, and the scale dominates. Re-swept on the FIXED walk, chr20 indel F1:
+
+| gap_open | 1 | 2 | 3 | 4 | 6 (vg default) |
+|---|---|---|---|---|---|
+| indel F1 | **0.85452** | 0.81411 | 0.79297 | 0.78663 | 0.78490 |
+
+`gap_open 1` survives the bug fix unchanged, and is worth **+0.0696** against the default
+on the fixed walk -- more than the +0.048 recorded pre-fix, so the bug was partly masking
+the preset's own value.
+
+**The score is an int32.** One score unit is 1.3833 nats and the wanted correction is about
+0.4 units, which the integer path cannot represent. This is a plausible part of why
+`--qual-gap` failed: its absolute form moved 2 units where the preset had fitted 1.
+
+So `--insertion-nats` adds real-valued nats **after** the score-to-nats conversion, at the
+four sites where the read carries bases the allele lacks. Default 0.0 and byte-identical
+there (115,267 records, cmp clean).
+
+The value was predicted BEFORE the sweep, at 0.7-1.05 nats, from the measured `A/|B|`
+target. The measured chr20 optimum is interior at **0.9** (1.3 is worse):
+
+| nats | 0 | 0.5 | **0.9** | 1.3 |
+|---|---|---|---|---|
+| chr20 indel F1 | 0.85452 | 0.86076 | **0.86237** | 0.86006 |
+| chr20 ALL F1 | 0.95574 | 0.95739 | **0.95787** | 0.95729 |
+| chr6 indel F1 | 0.87483 | 0.87818 | **0.88005** | -- |
+| chr6 ALL F1 | 0.96318 | 0.96397 | **0.96444** | -- |
+
+**It is context-blind but effectively targeted.** 92.5% of the FP reduction lands in HP>=5
+without the term knowing homopolymers exist, because that is where the insertion gaps are;
+HP 1-2 improves too (FP 101 -> 87) rather than paying for it. That is the difference from
+the mismap floor, which touches 96.6% of reads to fix a 40% cell.
+
+**Direction-neutrality is NOT the objective, which corrected an earlier recommendation.**
+0.5 nats is direction-neutral on chr20 (precision gap +0.0053, FP excess -0.8%) and 0.9
+over-corrects into a mirror asymmetry (+0.0612, -9.9%). Neutrality looked like the
+principled setting -- but it is a symptom measure, it is not even a single value (~0.5 on
+chr20, ~0.3 on chr6), and both contigs prefer 0.9 on F1. The error surface is asymmetric
+because the insertion FP pool is far larger than the insertion TP pool at risk: on chr6,
+0.9 removes **913 insertion FPs for 98 insertion TPs**.
+
+**What it costs, which the aggregate hides.** It biases toward shorter alleles generally,
+not against insertions specifically -- a REF-supporting read scored against a deletion
+allele also carries extra bases. Deletion FPs rise 1,894 -> 2,338 on chr6 and 778 -> 930 on
+chr20. Net is clearly positive (chr6: FP -469, FN -139, TP -58) but it is a redistribution.
+**Not added to `--preset ont`** for that reason. The recall asymmetry also worsens
+monotonically with the flag (+0.0038 pre-fix, -0.0291 after it, -0.0550 at 0.5, -0.0773 at
+0.9), and no single scalar can correct precision and recall asymmetries at once. The
+run-length-conditional table remains the end state.
+
+## Phase 3: the floor was a proxy, and the second floor is retired
+
+Re-sweeping `--mismap-min` on the fixed walk, chr20:
+
+| floor | 0.02 | **0.05** | 0.10 | 0.15 | 0.20 | 0.30 |
+|---|---|---|---|---|---|---|
+| SNV F1 | 0.98549 | **0.98573** | 0.98443 | 0.98303 | 0.98120 | 0.97524 |
+| indel F1 | 0.84111 | 0.85452 | 0.84791 | 0.85446 | 0.86025 | **0.86249** |
+| ALL F1 | 0.95207 | **0.95574** | 0.95299 | 0.95369 | 0.95378 | 0.94988 |
+
+The SNV/indel conflict **persists in direction** -- indel F1 still peaks at 0.30 -- but:
+
+| raising the floor 0.05 -> 0.20 | pre-fix | post-fix |
+|---|---|---|
+| indel F1 gain | +0.0211 | **+0.0080** |
+| ALL F1 | +0.0014 (prefers 0.20) | **-0.0196 (prefers 0.05)** |
+
+The prize shrank by 62-73%, the aggregate optimum moved back to the shipped 0.05, and the
+curve is now noisy (0.10 dips below both neighbours) where it used to be cleanly monotone.
+
+**The decisive comparison.** Floor 0.30 reaches indel F1 0.86249 by spending 0.0105 of SNV
+F1 and 0.0059 of ALL F1. `--insertion-nats 0.9` reaches 0.86237 -- the same number -- while
+SNV F1 *rises*. The floor was a proxy for two things it does not model: the anchor-walk bug,
+and the direction miscalibration. Fix both properly and it has nothing left to buy.
+
+So **`--mismap-min` stays a single value at 0.05**, and the context-conditional two-floor
+scheme in `tier2-parameters.md` is unnecessary -- it was correcting the bug. That measurement
+stands as a record of what the bug was worth, not as a proposal.
