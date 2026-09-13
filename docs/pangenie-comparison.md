@@ -42,6 +42,23 @@ reliable.
 short reads. Nothing here says long reads beat short reads for this caller — on these two contigs
 they do not.
 
+### Whole genome, all three
+
+The ONT arm now runs genome-wide, so the comparison is no longer restricted to two contigs.
+Autosomes, same truth and regions:
+
+| autosomes | PanGenie | vg, short reads | vg, ONT |
+|---|---|---|---|
+| ALL F1 | 0.9505 | **0.9729** | 0.9529 |
+| SNV F1 | 0.9722 | 0.9849 | **0.9852** |
+| Indel F1 | 0.8687 | **0.9275** | 0.8337 |
+| SV ≥50 bp F1 | 0.5739 | 0.5643 | **0.5845** |
+
+**The SV row is the news.** PanGenie has led structural variants throughout this comparison, and it
+no longer does: 0.5845 against 0.5739. That took no SV-specific work in the caller — it took long
+reads. vg now leads every class except indels, where ONT's homopolymer weakness costs it 0.094
+against its own short-read arm and 0.035 against PanGenie.
+
 **The caveat that matters.** The ONT arm runs on a **16-haplotype** graph (`E821-16-sampled`), the
 other two on the 34-haplotype HPRC graph, because the ONT reads are aligned to the former and
 alignments are graph-specific. Panel size is exactly what the linkage layer and the frequency prior

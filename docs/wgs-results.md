@@ -7,9 +7,8 @@
 > re-genotyping all landed since the previous measurement, and every one of them is **off by default**
 > on short reads. This run is the check that they are.
 >
-> For what those features do when they *are* on, see the long-read sections of
-> [tier2-chr20-results.md](tier2-chr20-results.md) and [tier2-chr6-results.md](tier2-chr6-results.md).
-> There are **no whole-genome long-read numbers**: see the note at the end of this page.
+> **Whole-genome long reads are now measured too** — see below. Headline: ONT takes SV F1 from
+> 0.5643 to **0.5845**, past PanGenie's 0.5739, and loses 0.0939 of indel F1 doing it.
 
 Called per contig on the 34-haplotype HPRC graph, `--read-likelihood` with panel
 enumeration, phasing and mosaic on. chrY haploid; chrX haploid outside the
@@ -131,7 +130,73 @@ figure in this repository is unrefined and a refined number would compare to non
 | chrX | 0.9567 | 0.4699 | 0.9494 | haploid outside PAR |
 
 
-## Whole-genome long reads: what it would take
+## Whole-genome long reads — measured 2026-09-12
+
+24 contigs of ONT against the same T2T-Q100 truth and the same confident regions as the short-read
+run above, on the **16-haplotype** `E821-16-sampled` graph (the short-read arm uses 34), with
+`--preset ont`. chrY called, excluded from the totals for the same coordinate reason.
+
+| autosomes | short reads | ONT | delta |
+|---|---|---|---|
+| ALL F1 | **0.9729** | 0.9529 | −0.0201 |
+| SNV F1 | 0.9849 | **0.9852** | **+0.0003** |
+| Indel F1 | **0.9275** | 0.8337 | **−0.0939** |
+| SV ≥50 bp F1 | 0.5643 | **0.5845** | **+0.0203** |
+
+Including chrX: ALL 0.9527, SNV 0.9851, Indel 0.8335, SV 0.5831.
+
+**Two results and they point opposite ways, which is the whole finding.**
+
+*Long reads win structural variants.* 0.5845 against 0.5643 — and against **PanGenie's 0.5739**,
+so the SV gap that PanGenie has led on since this comparison began is closed and reversed by
+changing the reads rather than the caller. On the autosomes it is **TP 14,930 against 14,209 and
+FN 8,691 against 9,412** — the gain is recall, 721 structural variants the short-read arm misses.
+
+The autosomal false-positive counts are **both 12,533**, which looks like an aggregation bug and is
+not one: 21 of the 22 contigs differ (chr1 813 against 839, chr8 615 against 551) and the
+differences happen to cancel to exactly zero. Checked per contig before it was written down.
+
+*Long reads lose indels, badly.* −0.0939, driven by precision 0.8055 against 0.9211. This is the
+same homopolymer weakness the tier-2 pages show at −0.09 on chr20 and chr6, and it does not wash
+out at genome scale.
+
+*SNVs are a dead heat*, +0.0003, which is itself notable: 44x ONT matches 28.6x Illumina on the
+class Illumina is supposed to own, on a graph with half the panel.
+
+### What it cost
+
+| | short reads | ONT |
+|---|---|---|
+| CPU, 24 contigs | 8.80 h | **30.59 h** |
+| peak RSS, worst contig | 7.9 GB | 10.0 GB |
+| wall clock | 61.4 min (3 jobs, `-t 5`) | 3.55 h (2 jobs, `-t 5`) |
+
+**3.48x the CPU** for the same 24 contigs. Wall clock is not comparable between the two — different
+concurrency — which is why the table gives CPU seconds; `scripts/wgs/runtimes.py` recomputes both
+from the runs' own `/usr/bin/time -l` blocks.
+
+### How it was built, and the constraint that shaped it
+
+`gaf-base sort` is an external merge sort, and the whole 68.5 GB genome-wide GAF is roughly 480 GB
+sorted against 169 GB free — so it cannot be built in one pass. It was built **per contig**:
+
+1. one pass over the 68.5 GB GAF splitting it 24 ways on the first node of each alignment's path,
+   compressed on the fly (writing plain text first would have filled the disk);
+2. `vg chunk --gbz` per contig off `E821-16-sampled.gbz`;
+3. 24 × `gaf-base sort --preset long | gaf-base construct`, 48 GB of databases, each contig's split
+   GAF deleted once its database landed;
+4. 24 calls, two at a time.
+
+Node ranges come from each reference path's **first** node: a Minigraph-Cactus graph numbers each
+component contiguously, so that is the component minimum — checked against chr20's independently
+known range, 96,334,786 both ways.
+
+**Two checks that the partition is right.** chr20 got 85,373 reads, exactly the count the
+hand-built chr20 database reported when it was made separately; and the chr20 call emitted 114,355
+records, exactly the tier-2 ONT figure. The genome-wide build reproduces the standalone contig
+results rather than approximating them.
+
+## Appendix: what a single-pass build would have taken
 
 Not measured, and the reason is disk rather than time. ONT alignments exist genome-wide —
 `data/alignments-combined.processed.gaf.gz`, 68.5 GB, 4,017,467 reads against the 16-haplotype
