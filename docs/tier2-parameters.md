@@ -387,4 +387,36 @@ The HP threshold barely matters, which is the strongest evidence it is real: ALL
 **What this is not.** An upper bound, not a prediction. The linkage layer couples sites, so a
 real two-floor caller reaches a different linkage solution than either arm did. `hp_context`
 also reads the union of both arms' records, where an implementation would take the run length
-from the reference before genotyping. Driver: `work/ont-preset/oracle_merge.py`.
+from the reference before genotyping. Driver: `scripts/tier2/oracle_merge.py`.
+
+## Held out on chr6, which has never chosen a parameter
+
+HPMIN pinned at **5** -- the value specified a priori from the diagnostic bucket, deliberately
+not the 6-7 the chr20 sweep marginally prefers. Validating a tuned threshold on the hold-out
+would leak it; validating the pre-specified rule is the point of keeping chr6 clean.
+
+| chr6 | SNV F1 | SNV FP | Indel F1 | Indel FP | Indel FN | ALL F1 |
+|---|---|---|---|---|---|---|
+| single 0.05 (shipped) | 0.98800 | 966 | 0.86023 | 10392 | 7022 | 0.95962 |
+| single 0.20 (best single) | 0.98499 | 1592 | 0.87370 | 8982 | 6545 | 0.96048 |
+| **two-floor, HP context** | **0.98794** | **958** | **0.87817** | **8797** | **6236** | **0.96373** |
+
+**It reproduces.** Same structure as chr20: the context-conditional floor beats the best single
+floor on SNV, indel and ALL simultaneously, and beats the shipped preset on indels at a SNV cost
+inside the budget.
+
+| against shipped 0.05 | chr20 (fitted) | chr6 (held out) |
+|---|---|---|
+| SNV F1 | -0.00011 | **-0.00006** |
+| Indel F1 | +0.02460 | **+0.01794** |
+| ALL F1 | +0.00596 | **+0.00411** |
+
+chr6 carries 73% of chr20's indel magnitude and 69% of its ALL magnitude -- the attenuation
+onto a hold-out that the ONT preset itself showed (91%), in the same direction, with the SNV
+cost if anything smaller. The indel gain is not merely SNV recovery: chr6's two-floor indel F1
+(0.87817) also beats *any* single floor's (0.87370).
+
+**Status: a validated lead, not a shipped change.** What remains before it could be one is the
+part the oracle cannot answer -- a real implementation chooses the floor per site before
+genotyping, from the reference run length, and then genotypes once; the linkage layer couples
+sites, so its solution will not be either arm's. The measurement says that is worth building.
