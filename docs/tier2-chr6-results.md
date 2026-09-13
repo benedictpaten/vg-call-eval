@@ -40,9 +40,13 @@
 > | linkage layer on ONT, short-read defaults | +0.0143 | +0.0130 |
 > | linkage layer on ONT, `--preset ont` | +0.0340 | +0.0303 |
 >
-> The MAPQ term being worth **nothing** on ONT and something on Illumina is the sharpest of these:
-> it is not harmful, it is inert, because these ONT alignments carry no MAPQ signal the model can
-> use. `--mismap-min`, a floor rather than a MAPQ-derived quantity, does that job instead. And the
+> The MAPQ term being worth **nothing** on ONT and something on Illumina is the sharpest of these,
+> and the reason is not saturation. 94.7% of ONT reads are MAPQ 60, but short reads are *more*
+> saturated by the measure that matters — 0.69% of Illumina reads have `e_r` free of the clamps
+> against 2.58% of ONT. The term acts through the low-MAPQ tail where `e_r` hits the 0.7 ceiling,
+> and that tail is **9.65% of Illumina reads against 0.82% of ONT, 12x fewer**: long reads anchor
+> uniquely, so there is almost no ambiguous-placement class to discount. See
+> [tier2-chr20-results.md](tier2-chr20-results.md) for the full working. And the
 > linkage layer roughly doubles in value under the preset because `--read-phasing` and
 > `--regenotype` both live in it, so `readlik-nolink` removes them too.
 

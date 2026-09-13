@@ -20,6 +20,34 @@
 > and the rest is flat. `readlik` also runs in **139 s against 310 s**: the per-read work rewritten
 > for long reads (walk the site overlap, not the whole alignment) pays off at 151 bp too.
 >
+> ### A note on the length-weighted mixture at 33 kb
+>
+> `w_h ∝ L_h + R − 1` is a count of read START positions that yield an overlap, so R is the full
+> read length and belongs there; the *scoring* window is the read's overlap with the site, but the
+> weight is answering a sampling question, not a fit question. `read_length` is
+> `aln.sequence().size()`.
+>
+> The consequence at long read length is real and worth stating: the correction all but vanishes.
+> With the measured ONT mean of **33,449 bp** (median 19,222) against Illumina's 151:
+>
+> | | Illumina R=151 | ONT R=33,449 |
+> |---|---|---|
+> | 50 bp deletion | 1.33x, w = 0.571 | 1.00x, w = 0.500 |
+> | 300 bp Alu | 3.00x, w = 0.750 | 1.01x, w = 0.502 |
+> | 5 kb deletion | 34.3x, w = 0.972 | 1.15x, w = 0.535 |
+> | 30 kb deletion | 201x, w = 0.995 | 1.90x, w = 0.655 |
+>
+> That is the model being right rather than distorted: a haplotype carrying a 5 kb deletion really
+> does yield only 15% fewer 33 kb reads over the site, where it yields 34x fewer 151 bp reads. The
+> flat mixture that `--flat-mixture` restores — and that loses large heterozygous deletions on short
+> reads — is very nearly what the length weighting already computes for ONT.
+>
+> The caveat is the **mean**, not the term. ONT read lengths are heavily skewed (mean 33,449,
+> median 19,222, p10 1,845, p90 86,190), so a single mean R is a poor summary of a distribution
+> that spans two orders of magnitude, and the weight is computed from it per site. A per-read
+> R — each read's own overlap probability rather than the window's mean — is the obvious refinement
+> and has not been measured.
+>
 > ### Long reads — ONT 44x, 16-haplotype E821 graph
 >
 > Same truth and same confident regions as above, so the arm-to-arm comparison is clean. **The graph
@@ -44,9 +72,20 @@
 >
 > *The MAPQ mismapping term is worth nothing on ONT.* `readlik` minus `readlik-nomismap` is
 > **+0.0000** under short-read defaults and **+0.0001** under the preset, against **+0.0120** on
-> Illumina. The term is not harmful, it is inert — these ONT alignments carry no MAPQ signal the
-> model can use, and `--mismap-min` (a floor, not a MAPQ-derived quantity) is doing the work the
-> term does on short reads.
+> Illumina.
+>
+> **Why, measured rather than assumed.** `e_r = clamp(10^(−MAPQ/10), --mismap-min, --mismap-max)`,
+> so the term only does anything for reads whose MAPQ moves `e_r` off the floor. The tempting
+> explanation is that ONT MAPQ is saturated — 94.7% of chr20's ONT reads are MAPQ 60 — but that is
+> not it: **short reads are more saturated, not less** (0.69% of Illumina reads have `e_r` free to
+> vary against 2.58% of ONT).
+>
+> The term acts through the **low-MAPQ tail**, where `e_r` hits the 0.7 ceiling and the read is
+> discounted to near-silence. That tail is **9.65% of Illumina reads and 0.82% of ONT reads — 12x
+> fewer**. There is nothing wrong with the parameterisation and nothing missing from the signal;
+> long reads simply anchor uniquely, so there is barely any ambiguous-placement class for the term
+> to act on. On Illumina the same flag silences 9.65% of reads, which is where its +0.0120 comes
+> from.
 >
 > *The linkage layer is worth more here, and only under the preset.* `readlik` minus
 > `readlik-nolink` is **+0.0143** on ONT at short-read defaults, close to Illumina's +0.0128 — but
