@@ -1,5 +1,19 @@
 # Whole-genome results: HG002 against T2T-Q100
 
+> **Re-measured 2026-09-13** against `28f5b88e2`, the anchor-walk fix, 24 contigs in 80 min.
+> **Short reads are unchanged again, to four decimals in every class**: ALL 0.9726, SNV 0.9846,
+> Indel 0.9273, SV 0.5625 -> 0.5624. The counts move by tens out of 4.1M true positives
+> (indel FP -36, SNV FP +26, ALL FP -10). That is the expected reading: the bug mis-scored a
+> read that visits a node its allele lacks, and 150 bp reads rarely do. On ONT the same fix is
+> worth +0.0173 indel F1 on chr20 and +0.0146 on chr6. See
+> [indel-uncertainty.md](indel-uncertainty.md).
+>
+> ⚠️ **The long-read figures below predate that fix and are superseded.** They were produced by
+> the pre-fix caller, and the genome-wide long-read arm was not re-run. From chr20 and chr6,
+> expect ONT indel F1 about +0.015 to +0.017 higher than stated here, and higher again with
+> `--preset ont`, which now also sets `--insertion-nats 0.9` (a further +0.008 on chr20 and
+> +0.005 on chr6). Do not quote the long-read numbers below as current.
+>
 > **Re-measured 2026-09-12** against `ae68ffd08` — 24 contigs in 61.4 min under the scheduler, then
 > scored per contig. **The short-read whole-genome result is unchanged**: ALL F1 0.9726 and SNV
 > 0.9846 to four decimals, Indel 0.9272 -> 0.9273, SV 0.5620 -> 0.5625. That is the intended
