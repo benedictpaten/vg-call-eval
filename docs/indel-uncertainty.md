@@ -133,9 +133,56 @@ This is an asymmetry **bug**, not a calibration choice, and it plausibly contrib
 insertion/deletion direction bias in section 2. It should be fixed before the calibration question
 is measured again, because it contaminates exactly that measurement.
 
+## Phase 0, done: the anchor desynchronisation was most of the direction bias
+
+Fixed 2026-09-13. The walk searched ahead in the ALLELE for each read node, but on finding
+none assumed the read node SUBSTITUTED for the allele's current node and consumed it. When
+the read node was a pure insertion the consumption burned an anchor the read still needed;
+its own visit then found the allele exhausted and was charged again, so the FLANKING node's
+whole length was billed twice for a one-base event.
+
+Measured on the existing test fixture, at the default gap_open 6: a one-base **deletion**
+costs one gap_open, `rel = 2.485e-4`; the identical one-base **insertion** gave
+`rel = 0.0` -- the header's value for "this allele cannot place the read at all". The fix
+adds the mirror of the anchor search, "is the allele's current node still to come in the
+read?", and charges an insertion. `rel` becomes 6.2317e-5, and the residual against the
+deletion is exactly one score unit -- the forgone match credit, which belongs to the score
+model and not the walk.
+
+| | chr20 ONT | chr6 ONT (held out) | chr20 short reads |
+|---|---|---|---|
+| SNV F1 | 0.98581 -> 0.98573 | 0.98800 -> **0.98816** | 0.98517 -> 0.98518 |
+| Indel F1 | 0.83725 -> **0.85452** | 0.86023 -> **0.87483** | 0.92832 -> 0.92858 |
+| ALL F1 | 0.95152 -> **0.95574** | 0.95962 -> **0.96318** | 0.97240 -> 0.97246 |
+
+**+0.0173 indel F1 on chr20 and +0.0146 on the hold-out**, improving precision AND recall,
+at no SNV cost -- chr6's SNV F1 rises. chr6 carries 85% of chr20's magnitude, better transfer
+than any fitted parameter in this project, which is what fixing a bug rather than tuning
+should look like.
+
+And it was most of the asymmetry section 2 measured:
+
+| HP>=5 1 bp indels | chr20 pre -> post | chr6 pre -> post |
+|---|---|---|
+| INS/DEL precision gap | -0.1512 -> **-0.0517** | -0.1132 -> **-0.0226** |
+| FP insertion excess | +19.5% -> **+7.6%** | +16.5% -> **+3.8%** |
+| FPs recoverable by closing it | 833 -> **257** | 1606 -> **295** |
+
+**66% of the direction bias on chr20, 80% on chr6.** So the "17.5% of all ONT FPs" figure in
+section 2 was measured on contaminated data and the real remaining target is about a third of
+it. That is the whole argument for fixing the bug before measuring the model.
+
+**Insertion coalescing: tried and dropped.** The deletion side sums every skipped allele node
+into one affine gap; the insertion side charged one gap_open per node, so two adjacent
+inserted nodes cost 2*gap_open where the mirrored deletion costs gap_open + gap_extend.
+Making them symmetric is **byte-identical on ONT** (0 genotype changes on chr20 AND chr6) and
+on short reads moves 53 genotypes plus 2,020 phase swaps for -0.00014 indel F1. No measured
+benefit, a small cost, so it was removed. The asymmetry is real but it dissolves under a
+calibrated gap cost, which has no gap_open/gap_extend structure to coalesce.
+
 ## What this implies, in order
 
-1. **Fix the anchor desynchronisation.** It is directional and it contaminates everything downstream.
+1. ~~Fix the anchor desynchronisation.~~ **Done, above.**
 2. **Give the gap a probability** -- either a gap state in the partition function so `lambda`
    normalises over it, or bypass the score path for indels and charge `ln P(L' | L)` from the
    measured spectrum. Note that at long runs the mis-set parameter is `match`, which has no flag, so
