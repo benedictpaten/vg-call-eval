@@ -416,7 +416,45 @@ onto a hold-out that the ONT preset itself showed (91%), in the same direction, 
 cost if anything smaller. The indel gain is not merely SNV recovery: chr6's two-floor indel F1
 (0.87817) also beats *any* single floor's (0.87370).
 
+**Status: RETIRED the next day. See the note below.**
+
 **Status: a validated lead, not a shipped change.** What remains before it could be one is the
 part the oracle cannot answer -- a real implementation chooses the floor per site before
 genotyping, from the reference run length, and then genotypes once; the linkage layer couples
 sites, so its solution will not be either arm's. The measurement says that is worth building.
+
+## RETIRED: the two-floor scheme was correcting a bug, not the model
+
+2026-09-13. Everything above is a correct measurement of the caller as it stood, and the
+conclusion it supports no longer holds.
+
+`score_read_against_allele` had a directional bug: an unmatched read node was assumed to
+substitute for the allele's current node and consumed it, so a pure insertion burned an
+anchor the read still needed and the flanking node's length was charged twice. A one-base
+deletion cost one gap_open while the identical insertion gave `rel = 0.0`. Fixed in vg
+`28f5b88e2`; see `indel-uncertainty.md`.
+
+That bug was most of what the floor was compensating for. Re-swept on the fixed walk:
+
+| raising `--mismap-min` 0.05 -> 0.20 | pre-fix | post-fix |
+|---|---|---|
+| indel F1 gain | +0.0211 | **+0.0080** |
+| ALL F1 | +0.0014 (prefers 0.20) | **-0.0196 (prefers 0.05)** |
+
+The conflict still exists in direction, but its prize fell 62-73% and the aggregate optimum
+moved back to the shipped 0.05, so the floor is now correctly placed where it ships.
+
+And the residual is better addressed elsewhere. `--mismap-min 0.30` reaches indel F1 0.86249
+by spending 0.0105 of SNV F1 and 0.0059 of ALL F1; `--insertion-nats 0.9` reaches 0.86237 --
+the same number -- while SNV F1 *rises*. A term that models the actual defect dominates a
+floor used as a proxy for it.
+
+**So `--mismap-min` stays a single value at 0.05 and no second floor is implemented.** The
+HPMIN robustness result above is still a sound piece of evidence about the *bug's* shape --
+it is why the correction concentrates in long homopolymers -- but it is not a case for the
+parameter any more.
+
+The general lesson is the one this file already argued in the short-read section and then
+nearly repeated: a knob whose optimum depends on variant class is a knob standing in for
+something it does not model. That was true of the floor for deletion recall, and it was true
+again here. The right response is to find what it is standing in for.
