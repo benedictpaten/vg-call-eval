@@ -291,3 +291,100 @@ optimum sat one step away from where it had been left, and that a passing in-tre
 was asserting something other than its own name. None of those were going to surface
 from carrying the settings forward on the assumption that they still transferred —
 which is exactly what had just been proven wrong about one of them.
+
+# The clamps on long reads
+
+Everything above was measured on short reads. The ONT preset inherited `--mismap-min 0.05`
+from that work and `--mismap-max 0.7` untouched, and neither had been swept on long-read data
+in the direction that could bind. Both were, on 2026-09-12, against chr20 at 43x with the
+current binary.
+
+## `--mismap-max`: the default is right, and it is not inert
+
+`e_r = clamp(10^(-MAPQ/10), --mismap-min, --mismap-max)`, so the cap binds only the low-MAPQ
+tail. On ONT chr20 (85,373 reads) 94.67% are MAPQ 60 and the cap at 0.7 binds MAPQ <= 1, which
+is 701 reads -- 0.82%. The one earlier cap point moved 0.7 -> 0.9, the direction that *cannot*
+bind: raising the cap only silences further a tail already 70% silenced.
+
+Swept downward, which does bind, at the preset floor:
+
+| cap | ONT reads bound | SNV F1 | Indel F1 | Indel FP | ALL F1 |
+|---|---|---|---|---|---|
+| 0.7 (default) | 0.82% | 0.98581 | 0.83725 | 4360 | 0.95152 |
+| 0.5 | 1.76% | 0.98581 | 0.83725 | 4360 | 0.95152 |
+| 0.3 | 2.28% | 0.98581 | 0.83706 | 4367 | 0.95147 |
+| 0.15 | 2.79% | 0.98581 | 0.83699 | 4368 | 0.95146 |
+
+Monotone, uniformly harmful downward, and negligible: -0.00006 ALL F1 over a 3.4x increase in
+reads bound. **The default is at or above its optimum. Leave it.**
+
+**But F1-neutral is not inert, and the earlier "bit-identical no-op" claim was wrong.** It was
+inferred from matching F1 -- the trap the project already knows about, where a quality-field
+regression scores identically. Cap 0.5 shifts 27,734 records' GLs and moves **14 genotypes**.
+The right statement is that the cap reaches the model and does not reach enough sites to matter.
+
+Why so little, against Illumina's +0.0120 for the whole mismapping term: the term acts through
+the low-MAPQ tail, and that tail is **9.65% of Illumina reads against 0.82% of ONT -- 12x
+fewer**. Long reads anchor uniquely, so the ambiguous-placement class the term exists to
+suppress barely exists. This is not saturation: by the fraction of reads whose MAPQ is free to
+move `e_r` off the floor, short reads are *more* saturated (0.69% against ONT's 2.58%).
+
+## `--mismap-min` is two parameters wearing one name
+
+96.60% of ONT reads sit on the floor. So on long reads `--mismap-min` is not a mismapping
+parameter at all -- it is a global cap on how loudly one read may veto an allele. The
+MAPQ-dependent middle of the clamp, the actual mismapping term, touches 2.58% of reads and is
+worth +0.0001.
+
+Swept on the current binary, VCFs retained:
+
+| `--mismap-min` | SNV F1 | SNV FP | Indel F1 | Indel FP | Indel FN | ALL F1 |
+|---|---|---|---|---|---|---|
+| 0.02 | 0.98526 | 424 | 0.81279 | 5326 | 3097 | 0.94471 |
+| **0.05 (shipped)** | **0.98581** | **390** | 0.83725 | 4360 | 2788 | 0.95152 |
+| 0.10 | 0.98441 | 495 | 0.83846 | 4393 | 2750 | 0.95052 |
+| 0.15 | 0.98307 | 492 | 0.84854 | 3940 | 2653 | 0.95216 |
+| **0.20** | 0.98123 | 586 | 0.85694 | 3552 | 2586 | **0.95296** |
+| 0.30 | 0.97514 | 929 | 0.85835 | 3313 | 2666 | 0.94883 |
+
+**The classes want opposite things.** SNVs optimise at 0.05, indels at 0.20-0.30; across that
+span SNV FPs rise 390 -> 929 while indel FPs fall 4360 -> 3313. One scalar must compromise, and
+the shipped 0.05 is below even the single-floor ALL optimum of 0.20 -- pinned there by the
+pre-registered SNV budget of <= 0.001 F1, which floor 0.20 breaks by -0.00458.
+
+**Re-sweeping was not optional.** The original ONT floor sweep ran on `vg.s7`, where the same
+preset settings score 0.94477 against today's 0.95152. Read phasing, re-genotyping and the
+nested fixes all landed since, and they moved the optimum: on the old binary 0.05 -> 0.10 bought
++0.0195 indel F1, here it buys +0.0012.
+
+## A context-conditional floor, measured before implementing one
+
+VCF column 3 is the snarl id, which is genotype-independent and therefore identical across arms
+where POS is not. So each snarl can be assigned wholesale to one arm, all its `SB` blocks
+together, giving a coherent genotyping in which every site was decided by exactly one floor.
+That prices a two-floor scheme without writing one.
+
+| scheme | sites low/high | SNV F1 | Indel F1 | Indel FN | ALL F1 |
+|---|---|---|---|---|---|
+| single 0.05 (shipped) | -- | 0.98581 | 0.83725 | 2788 | 0.95152 |
+| single 0.20 (best single) | -- | 0.98123 | 0.85694 | 2586 | 0.95296 |
+| two-floor, **variant class** | 87345/25808 | 0.98541 | 0.85718 | 2580 | 0.95634 |
+| two-floor, **homopolymer context** | 97793/15609 | **0.98570** | **0.86185** | **2446** | **0.95748** |
+
+**Homopolymer context beats variant class**, and beats the best single floor on SNV, indel and
+ALL at once. Against the shipped preset it is **+0.0246 indel F1 for -0.00011 SNV** -- inside
+the SNV budget, which is the point: a context-conditional floor makes that budget free instead
+of something to trade against.
+
+Class loses because it is blunter: it raises the floor on all 25,808 length-changing sites,
+including non-HP indels that do better low. HP touches 15,609 and only where ONT's systematic
+error lives. Lowering the SNV side to 0.02 is worse (0.95601), so the SNV floor wants 0.05.
+
+The HP threshold barely matters, which is the strongest evidence it is real: ALL F1 moves
+0.95660 -> 0.95760 across HPMIN 3,4,5,6,7 -- **a spread an order of magnitude smaller than the
++0.006 gain over shipped**. HPMIN 6 costs -0.00002 SNV F1.
+
+**What this is not.** An upper bound, not a prediction. The linkage layer couples sites, so a
+real two-floor caller reaches a different linkage solution than either arm did. `hp_context`
+also reads the union of both arms' records, where an implementation would take the run length
+from the reference before genotyping. Driver: `work/ont-preset/oracle_merge.py`.
