@@ -156,7 +156,8 @@ The autosomal false-positive counts are **both 12,533**, which looks like an agg
 not one: 21 of the 22 contigs differ (chr1 813 against 839, chr8 615 against 551) and the
 differences happen to cancel to exactly zero. Checked per contig before it was written down.
 
-*Long reads lose indels, badly.* −0.0939, driven by precision 0.8055 against 0.9211. This is the
+*Long reads lose indels, badly.* −0.0939, driven by precision **0.8057 against 0.9215** on the
+autosomes the table above covers (0.8055 against 0.9211 once chrX is folded in). This is the
 same homopolymer weakness the tier-2 pages show at −0.09 on chr20 and chr6, and it does not wash
 out at genome scale.
 
