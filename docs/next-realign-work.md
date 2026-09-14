@@ -1,0 +1,121 @@
+# Parked work: re-fitting the ONT preset under `--realign`, and the PR #4990 review
+
+Written 2026-09-14, after `--realign` shipped opt-in (vg `c60503ac3`, PR #4990). Nothing here is
+started. Both parts are independent of each other and of whatever is being worked on now.
+
+---
+
+## Part 1 — the ONT preset was fitted against a walk that no longer runs by default
+
+`--preset ont` sets seven things. Only **one** has been re-fitted since `--realign` became part of
+it:
+
+| preset member | fitted against | re-fitted under `--realign`? |
+|---|---|---|
+| `--insertion-nats 0.9` | greedy | **yes** — optimum flat 0.9-1.2, 0.9 kept |
+| `--gap-open 1` | greedy | **no** |
+| `--gap-extend 1` | greedy | **no** |
+| `--mismap-min 0.05` | greedy | **no** |
+| `--realign` | -- | (the change itself) |
+| `--read-phasing` | greedy | no, but it does not touch the walk |
+| `--regenotype` | greedy | no, but it does not touch the walk |
+
+The first three are the ones that interact with the walk, and `--gap-open` is the big lever: worth
+**+0.067 indel F1** on its own when the preset was built.
+
+### The hypothesis worth testing, which is sharper than "parameters may drift"
+
+The two walks do **not** cost an identical correspondence. Greedy charges a fresh gap **open** per
+inserted read visit; the optimal walk's insertion state opens once and extends. A `k`-visit
+insertion run therefore differs by
+
+    (k - 1) * (gap_open - gap_extend)
+
+which is **exactly zero when `gap_open == gap_extend`** — and the fitted preset is `gap-open 1
+--gap-extend 1`.
+
+So the fitted value sits precisely at the point where greedy's over-charging of multi-visit
+insertion runs vanishes. That is unlikely to be a coincidence: **part of what `--gap-open 1` was
+fitted to correct may be greedy's handling of insertion runs, which `--realign` now fixes
+properly.** If so, the optimum under `--realign` should move *up*, because the walk no longer needs
+the gap parameters to compensate for it.
+
+That is a real, falsifiable prediction and the reason this is worth doing rather than box-ticking.
+
+### Method
+
+Standard: sweep on chr20, **chr6 confirms a chosen value and never chooses between candidates.**
+
+    python3 work/ont-preset/arm.py --tag <tag> --arm ont-chr20 --vg <pinned> --preset ont \
+        --gap-open <v>
+
+1. **`--gap-open` first** — the big lever and the one the hypothesis names. Sweep 1, 2, 3, 4, 6.
+   Include 1 as a control: it must reproduce `bd-c20` (indel 0.86659) exactly.
+2. **`--mismap-min`** next, at whatever gap-open won. Sweep 0.02, 0.05, 0.10, 0.15.
+3. **Interaction check** only if both moved: the pair may not be separable.
+4. Confirm the winner on chr6 ONT, and check chr20 short reads are untouched (they should be --
+   none of these are short-read defaults, but `--gap-open` is, so verify the greedy path is
+   unaffected by anything adopted).
+
+### Cost
+
+About 6 minutes per arm (≈260s call + ≈90s scoring) on chr20 ONT, run one at a time. A 5-point
+gap-open sweep is ~30 min; the whole plan including chr6 confirmation, ~1.5 hours of wall clock.
+
+### Adoption threshold
+
+**Do not move a fitted default for less than ~0.003 indel F1.** The `--insertion-nats` re-sweep
+peaked 0.00045 above the shipped value and was correctly left alone; that is the calibration for
+what counts as noise here. Neighbouring grid points on a real curve move 0.0026-0.0039.
+
+### Gate 0 — is this worth starting at all?
+
+Run **only the `--gap-open 2` arm** first, one measurement, 6 minutes. The hypothesis predicts it
+beats `--gap-open 1`. If it does not, the compensation story is wrong and the rest of the sweep is
+unlikely to pay; stop and record the negative.
+
+---
+
+## Part 2 — PR #4990 review (adamnovak, comment 5671460225)
+
+Three separable things. Only the first is a defect.
+
+### 2a. CLI options are parsed twice, by hand — the actionable one
+
+Verified. `src/subcommand/call_main.cpp`:
+
+- a **hand-maintained list of 56 flag strings** (`read_likelihood_only`, line ~1555) against **105
+  entries** in `long_options`
+- a **hand-rolled reimplementation of getopt_long's resolution** (line ~1575): exact match, else
+  unambiguous prefix, because whole-token matching let `--mosaic` through as `--mosaic-out`
+
+It is as brittle as the review says, with two near-misses in a single session: `--insertion-nats`
+was silently accepted and dropped because it was never added to the list (found by reading the test
+file, not by any check), and `--realign`/`--no-realign` had to be remembered into it.
+
+**Bounded fix, which does not pre-empt the layout question:** derive the refusal set from the option
+table — tag each `long_options` entry with the subsystem that owns it — so a new flag cannot drift
+out of sync and the hand-rolled prefix matcher disappears. Roughly a day across ~105 options, and it
+changes error-message wording, so it wants sign-off before starting.
+
+### 2b. Questions for @benedictpaten, not for an agent to answer
+
+1. Folders (`callers/read_likelihood`, or `lib/call` + `subsystems`) versus enclosing classes plus a
+   consistent naming scheme? The reviewer is explicitly undecided.
+2. How coupled is the regenotyping subsystem to `ReadLikelihoodSnarlCaller`?
+3. Should `AlleleLikelihoodCalculator` move inside `ReadLikelihoodSnarlCaller`?
+
+### 2c. Structural reorganisation
+
+Follows from 2b and should not start before it is answered.
+
+---
+
+## Not to reopen
+
+- **Base-level WFA** in place of the node walk: >24x the walk's CPU, unfinished on chr20 ONT;
+  BiWFA refuses ends-free; the penalty transform costs ~10x. See `exact-walk.md`.
+- **Forcing perfect-match pairings** as an exactness-preserving bound: not exact here, because the
+  free flank breaks the global-alignment argument. It IS accuracy-neutral (-0.00015) and the
+  cheapest CPU of any variant tested, so it remains a legitimate *performance* option -- but it is
+  a different approximation from the band, not a strict improvement.
