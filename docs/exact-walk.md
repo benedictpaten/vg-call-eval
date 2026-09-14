@@ -366,3 +366,47 @@ a user with spare cores observes.
 SNVs. If short-read throughput ever matters more than that +0.0009, the lever is to gate the DP on
 read length rather than to tune it further -- the greedy walk is still correct, just less optimal,
 and it is exactly the configuration short reads were in before this change.
+
+## Base-level WFA: tested, and it does not scale
+
+The node walk is realignment in disguise, so the obvious simplification is to stop pretending and
+align the read's window against the allele's spelled-out bases with WFA. Tested on chr20 ONT and
+**abandoned on runtime**, before an accuracy number could be obtained.
+
+Setup, so the comparison would have been clean: vg's own four-parameter scoring reached through
+the Eizenga-Paten transform already used by `gbwt_extender.cpp` (`X_w = 2(M+X)`,
+`O_w = 2(GO-GE)`, `E_w = 2GE+M`; inverse `S = (M(q+t) - P)/2`), read global and allele ends-free,
+exact (`wf_heuristic_none`). The same binary ran both arms behind an env switch and its node-walk
+arm was byte-identical to `bd-c20`, so any difference would have been attributable. All 428
+`[allele_likelihood]` assertions passed under the WFA arm, including direction symmetry,
+flank-length invariance and equal-span scoring -- so the wiring was right.
+
+| chr20 ONT | wall | CPU |
+|---|---|---|
+| greedy | 210s | -- |
+| node walk (shipped) | 262s | 25 min |
+| base-level WFA | **killed at 106 min, unfinished** | **610 min (>24x), still climbing** |
+
+RSS was also climbing, 4.8 GB at 72 min to 7.1 GB at 106 min, having already been killed once at
+12.2 GB under `wavefront_memory_high`.
+
+**Three findings, none of them fixable by tuning:**
+
+1. **WFA is O(n*s) in the PENALTY, not the error count.** The Eizenga-Paten transform inflates
+   penalties about tenfold (mismatch 4 -> 10, gap 6+n -> 10+3n), so reproducing vg's scoring
+   exactly -- the thing that makes the comparison meaningful -- costs an order of magnitude in
+   WFA's own runtime. Cheap unit penalties would be fast but would no longer be vg's model.
+2. **BiWFA, the O(s)-memory mode, refuses ends-free.** It prints "BiWFA ends-free has not been
+   tested properly yet" and exits, so the semi-global form this needs is confined to the succinct
+   piggyback mode, documented as the slow one. `wavefront_memory_high` is the fast one and it OOMs.
+3. **The node walk is cheap because the graph hands it anchors.** A shared node visit is identity
+   settled at construction -- no alignment required. Base-level alignment has to rediscover from
+   sequence what the node structure already states, and on a median three-node site that is
+   strictly more work.
+
+So the node abstraction is not an accident of implementation; it is the thing that makes per-allele
+scoring affordable at all. The realignment framing is correct as a description, but acting on it by
+going to base level is not viable.
+
+**Not measured:** whether base-level alignment is more ACCURATE. That question stays open, and any
+future attempt should get the accuracy signal on a cheap arm before paying for a whole contig.
