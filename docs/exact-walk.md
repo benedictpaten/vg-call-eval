@@ -264,8 +264,34 @@ When the intervening stretch is long the second wins, so forcing perfect matches
 here and no smarter choice of cuts repairs it.
 
 Measured, both arms unbanded so the cuts are the only variable: cuts move **43 records** where
-the band moves **1**. Cuts are the cheaper bound and the worse approximation, so the band stays
-and the cuts are dropped.
+the band moves **1**.
+
+**That was first read as a reason to drop them, and it was the wrong read.** Deviation from the
+exact walk is not the same as being worse, and the 43 records were never scored. Scored
+(`pmcut-c20`, chr20 ONT): indel **0.86644** against the shipped walk's 0.86659 -- **-0.00015**,
+a third of the 0.9-vs-1.2 `--insertion-nats` gap already judged too small to act on. Cuts recover
+essentially all of the walk's +0.0042 over greedy, and the free-flank effect above, though real,
+costs almost nothing in practice.
+
+So the choice between band and cuts is a RUNTIME question, not an accuracy one, and the two
+bound different things:
+
+| chr20 short reads | wall | user CPU | sys | cores busy |
+|---|---|---|---|---|
+| banded + hoist (shipped) | 444.4s | 2139.9s | 177.5s | **5.21** |
+| unbanded + cuts, no hoist | 613.6s | **2083.3s** | 203.1s | 3.73 |
+| unbanded + hoist, no cuts | 1343.4s | 4123.9s | 191.3s | 3.21 |
+
+Cuts have the LOWEST total CPU of any DP variant -- below the band, and without the hoist -- but
+the worst utilisation of the two. The reason is that **cuts are data-dependent and the band is
+not**: a cut exists only where the read matches a node perfectly, so a noisy ONT read with edits
+nearly everywhere yields few cuts, that site stays large, and it lands in the tail with threads
+idle. The band bounds every site unconditionally.
+
+The untested design is therefore **both**: cuts where the read is clean, band as the backstop for
+the noisy tail, with the cuts' three per-pair heap allocations removed. That is one experiment,
+and it cannot be byte-gated -- cuts are a different approximation, so it needs full accuracy
+validation on chr20 plus the chr6 hold-out.
 
 **The cut-bound cost four separate off-by-one errors**, each of which showed up only as an
 allele becoming unreachable -- a relative likelihood of exactly 0, indistinguishable from
