@@ -318,3 +318,25 @@ itself bought (+0.0042) and the same magnitude that previously flipped between c
 confirm a chosen value but never choose between two candidates, and refining the chr20 grid
 further would be fitting the fifth decimal. The useful result is the negative one -- the new
 walk did not shift the optimum, so the preset needs no re-tuning.
+
+## End-to-end cost of the walk, greedy baseline re-measured
+
+The greedy baselines quoted earlier in this file (ONT 196.7s, short reads 143.3s) were taken on a
+different machine state. Re-measured against the shipped binary on the same night, alone, `-t 6`:
+
+| chr20, alone, `-t 6` | greedy wall | shipped wall | greedy CPU | shipped CPU |
+|---|---|---|---|---|
+| short reads | 145.0s | 444.5s (**3.07x**) | 499.7s | 2139.9s (**4.28x**) |
+| ONT `--preset ont` | 209.8s | 230.5s (**1.10x**) | 1144.1s | 1356.2s (**1.19x**) |
+
+**Quote the CPU ratio, not the wall ratio.** Greedy short-read calling spends a large share of its
+wall time in I/O -- 248s sys against 500s user -- so added compute fills otherwise-idle cores and
+wall-clock understates the work. 4.28x is what the DP actually costs on short reads; 3.07x is what
+a user with spare cores observes.
+
+**The trade is asymmetric and worth stating plainly.** The accuracy gain is a long-read indel gain
+(+0.0042 chr20, +0.0035 chr6 held out) and lands on the arm that is nearly free to compute
+(+19% CPU). The cost lands on short reads (+328% CPU), which gain +0.0009 indel and nothing on
+SNVs. If short-read throughput ever matters more than that +0.0009, the lever is to gate the DP on
+read length rather than to tune it further -- the greedy walk is still correct, just less optimal,
+and it is exactly the configuration short reads were in before this change.
