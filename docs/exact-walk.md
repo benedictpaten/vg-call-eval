@@ -163,3 +163,60 @@ anchor constraint -- shared nodes pair only with themselves. Cap m*n (200,000 wa
 28,330 ONT cells and 18,105 short-read cells exceeded it and fell back to greedy) or use an
 O(ND) diff, since traversals reach 3,640 nodes. Gate it on the same invariant used here: greedy
 must never beat it.
+
+## Implemented and measured (2026-09-14)
+
+The walk was actually replaced, not just simulated, and the numbers moved. Both earlier
+headline figures were artefacts and are superseded.
+
+**+0.0052 indel F1 was too high.** The instrumented arm used the exact walk's SCORE with the
+greedy walk's `--insertion-nats` bookkeeping -- `score_read_against_allele` ran first and
+accumulated `nat_adjust`, then the exact score overwrote `score` alone. The two walks disagree
+on 13-42% of cells, so they disagree on how many insertion events exist. With nats carried
+along the DP's own path the gain is **+0.0042**.
+
+**~2% runtime was far too low.** That came from an instrumented run that capped the DP at
+`m*n <= 200000` and used the greedy score above it -- 28,330 ONT cells took that fallback.
+Uncapped, the walk is 1.55x greedy on chr20 ONT and **3.73x on short reads**.
+
+| chr20 ONT / chr6 ONT / chr20 short reads | greedy | DP | delta |
+|---|---|---|---|
+| indel F1 | 0.86237 / 0.88005 / 0.92858 | **0.86659 / 0.88351 / 0.92918** | +0.0042 / +0.0035 / +0.0006 |
+| SNV F1 | 0.98582 / 0.98810 / 0.98518 | 0.98563 / 0.98816 / 0.98516 | -0.0002 / +0.0001 / -0.00002 |
+| wall | 196.7s / 409.6s / 143.3s | 305.2s / 575.8s / 534.1s | 1.55x / 1.41x / **3.73x** |
+
+Indel precision AND recall improve on every arm and nothing regresses; chr6 carries 82% of
+chr20's gain. The cost profile is the problem, and its shape is diagnostic: short reads have
+the SMALLEST accuracy change and the LARGEST slowdown, which is impossible if the cost were
+per-cell DP work and follows directly if it is per-call overhead -- the function allocated ten
+containers per (read, allele) pair, ~250M times on the short-read arm.
+
+## Optional anchoring is load-bearing, and that kills the simple designs
+
+A shared node visit guarantees identical BASES, so it is the mapper's own alignment. But the
+read's alignment INSIDE that node can still be bad -- an ONT homopolymer run -- and the walk is
+sometimes right to GAP it rather than pay for those edits. So a shared visit must be protected
+from being SUBSTITUTED away, and must remain free to be gapped.
+
+Isolated to one predicate in otherwise identical code:
+
+| chr20 ONT indel F1 | |
+|---|---|
+| anchors optional (shipped design) | **0.86659** |
+| greedy | 0.86237 |
+| partition, anchors forced by construction | 0.86164 |
+| same DP with anchors forced | 0.85948 |
+
+**Optional anchoring is worth +0.0071**, more than the whole gain over greedy. That retires two
+simpler designs that looked strictly better on paper:
+
+- the **partition** (two-pointer anchor chain, tiny DP per divergence block, no band, no
+  membership predicate, no pre-anchor state) forces every shared visit to match, and the same
+  effect reproduces inside the global DP, so it was not an implementation bug.
+- the **fast path** (read walks the allele exactly -> sum the per-node scores) forces matches by
+  construction. Its byte gate FAILED against the DP, and since forcing is what costs, it cannot
+  be repaired.
+
+Ordering is NOT the reason either design fails. Both sequences are DAG paths, so shared nodes
+appear in the same topological order, and repeats are absent in practice -- 0 in 234,001
+traversals and in 19,999 reads averaging 936 nodes.
