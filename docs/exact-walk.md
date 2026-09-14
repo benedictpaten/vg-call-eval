@@ -288,3 +288,28 @@ is I/O-bound, so its 17s of wall improvement is fetch variance, not the hoist.
 Accuracy is unchanged by construction -- byte-identical output on all three arms -- so the walk's
 gains stand as previously measured: chr20 ONT indel F1 0.86237 -> 0.86659, chr6 hold-out
 0.88005 -> 0.88351, short reads +0.0006 with SNV F1 unchanged.
+
+## The walk did not move the --insertion-nats optimum
+
+`--insertion-nats` was fitted to 0.9 against the GREEDY walk, and the walk changes what a gap
+costs in context, so it was re-swept on chr20 ONT with the shipped binary. 0.9 doubles as a
+control and reproduces `bd-c20` to every digit, so the harness and binary agree with the
+stored arm.
+
+| `--insertion-nats` | indel F1 | SNV F1 | ALL F1 |
+|---|---|---|---|
+| 0.0 | 0.85668 | 0.98590 | 0.95637 |
+| 0.3 | 0.86055 | 0.98576 | 0.95720 |
+| 0.6 | 0.86402 | 0.98561 | 0.95795 |
+| **0.9 (shipped)** | **0.86659** | 0.98563 | 0.95863 |
+| 1.2 | 0.86704 | 0.98561 | 0.95875 |
+| 1.5 | 0.86462 | 0.98544 | 0.95811 |
+
+Smooth and unimodal with a peak at 1.2, but **0.9 is within 0.00045 indel F1 of it**, against
+0.0026-0.0039 between neighbouring grid points elsewhere. That is a tenth of what the walk
+itself bought (+0.0042) and the same magnitude that previously flipped between contigs.
+
+**0.9 stands.** Moving it cannot be justified on this evidence: chr6 is the hold-out and may
+confirm a chosen value but never choose between two candidates, and refining the chr20 grid
+further would be fitting the fifth decimal. The useful result is the negative one -- the new
+walk did not shift the optimum, so the preset needs no re-tuning.
