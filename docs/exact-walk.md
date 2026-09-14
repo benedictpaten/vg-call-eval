@@ -88,6 +88,69 @@ cross more nodes per site, so there is more correspondence for greedy to get wro
 Cost: computing BOTH walks ran 226s against a ~221s baseline, so the exact walk alone is
 **essentially free**.
 
+## The full design space, chr20 ONT, gap_open 1
+
+| variant | SNV F1 | SNV FP | Indel F1 | Indel FP | ALL F1 |
+|---|---|---|---|---|---|
+| greedy (shipped) | 0.98582 | 391 | 0.86237 | 3396 | 0.95787 |
+| **anchored + substitution** | **0.98597** | **377** | **0.86758** | **3279** | **0.95915** |
+| anchored, no substitution | 0.98569 | 392 | 0.86646 | 3304 | 0.95867 |
+| free substitution | 0.98410 | 528 | 0.79922 | 5132 | 0.94186 |
+
+**Keep substitution between mutually-unique nodes.** Forbidding it -- which would make the problem
+a pure LCS and let Myers apply directly -- costs **+15 SNV false positives** and -0.00112 indel F1.
+The mechanism is exactly as predicted: a SNP bubble then scores as insertion + deletion rather than
+a base-level mismatch, which at gap_open 1 is -2 against -4, so the disagreement gets CHEAPER and
+discriminates less. It still beats greedy (+0.0041 indel), capturing about 80% of the gain, so it
+is a defensible simplification -- just not a free one.
+
+## Affine across nodes is not a variable at the ONT preset
+
+`score_gap(L) = -(gap_open + (L-1)*gap_extend)`. At `gap_open == gap_extend == 1` this is exactly
+`-L`, so two adjacent skipped nodes cost `-L1 - L2` separately and `-(L1+L2)` coalesced -- the same
+number. **The difference between affine and linear is `(gap_open - gap_extend)` per extra node**,
+which is zero under `--preset ont`.
+
+Measured: affine and linear give **byte-identical VCFs** in both anchored rows above, and the path
+is reachable (10.79% of allele pairs have a leftover gap run of >= 2 nodes). Not a data null, an
+arithmetic identity.
+
+This also explains the insertion-coalescing result in `indel-uncertainty.md`, which had been filed
+as a lucky null: byte-identical on ONT (1/1) and moving 53 genotypes on short reads (6/1). Not a
+coincidence -- `gap_open - gap_extend` is 0 and 5 respectively. **To test affine against linear at
+all, run at `gap_open != gap_extend`.**
+
+## How to implement the anchoring
+
+Not as a per-cell predicate. The set-membership test used in the measurement above -- "does this
+node appear anywhere in the other sequence" -- answers a global question locally and is wrong
+under repeats: it forbids a substitution on account of an occurrence already consumed elsewhere.
+Make the anchors a PARTITION and the predicate disappears.
+
+**Phase 1, anchor selection.** Two-pointer scan matching shared nodes in order. Exact whenever both
+sequences are node-simple, which is what the data are (0 repeats in 234,001 traversals; 0 in 19,999
+reads averaging 936 nodes). **Guard it**: if any node occurs more than once in either sequence, fall
+back to LCS on node symbols -- O(MN) DP or Myers O(ND). Common case O(m+n); the pathological case
+correct rather than silently wrong.
+
+**Phase 2, score each divergence block.** The anchors partition both sequences into blocks of `p`
+read-only against `q` allele-only nodes. **Inside a block there are no shared nodes by
+construction**, so substitution needs no test at all. A small `p x q` DP picks how many to pair;
+the leftovers on each side are one contiguous run, so each is a single `score_gap(total_bases)`.
+Median divergence is 1 node against 1, so the typical block is one comparison.
+
+**Phase 3, flanks.** Before the first anchor and after the last, allele nodes are free and read
+nodes are charged -- reproducing the `have_anchor` semantics as the first and last block rather
+than as a DP state.
+
+What the partition formulation removes, relative to the four-state DP measured here: the Gotoh
+I/D states (a leftover run is contiguous), the pre-anchor state (the flank is just a block), the
+substitution predicate (blocks hold no shared nodes), and the O(MN) floor. Three of the four
+things that each cost a failed attempt were artefacts of forcing this into one global alignment.
+
+**Ship the invariant that caught all four**: in debug builds, assert the new walk never scores
+lower than the greedy walk.
+
 ## Recommendation
 
 Worth implementing, as a **follow-up and not in the current PR** -- it is a change to the scoring
