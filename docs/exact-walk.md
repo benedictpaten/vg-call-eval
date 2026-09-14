@@ -228,13 +228,18 @@ recover 42s of 151s and to reach at most 0.1% of traversals. Both figures are tr
 and both are misleading, because **ONT calling is I/O-bound** -- 76% of it is the `gbz-base`
 subprocess and 63% is blocked in `waitpid`, so DP cost is largely hidden behind the fetch.
 
-Short reads are the honest measure of DP cost, and there the band is worth 1.79x the CPU:
+Short reads are the honest measure of DP cost, and there the band is worth 1.93x the CPU:
 
 | chr20 short reads, alone, `-t 6` | real | user CPU |
 |---|---|---|
-| banded (the shipped reference) | 484.5s | 2303.7s |
+| banded + hoist (shipped) | 444.5s | 2139.9s |
+| banded, pre-hoist | 484.5s | 2303.7s |
 | unbanded, perfect-match cuts | 613.6s | 2083.4s |
-| **unbanded, exhaustive** | **1343.4s** | **4123.9s** |
+| **unbanded + hoist, exhaustive** | **1343.4s** | **4123.9s** |
+
+Isolating the band means holding the hoist constant: 4123.9s against 2139.9s, so the band is
+worth **1.93x the CPU**. (An earlier revision of this file said 1.79x, comparing the unbanded
+*hoisted* arm against the banded *pre-hoist* one, which understates it.)
 
 And it costs nothing. Against the unbanded walk over the same chr20 short-read call it moves a
 **single record of 115,255**; on ONT, `dp-c20` against `bd-c20` leaves indel F1 identical at
