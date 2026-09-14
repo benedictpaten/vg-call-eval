@@ -98,16 +98,54 @@ table — tag each `long_options` entry with the subsystem that owns it — so a
 out of sync and the hand-rolled prefix matcher disappears. Roughly a day across ~105 options, and it
 changes error-message wording, so it wants sign-off before starting.
 
-### 2b. Questions for @benedictpaten, not for an agent to answer
+### 2b. Layout: folders. DECIDED (author, 2026-09-14)
 
-1. Folders (`callers/read_likelihood`, or `lib/call` + `subsystems`) versus enclosing classes plus a
-   consistent naming scheme? The reviewer is explicitly undecided.
-2. How coupled is the regenotyping subsystem to `ReadLikelihoodSnarlCaller`?
-3. Should `AlleleLikelihoodCalculator` move inside `ReadLikelihoodSnarlCaller`?
+> "I think we want folders for sanity. The flat directory structure has gotten too big."
 
-### 2c. Structural reorganisation
+It has: **297 `.cpp`/`.hpp` files in a flat `src/`.** So this is not only about the read-likelihood
+family, though that family is what PR #4990 adds and the natural first tenant.
 
-Follows from 2b and should not start before it is answered.
+### 2c. Architecture review — answers 2 and 3, and proposes the layout
+
+The author has asked for a review rather than an opinion, so this is a task with a deliverable, not
+a question to forward. It must answer:
+
+1. **How coupled is each subsystem to `ReadLikelihoodSnarlCaller`?** Per subsystem, not in general.
+2. **Should `AlleleLikelihoodCalculator` live inside `ReadLikelihoodSnarlCaller`?**
+3. **What folder layout follows**, given folders are decided.
+
+**Preliminary probe, already done — start from this, not from zero.** Header-level dependencies
+between the caller and the four subsystems adamnovak names:
+
+| | mentions `ReadLikelihoodSnarlCaller` | includes from the read-likelihood family |
+|---|---|---|
+| `read_phasing.{hpp,cpp}` (385 lines) | **0** | none |
+| `regenotype.{hpp,cpp}` (755 lines) | **0** | none |
+| `linkage_model.{hpp,cpp}` (3,525 lines) | **0** | none |
+| `anchor.{hpp,cpp}` (1,070 lines) | **0** | `site_read_source.hpp` |
+| `read_likelihood_caller.hpp` | -- | includes **none** of the four |
+
+So the preliminary answer to question 2 is **"not wedded at all"** — the subsystems do not name the
+caller and, `anchor` aside, include nothing from its family. The dependency runs one way and the
+composition must therefore happen in the `.cpp` files or in `call_main.cpp`.
+
+**That is a header-level probe and is not sufficient.** The review must also check:
+- shared *data types* (`CallInfo`, `AlleleReadLikelihoods`, `SnarlTraversal`) — decoupling by class
+  name can hide coupling by struct
+- where composition actually happens, since neither side includes the other
+- whether `linkage_model` at 3,525 lines is one subsystem or several wearing one name
+- what else in the flat `src/` belongs in the same folder, given the layout serves 297 files
+
+**Candidate layouts to evaluate, not to assume:** `callers/read_likelihood/` with the subsystems
+inside; or `lib/call/` + `lib/call/subsystems/`. The evidence above mildly favours subsystems as
+*siblings* of the caller rather than nested inside it, since they do not depend on it — but that is
+exactly what the review is for.
+
+**Do not start 2d before this lands.**
+
+### 2d. Structural reorganisation
+
+Follows from 2c.
 
 ---
 
