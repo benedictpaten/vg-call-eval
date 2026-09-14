@@ -220,3 +220,71 @@ simpler designs that looked strictly better on paper:
 Ordering is NOT the reason either design fails. Both sequences are DAG paths, so shared nodes
 appear in the same topological order, and repeats are absent in practice -- 0 in 234,001
 traversals and in 19,999 reads averaging 936 nodes.
+
+## The band is load-bearing, and the ONT measurement hid it
+
+The band was very nearly deleted on the strength of an ONT-only measurement: it appeared to
+recover 42s of 151s and to reach at most 0.1% of traversals. Both figures are true of chr20 ONT
+and both are misleading, because **ONT calling is I/O-bound** -- 76% of it is the `gbz-base`
+subprocess and 63% is blocked in `waitpid`, so DP cost is largely hidden behind the fetch.
+
+Short reads are the honest measure of DP cost, and there the band is worth 1.79x the CPU:
+
+| chr20 short reads, alone, `-t 6` | real | user CPU |
+|---|---|---|
+| banded (the shipped reference) | 484.5s | 2303.7s |
+| unbanded, perfect-match cuts | 613.6s | 2083.4s |
+| **unbanded, exhaustive** | **1343.4s** | **4123.9s** |
+
+And it costs nothing. Against the unbanded walk over the same chr20 short-read call it moves a
+**single record of 115,255**; on ONT, `dp-c20` against `bd-c20` leaves indel F1 identical at
+0.86659 with SNV F1 marginally *better* banded.
+
+## Perfect-match cuts: cheaper than the band, and much coarser
+
+The proposal was to bound the DP by forcing every node the read matches PERFECTLY -- no edits
+at all against that node -- to be paired, cutting the rectangle into independent blocks. A
+perfect match earns `match` per base, which no gap or substitution can beat, so in a standard
+global alignment the pairing is provably on the optimal path.
+
+**This walk is not a standard global alignment.** Allele sequence before the first match and
+after the last is FREE -- it is outside the read's window, and charging it would penalise a read
+for being short. Taking a match closes that flank and makes every later allele node chargeable.
+So for a read `[X, Y]` against an allele `[X, A, B, C, Y]`:
+
+- force the `X` pairing: `match(X) - gap(A+B+C) + match(Y)`
+- decline it: `-gap(len X)` to insert X in the flank, then A, B, C consumed **free**, `match(Y)`
+
+When the intervening stretch is long the second wins, so forcing perfect matches is not exact
+here and no smarter choice of cuts repairs it.
+
+Measured, both arms unbanded so the cuts are the only variable: cuts move **43 records** where
+the band moves **1**. Cuts are the cheaper bound and the worse approximation, so the band stays
+and the cuts are dropped.
+
+**The cut-bound cost four separate off-by-one errors**, each of which showed up only as an
+allele becoming unreachable -- a relative likelihood of exactly 0, indistinguishable from
+"scored, and hopeless". The subtlest: a row must range PAST its own forced pairing, because a
+deletion is taken in the row before the match that follows it, so a row stopping at its own
+column leaves the next row's diagonal never computed. That class of bug is now pinned by a test
+over 11 node layouts asserting every read reaches every allele.
+
+## Shipped: band + hoist, byte-gated on three arms
+
+Work that depends only on the READ (its own per-node edit scores, and its sorted node keys) or
+only on the ALLELE (its sorted node keys) was being recomputed inside the (read, allele) loop --
+15.6M times on chr20 ONT, 24.6M on the short-read arm. Computing each once is a pure reordering
+of identical arithmetic, and the byte gates prove it:
+
+| chr20/chr6, alone, `-t 6` | before | after | bytes |
+|---|---|---|---|
+| chr20 short reads | 484.5s / 2303.7s user | **444.5s / 2139.9s user** | identical |
+| chr20 ONT | 247.3s / 1356.9s user | **230.5s / 1356.2s user** | identical |
+| chr6 ONT (hold-out) | -- | 402.5s / 2056.1s user | identical to `bd-c6` |
+
+Short reads are the honest measure: **-7.1% CPU**. ONT user CPU is flat at 1356s because that arm
+is I/O-bound, so its 17s of wall improvement is fetch variance, not the hoist.
+
+Accuracy is unchanged by construction -- byte-identical output on all three arms -- so the walk's
+gains stand as previously measured: chr20 ONT indel F1 0.86237 -> 0.86659, chr6 hold-out
+0.88005 -> 0.88351, short reads +0.0006 with SNV F1 unchanged.
