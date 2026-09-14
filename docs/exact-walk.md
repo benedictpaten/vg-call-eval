@@ -410,3 +410,46 @@ going to base level is not viable.
 
 **Not measured:** whether base-level alignment is more ACCURATE. That question stays open, and any
 future attempt should get the accuracy signal on a cheap arm before paying for a whole contig.
+
+## Shipped: `--realign`, opt-in, on under `--preset ont`
+
+The walk is the right default for long reads and the wrong one for short reads, so it is a flag
+rather than unconditional behaviour (vg `c60503ac3`). Greedy is the default; `--preset ont` sets
+`--realign`; `--no-realign` forces greedy back even under a preset.
+
+All four arms measured with the shipped binary, one at a time, `-t 6`:
+
+| | indel F1 | SNV F1 | ALL F1 | wall | CPU | peak RSS |
+|---|---|---|---|---|---|---|
+| chr20 short, greedy (default) | 0.92858 | 0.98518 | 0.97246 | 149s | 755s | 6.42 GB |
+| chr6 short, greedy (default) | 0.93971 | 0.98803 | 0.97752 | 296s | 1522s | 8.70 GB |
+| chr20 ONT, `--preset ont` | 0.86659 | 0.98563 | 0.95863 | 257s | 1492s | 4.44 GB |
+| chr6 ONT, `--preset ont` | 0.88351 | 0.98816 | 0.96518 | 438s | 2330s | 7.49 GB |
+
+What the flag is worth, same contig, same data:
+
+| | greedy | `--realign` | delta | CPU ratio |
+|---|---|---|---|---|
+| chr20 ONT | 0.86237 | **0.86659** | **+0.0042** | 1.17x |
+| chr6 ONT (held out) | 0.88005 | **0.88351** | **+0.0035** | -- |
+| chr20 short | **0.92858** | 0.92918 | +0.0006 | 3.10x |
+| chr6 short (held out) | **0.93971** | 0.94035 | +0.0006 | 2.65x |
+
+**Both contigs agree on the short-read verdict at +0.0006**, so leaving it off there is not a
+chr20 artefact. Roughly seven times the accuracy for a third of the cost multiple, long versus
+short. Peak RSS moves by less than run-to-run noise in every pairing.
+
+Three byte gates hold the wiring honest: chr20 short at defaults is byte-identical to the greedy
+baseline, chr20 ONT under the preset is byte-identical to `bd-c20`, and chr6 ONT reproduces `bd-c6`
+exactly. `short-chr6` did not exist as an arm and was added -- chr6 short reads share the hap32
+databases with chr20 and needed only their own GBZ.
+
+**Quote CPU, not wall.** Short-read calling is I/O-heavy -- 34% of its CPU is sys against ONT's 9%
+-- so wall-clock understates the compute `--realign` adds there: 3.07x wall but 3.10x CPU against
+greedy's 748s, of which 248s is sys.
+
+**Where the two walks differ in cost, not only in correspondence.** Greedy charges a fresh gap open
+per inserted read visit; the DP's insertion state opens once and extends. A k-visit insertion run
+therefore differs by `(k-1)*(gap_open - gap_extend)` -- **exactly zero at `--preset ont`**, where
+both are 1, and non-zero at the short-read defaults of 6 and 1. So on ONT the arms differ purely in
+the correspondence chosen; on short reads part of the +0.0006 is a cost-model difference.
