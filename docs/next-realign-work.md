@@ -157,3 +157,80 @@ Follows from 2c.
   free flank breaks the global-alignment argument. It IS accuracy-neutral (-0.00015) and the
   cheapest CPU of any variant tested, so it remains a legitimate *performance* option -- but it is
   a different approximation from the band, not a strict improvement.
+
+---
+
+## Part 3 — the residual anchor `gqn` vs VCF `GQN` disagreement (102 snarls, 0.089%)
+
+Mostly fixed in vg `c73fdedc7`; what is left is structural and is parked here rather than
+pretended away.
+
+### Where it stands
+
+chr20 ONT, anchor `gqn` column joined to the VCF `GQN` field on the snarl ID:
+
+| | before (`v6`) | after (`v7`, shipped) |
+|---|---|---|
+| joinable snarls | 114,625 | 114,625 |
+| `gqn` != `GQN` | 8,149 (7.109%) | **102 (0.089%)** |
+| sign disagreements | 4,232 | **37** |
+| sign flips with \|value\| >= 0.25 | 1,548 | **16** |
+
+### Why the last 102 survive
+
+The VCF's `GL` is built by iterating **site** genotypes and mapping each through `site_to_scored`
+into `genotype_lls` (`src/read_likelihood_caller.cpp:452-466`). So its genotype space is the one
+over the **emitted** alleles. The fix already restricts the anchor's `best_other` to
+`{ref_trav_idx} ∪ settled genotype`, which is the emitted set *for almost every record* -- and that
+is what took 8,149 down to 102.
+
+It is not the emitted set when the **symbolic layer collapses two traversals onto one ALT**: two
+distinct traversals that spell the same ALT sequence become a single site allele, so the VCF's
+genotype space is *smaller* than `{ref} ∪ called`. The residual disagreements read VCF-more-positive,
+which is the signature of exactly that -- a smaller competitor set gives a larger margin.
+
+Reproducing it needs the traversal-to-ALT map, which is built inside `emit_variant`, and anchors are
+collected one line **before** `emit_variant` (`graph_caller.cpp:6401`) because that is the single
+place the settled genotype and the per-read evidence coexist.
+
+### Options, none started
+
+1. **Leave it, documented.** 0.089%, and the sign is right on all but 37 snarls. The anchor file's
+   own header already says "Anything else about the site is in the VCF, joinable on the snarl
+   column" -- so the honest position is that `gqn` is a convenience copy and the VCF is normative.
+2. **Collect anchors after `emit_variant`.** Then the allele map exists. Needs care: `emit_variant`
+   hands the `CallInfo` on to `update_vcf_info`, so the evidence's lifetime has to be checked, and
+   the ordering comment at `graph_caller.cpp:6392-6400` exists for a reason.
+3. **Expose the emitted allele set** from the allele-map builder, keyed by record, and have anchor
+   collection consult it. Only works if the map can be built before the anchors, which is the same
+   ordering problem as (2).
+4. **Replicate the collapse at anchor time.** Duplicates a rendering decision in a second place;
+   rejected on principle unless (2) and (3) both prove impossible.
+
+### Gate 0
+
+Before doing any of this, characterise the 102: are they multi-allelic sites, nested sites, or SVs?
+If they are a class a consumer would filter out anyway, option 1 is the answer and this closes.
+One join, no vg run:
+
+```
+python3 - <<'PY'   # anchors v7 vs the VCF, on the snarl column
+# see the check in this session: parse GQN from the VCF FORMAT field, gqn from the A rows,
+# report snarls where they differ by more than 0.0015
+PY
+```
+
+### Do not regress
+
+`--anchors-min-gqn` and the `.` sentinel now mean different things than in v6: `.` is NaN ("no gap
+to normalise"), a negative number is a value. `scripts/check_anchors.py` refuses v6 outright and
+asserts `gqn` is `.` or within [-1, 1]. Any change here must keep those two distinct -- collapsing
+them is the original bug.
+
+---
+
+## Still unparked
+
+The **homozygous anchor split** design (splitting a hom site's single slot by implied read phase, to
+lengthen haploid runs) was worked out in this session but is neither planned nor implemented here.
+58.5% of chr20 anchor sites are single-slot, so it is the largest outstanding item.
