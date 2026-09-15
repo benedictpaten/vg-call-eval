@@ -425,6 +425,21 @@ pre-linkage margin for a genotype that had been moved, exactly like the 340 that
 That is the argument for fixing it at the source rather than reconciling two columns: the column
 with the error is the one a consumer reads on its own.
 
+**What it costs a consumer filtering on `gqn`.** `--anchors-min-gqn > 0` drops a NaN row
+(`anchor.cpp:368`), so those 4,005 now fall out of a filtered file. Their *stale* values were low,
+which is expected -- the scale recovery fails precisely where the margin rounds to `0.000`:
+
+| their old, stale `gqn` | |
+|---|---|
+| median | 0.091 |
+| would have passed `--anchors-min-gqn 0.10` | 1,907 (47.6%) |
+| would have passed `--anchors-min-gqn 0.25` | **423 (10.6%)** |
+| would have passed `--anchors-min-gqn 0.50` | 101 (2.5%) |
+
+So at a realistic threshold the practical loss is **423 snarls out of 172,340**, and those 423 were
+passing the filter on a number that described a genotype the site is not reporting. The rest would
+have been filtered out anyway.
+
 ### The obvious next increment, scoped but not done: retain `achievable_gap`
 
 Blanking those 4,005 rows is honest but it is not the best available answer. The margin *can* be
