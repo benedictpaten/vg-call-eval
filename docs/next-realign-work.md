@@ -270,7 +270,15 @@ Follows from 2c.
 
 ---
 
-## Part 3 — the residual anchor `gqn` vs VCF `GQN` disagreement (102 snarls, 0.089%)
+## Part 3 — the anchor `gqn` vs VCF `GQN` disagreement — FIXED, 579 -> 97
+
+> **The "102 snarls, 0.089%" in the original heading was wrong**, and wrong in a way worth keeping
+> on the record: it counted only pairs where BOTH sides had a number, and the whole problem lived
+> in the pairs where one side was the `.` sentinel. The real figure was 579, of which 482 were that
+> class. See [Gate 0](#gate-0---answered-2026-09-14-and-it-changes-the-recommendation). Two defects
+> found and fixed (vg `e48162ab8`); the 97 that remain are the class this Part was written about
+> and are still parked.
+
 
 Mostly fixed in vg `c73fdedc7`; what is left is structural and is parked here rather than
 pretended away.
