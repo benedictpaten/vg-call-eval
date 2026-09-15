@@ -425,6 +425,23 @@ pre-linkage margin for a genotype that had been moved, exactly like the 340 that
 That is the argument for fixing it at the source rather than reconciling two columns: the column
 with the error is the one a consumer reads on its own.
 
+### The obvious next increment, scoped but not done: retain `achievable_gap`
+
+Blanking those 4,005 rows is honest but it is not the best available answer. The margin *can* be
+recomputed on every one of them; what cannot be recovered is the **scale** to divide it by.
+`anchor_gqn_for` reconstructs that scale as `GQI / GQN` from two quantized values, and that fails
+exactly when `gq_fraction` rounds to `0.000` -- which is why the failures cluster on tiny margins.
+
+But `achievable_gap` is computed directly in `read_likelihood_caller.cpp` (~line 230) and then
+thrown away; only the ratio survives on the `CallInfo`. **Retaining it as one `double` would let
+both the anchor and a post-linkage VCF normalise exactly**, with no quantization round trip, and
+would turn those 4,005 `.`s into real values -- which matters, because a consumer filtering on
+`--anchors-min-gqn` drops a NaN row.
+
+Not done here, and it is not free: a new `CallInfo` field has to cross the ploidy swap in
+`run_deferred_descent`, which copies only the fields it knows, and that has silently dropped a
+field before. Gate it with the two-path byte-identity check that caught it last time.
+
 ### Noticed while doing it, not done: the anchor file has no provenance line
 
 The header records `#graph`, `#reads`, `#sample`, `#mismap-min`, `#sites` and `#filters` -- enough
