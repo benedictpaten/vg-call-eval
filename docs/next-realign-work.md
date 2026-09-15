@@ -313,6 +313,54 @@ majority purity is ~0.5 by construction. Split them and they enter the numerator
 before/after purity comparison is not like-for-like. The comparison must either hold the site set
 fixed or report the two populations separately.
 
+### IMPLEMENTED (vg `788470620`), with the gate result
+
+Gate 0 passed and is now a permanent per-run self-check. Held out on chr20 ONT, leave-one-out, over
+3.12M reads at heterozygous sites:
+
+| | agreement | share of reads |
+|---|---|---|
+| **overall** | **94.69%** | -- |
+| confident (\|lambda\| >= 2) | **95.47%** | 94.6% |
+| not confident | 81.20% | 5.4% |
+
+Against a 50% chance baseline, and 95.47% is exactly where strand confidence is documented to
+saturate -- the mechanism is at its ceiling, not under-tuned.
+
+**That measurement changed the design.** The original proposal was a per-read confidence gate.
+Confident reads agree 95.5% and unconfident ones 81.2%, but only 5.4% of reads are unconfident, so
+gating per read buys **0.78 points of purity for a 5.4% yield loss**. The gate is therefore
+SITE-level -- two confidently placed reads on each strand -- and every read at a split site is
+placed rather than dropped. Pooling beats dropping, as the principle above says.
+
+Result, `--anchors-hom-split` on chr20 ONT:
+
+| anchor pins | before | after |
+|---|---|---|
+| 1 slot (no haplotype) | 196,400 (58.5%) | **45,433 (13.5%)** |
+| 2 slots | 139,275 (41.5%) | **290,138 (86.5%)** |
+
+79,962 homozygous sites split, 9,014 left collapsed. Flag off by default and byte-identical when
+off; the VCF is unchanged when on; `check_anchors.py` passes.
+
+**Still not validated against truth.** The ~95% figure is the accuracy of the INFERENCE, measured
+where an answer exists. Whether a 95%-pure haplotype label helps an assembler more than the break it
+replaces is unmeasured, and needs the simulated two-haplotype read set that does not exist. Until
+then the flag stays off by default and the file declares `hom-split=on` with a note naming
+equal-alleles-across-two-slots as the tell.
+
+### Not done
+
+- **Collapsing unconfident heterozygous sites** -- the reverse direction. The site-level machinery
+  is now in place (`AnchorParams::phase_min`, `phase_min_side`) and the same decision applies, but it
+  is unimplemented and unmeasured.
+- **Weighting each site's lambda term by its genotype confidence.** The one-line change is
+  `src/regenotype.cpp:120`, multiplying `site_read_log_odds` by a new `PhaseSite::confidence`. NOT at
+  `regenotype.cpp:141`, which would weight the forward sum but not the leave-one-out subtraction and
+  make every site partially confirm itself. The natural source is `gq_fraction`, whose -1 sentinel
+  must be translated to 1.0 and which already carries the explained-share discount, so multiplying by
+  `explained_share` again would double-count.
+
 ### Order of work
 
 1. Thread a populated `LambdaTable` to anchor-emission time (inputs are already live members).
