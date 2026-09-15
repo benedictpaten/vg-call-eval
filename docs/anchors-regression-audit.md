@@ -217,8 +217,10 @@ a problem with the calls and is not. All 115,916 chr20 call records are uniforml
 - The anchor *file* is correct: every invariant above passes, including the offset check that had
   never been run.
 - The regression is a fitted threshold left on the wrong side of a distribution the walk moved.
-- **The proper fit is in progress** (`docs/phase-min-q-refit.md`): a chr20 sweep on switch error
-  and F1 together, with chr6 held out for confirmation. 8.5 is a probe, not a fitted value.
+- **Fitted and adopted.** `--phase-min-q` now defaults to 8.5 when the exact walk is in use and
+  stays at 9.5 otherwise -- keyed on `--realign`, because the value thresholds a quantity the walk
+  produces. chr20 switch error 0.5794% -> 0.3826%, chr6 held out 0.4547% -> 0.2866% at 7.8 sigma,
+  indel F1 unmoved on both. See `phase-min-q-refit.md`.
 - **A second, unrelated defect** was found by code review and verified by hand: anchors for
   `reported_inline` and `no_reference` records are collected from the PRE-linkage genotype. See
   below.
