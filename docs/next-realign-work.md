@@ -7,6 +7,16 @@ started. Both parts are independent of each other and of whatever is being worke
 
 ## Part 1 — the ONT preset was fitted against a walk that no longer runs by default
 
+> **CLOSED, 2026-09-14, negative. Nothing moves.** The hypothesis below is wrong and the table
+> immediately under it is wrong: `--gap-open` *had* been swept on the anchor-constrained walk, in
+> `exact-walk.md`, before `--realign` shipped. Measured again anyway under the shipped preset, and
+> both open parameters confirm their shipped values — `--gap-open 1` on the floor of its legal
+> range with a 0.042 cliff above it, `--mismap-min 0.05` interior. See
+> [Gate 0](#gate-0--answered-2026-09-14-negative-and-the-parameter-is-now-closed) for the numbers.
+> Everything from here to that section is kept as written, so the reasoning that turned out wrong
+> is on the record beside the result.
+
+
 `--preset ont` sets seven things. Only **one** has been re-fitted since `--realign` became part of
 it:
 
@@ -68,11 +78,53 @@ gap-open sweep is ~30 min; the whole plan including chr6 confirmation, ~1.5 hour
 peaked 0.00045 above the shipped value and was correctly left alone; that is the calibration for
 what counts as noise here. Neighbouring grid points on a real curve move 0.0026-0.0039.
 
-### Gate 0 — is this worth starting at all?
+### Gate 0 — ANSWERED 2026-09-14. Negative, and the parameter is now closed.
 
 Run **only the `--gap-open 2` arm** first, one measurement, 6 minutes. The hypothesis predicts it
 beats `--gap-open 1`. If it does not, the compensation story is wrong and the rest of the sweep is
 unlikely to pay; stop and record the negative.
+
+**It does not.** vg `3519d4980`, chr20 ONT, `--preset ont` with one flag varied, control and test
+on the same binary:
+
+| arm | indel F1 | indel P | indel R | SNV F1 | ALL F1 | indel FP |
+|---|---|---|---|---|---|---|
+| `--gap-open 1` (shipped) | **0.86659** | 0.8558 | 0.8777 | 0.98563 | 0.95863 | 3,318 |
+| `--gap-open 2` | 0.82441 | 0.8017 | 0.8484 | 0.98543 | 0.94808 | 4,778 |
+| `--mismap-min 0.02` | 0.86117 | 0.8480 | 0.8748 | 0.98532 | 0.95700 | 3,534 |
+| **`--mismap-min 0.05` (shipped)** | **0.86659** | 0.8558 | 0.8777 | 0.98563 | 0.95863 | 3,318 |
+| `--mismap-min 0.10` | 0.85825 | 0.8454 | 0.8715 | 0.98354 | 0.95494 | 3,594 |
+
+`--gap-open 2` loses **0.0422** indel F1 — fourteen times the adoption threshold, in the wrong
+direction, with precision *and* recall both down and 44% more indel false positives. The
+homopolymer cell moves the same way: HP>=5 one-base FPs go 1,429 -> 2,433, and their share of all
+FPs rises 38.5% -> 46.9%. So raising the gap scale inflates exactly the class `--gap-open 1` was
+fitted to suppress, and the compensation story is wrong.
+
+**And the premise was already refuted in this repo.** `exact-walk.md` records a gap_open sweep run
+on the anchor-constrained walk — which *is* `--realign` — during the walk investigation:
+0.86758 at gap_open 1 against 0.82313 at 2, with the note "all three walks share the same optimum
+at gap_open 1 ... the anchored walk needs no re-tuning". The table at the top of this Part, which
+says `--gap-open 1` was never re-fitted under `--realign`, is wrong. This measurement reproduces
+that earlier result under the shipped preset rather than discovering it.
+
+**`--gap-open` cannot go lower.** The arm at 0 exits immediately: `--gap-open must be between 1 and
+127`, and so must `--gap-extend`. The fitted value sits on the **floor of the flag's legal range**,
+with the curve rising steeply above it, so there is no sweep left to run on either gap parameter —
+and the floor is right, because at `gap_open 0, gap_extend 1` a one-base gap costs nothing.
+
+**`--mismap-min 0.05` is an interior optimum** under `--realign`, losing 0.0054 at 0.02 and 0.0083
+at 0.10. Both neighbours are well outside noise and both are worse.
+
+**Part 1 is closed. Nothing moves.** Three of the preset's four walk-adjacent members are now
+confirmed at their shipped values under the shipped walk; the fourth, `--gap-extend`, is at the
+same legal floor as `--gap-open` and has nowhere to go. No chr6 confirmation was run, correctly:
+chr6 confirms an adopted change, and nothing is being adopted.
+
+Two things fell out of the control arm for free. It reproduces `bd-c20` **to the digit**
+(0.86659 / 0.98563 / 0.95863, FP 3,318, FN 2,407), which confirms that the anchor `gqn` fix, the
+phase-ordering fix and `--anchors-hom-split` are all VCF-inert as intended — a byte gate would have
+been better still, but this is the gate that was already being run.
 
 ---
 
