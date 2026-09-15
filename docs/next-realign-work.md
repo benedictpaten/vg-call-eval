@@ -322,8 +322,27 @@ fixed or report the two populations separately.
 5. Format bump, `check_anchors.py` update, TAP and unit coverage.
 6. Purity/yield/calibration against the known-origin harness, with the exclusion trap handled.
 
-### Gate 0
+### Gate 0 -- held-out, and it needs no simulation
 
-Before any of it: on the existing v7b chr20 file, how many single-slot sites have reads whose lambda
-is confidently bimodal? If it is a small fraction, the ceiling on this whole part is small and steps
-3-6 are not worth it. One offline pass over the anchors plus the lambda table, no vg change.
+**The purity harness cannot run.** `anchor_purity.py` needs reads whose names encode their true
+haplotype (`h1_`/`h2_`); no such read set exists anywhere in the repo, nothing builds one, and the
+script has never been run -- there is no recorded output of it and no baseline to compare against.
+Every read source on disk is real HG002. So the obvious validation is unavailable without first
+simulating from two haplotype paths, mapping and calling: a pipeline in its own right.
+
+A better gate is available from data already in hand, and it tests the mechanism directly:
+
+> At **heterozygous** sites, partition the reads by cross-site lambda ALONE -- leave-one-out, so the
+> site's own allele evidence is excluded -- and compare against the allele-based partition the site
+> actually makes. Report the agreement rate.
+
+A het site has an allele-derived answer. Lambda-only partitioning is exactly what a hom split would
+have to rely on. So this measures the accuracy of the mechanism on held-out ground truth, with no
+simulation, and it is the same comparison the hom case will make blind.
+
+If agreement is poor, the hom split cannot be trusted at hom sites either, and steps 3-6 stop. If it
+is high, the split is justified and the same number calibrates the confidence threshold.
+
+Two known confounders to control: reads whose lambda comes from a single site have nothing left
+after leave-one-out (`ReadLambda::sites == 1`), and `multi_block` reads span a phase break. Both
+must be excluded and counted, not silently folded in.
