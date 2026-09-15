@@ -208,6 +208,16 @@ now say so instead of doing nothing. Two details that are not cosmetic:
 
 Four more TAP tests, 421 total.
 
+**The owner column is an INTERIM, decided on the PR (adamnovak, 2026-09-15).** A central table of
+what belongs to whom is not what "option ownership" should mean: each subsystem should register its
+own options Giraffe-style, with `OptionGroup<Receiver>::add_range(name, dest, ...)` from
+`subcommand/options.hpp`, which already exists and which `giraffe_main.cpp` already uses. What
+blocks the migration is `scripts/lint.py`: it cannot see an option inside an `OptionGroup`, and
+giraffe survives only by keeping a `long_options` table as well *and* being special-cased. Moving
+`vg call`'s 61 options into groups would drop them out of the only check that catches the drift the
+owner column exists to fix. Extending the linter is agreed as the right answer and **deliberately
+deferred out of #4990**. Recorded in `doc/read-likelihood-architecture.md` and beside the enum.
+
 ### 2b. Layout: folders. DECIDED (author, 2026-09-14)
 
 > "I think we want folders for sanity. The flat directory structure has gotten too big."
