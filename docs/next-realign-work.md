@@ -394,3 +394,59 @@ is high, the split is justified and the same number calibrates the confidence th
 Two known confounders to control: reads whose lambda comes from a single site have nothing left
 after leave-one-out (`ReadLambda::sites == 1`), and `multi_block` reads span a phase break. Both
 must be excluded and counted, not silently folded in.
+
+### What the shipped split actually did, measured on chr20 ONT
+
+Anchor census after `--anchors-hom-split` (vg `3519d4980`, post-fix):
+
+| diploid homozygous snarls WITH a VCF line (35,593) | | |
+|---|---|---|
+| every pin split into two slots | 31,103 | **87.4%** |
+| one pin split, the other single-slot | 113 | 0.3% |
+| no pin split -- genuinely still collapsed | 4,377 | 12.3% |
+
+**Splitting does not require a VCF line, and nested sites are the majority of it.** Of the 79,137
+snarls showing a split (two slots carrying the SAME allele -- the tell), only **39.4% have a VCF
+line**; **60.6% are `reported_inline` or `no_reference`** records, which are anchored but never
+written as a line. The per-read lambda comes from the het sites the reads ALSO cross, not from the
+site being split, so a nested homozygous site is partitionable exactly like any other. These are the
+off-reference sites the code calls "where an assembler most needs help", and the same population the
+phase-ordering bug was mislabelling.
+
+A detail that falls out right rather than by design: `apply_read_phasing` builds `phase_sites` from
+`records_for_render()`, which EXCLUDES `reported_inline` and `no_reference`. Those sites therefore
+have no `PhaseSite`, the leave-one-out lookup finds nothing, and nothing is subtracted -- correct,
+because a site that contributed nothing to lambda has nothing to leave out.
+
+### The remaining single-slot pins, and a correction
+
+45,571 pins are still single-slot:
+
+| | pins | share |
+|---|---|---|
+| no VCF line (nested inline / off-reference) | 17,167 | 37.7% |
+| diploid heterozygous | 14,906 | 32.7% |
+| diploid homozygous -- failed the split gate | 8,415 | 18.5% |
+| nested haploid (`1\|.`) | 5,083 | 11.2% |
+
+**The heterozygous row is a PIN count and was first described as if it were a site count, which
+overstated it by an order of magnitude.** At site level, of 76,861 diploid het snarls with anchors:
+81.8% have both slots at every pin, **16.7% have both at one pin and one at the other** -- the
+partition is present, an end pin simply held too few reads for the second slot -- and only **1.5%
+(1,128 sites) have no pin with both slots**, which is the only genuinely concerning group. The
+homozygous population shows the opposite shape (0.3% partial), because the split is decided once per
+site and applied at both pins, whereas the het partition depends on per-pin read placement.
+
+### Two bugs found by explaining the code, not by running it
+
+Both were live in the first shipped version and are fixed in vg `181266514`:
+
+- `best_slot = lo > 0.0 ? 0 : 1` sent every read with **no opinion** (`lo == 0.0`) to slot 1 --
+  a haplotype claim with nothing behind it, made systematically in one direction. **48,686 read
+  placements** on chr20. They are now in neither slot and counted.
+- the `side0`/`side1` count included reads pinned at neither end, which the placement loop drops, so
+  a site could qualify on evidence that never reached the file. Cost: 415 sites, 0.5%.
+
+The no-opinion rate is **0.38% at hom sites against 0.19% at het** -- twice as high, which is the
+expected direction, since a homozygous site is likelier to sit where few het sites are near enough
+to phase from.
