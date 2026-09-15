@@ -141,6 +141,18 @@ Because the shift moves a *mode*, not a tail. The second-largest spike in the sc
 not. That also explains the otherwise odd shape of the loss -- at thresholds of 5.0, 11.0, 12.0 and
 13.0 the two arms differ by 0.01-0.13%, and **only at 9.5** do they differ by 43.6%.
 
+### The blast radius is exactly one parameter
+
+Every other threshold on this quantity defaults to zero, i.e. off: `--min-confidence`
+(`read_likelihood_caller.hpp:340`), `--anchors-min-gqn` and `--anchors-min-q`
+(`anchor.hpp:236-237`). `--phase-min-q 9.5` is the **only non-zero default that thresholds the
+per-read score**, which is why a shift this large has exactly one visible consequence rather than
+many.
+
+`--phase-break 10` sums `phase_link`, which is built from `q0`/`p` and so is also walk-dependent,
+but it moved the other way and by little: chain breaks are 487 under realign against 787 under
+greedy.
+
 ### This is the same class of defect as Part 1, and here it bites
 
 `docs/next-realign-work.md` Part 1 asked whether the ONT preset's parameters were still right after
