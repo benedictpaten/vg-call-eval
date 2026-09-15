@@ -184,6 +184,30 @@ option must be touched. Now it is in the table.
 Three TAP tests guard it, including that an `OWN_CORE` option is still let through: a check that
 refuses everything would pass the obvious assertion and be useless.
 
+**And it generalises, which is the half the review actually asked for** — "so we can get errors
+about using flags for a subsystem you aren't using, for free". The owner enum now carries
+`OWN_ANCHORS`, `OWN_MOSAIC` and `OWN_REGENOTYPE` alongside `OWN_READ_LIKELIHOOD`, and the check is
+a list of gates rather than one:
+
+| owner | enabling flag | options | were they refused before? |
+|---|---|---|---|
+| `OWN_ANCHORS` | `--anchors-out` | 8 | no — silently dropped |
+| `OWN_MOSAIC` | `--mosaic-out` | 4 | no — silently dropped |
+| `OWN_REGENOTYPE` | `--regenotype` | 7 | no — silently dropped |
+
+So `--anchors-min-q 30` with no `--anchors-out`, or `--regeno-temper 0.2` with no `--regenotype`,
+now say so instead of doing nothing. Two details that are not cosmetic:
+
+- **The outer gate wins.** An `--anchors-*` flag with neither `--anchors-out` nor
+  `--read-likelihood` is reported against `--read-likelihood`, which is the one the user has to fix
+  first; otherwise they would fix `--anchors-out` and hit a second error.
+- **The regenotype gate tests `regenotype && read_phasing`, not `regenotype`.** `--preset ont` arms
+  regenotyping and `--no-read-phasing` disarms it again, and that resolution happens *after* this
+  check — so testing the raw flag would accept a `--regeno-*` option here and leave it inert there.
+  That combination is documented and must not error, so the gate has to know about it.
+
+Four more TAP tests, 421 total.
+
 ### 2b. Layout: folders. DECIDED (author, 2026-09-14)
 
 > "I think we want folders for sanity. The flat directory structure has gotten too big."
@@ -293,18 +317,128 @@ place the settled genotype and the per-read evidence coexist.
 4. **Replicate the collapse at anchor time.** Duplicates a rendering decision in a second place;
    rejected on principle unless (2) and (3) both prove impossible.
 
-### Gate 0
+### Gate 0 - ANSWERED 2026-09-14, and it changes the recommendation
 
-Before doing any of this, characterise the 102: are they multi-allelic sites, nested sites, or SVs?
-If they are a class a consumer would filter out anyway, option 1 is the answer and this closes.
-One join, no vg run:
+The gate was: characterise the 102 -- multi-allelic, nested, or SV? If they are a class a consumer
+would filter out anyway, option 1 is the answer and this closes.
 
-```
-python3 - <<'PY'   # anchors v7 vs the VCF, on the snarl column
-# see the check in this session: parse GQN from the VCF FORMAT field, gqn from the A rows,
-# report snarls where they differ by more than 0.0015
-PY
-```
+**There are 579, not 102, and the extra 482 are a class the earlier count silently dropped.** The
+join was re-run on an anchors file and a VCF from *one* `vg call` invocation (`work/ont-preset/p3.*`,
+vg `3bef00e05`) -- the pair on disk before this was v7b anchors against a v6 VCF, and although that
+VCF turns out to be byte-identical to the fresh one, that was luck rather than method.
+
+| chr20 ONT, 115,107 joinable snarls | |
+|---|---|
+| anchor `gqn` != VCF `GQN` | **579 (0.503%)** |
+| -- VCF is `.`, anchor is a number | **482 (83.2%)** |
+| -- anchor is `.`, VCF is a number | **0** |
+| -- both numeric, differing | 97 (16.8%) |
+
+The 482 are the 653 records whose VCF `GQN` is `.` *and* that join to an anchor: every single one
+has a number on the anchor side. It is not a scattering, it is the whole class, and it is
+one-directional. Split by why the VCF blanked:
+
+| | | |
+|---|---|---|
+| **(b)** GT is diploid, so the patch ran but `achievable_phred` could not be recovered | 324 | 67.2% |
+| **(a)** GT is haploid or half-missing, which the patch skips outright | 158 | 32.8% |
+
+**These are two different defects and they point in opposite directions.**
+
+**(a) The VCF cannot express a post-linkage `GQN` for a haploid genotype, and the anchor can.**
+`apply_linkage_change` computes the re-derived `GQN` only under `called.size() == 2`, clearing
+`called` the moment a GT field is `.` -- a deliberate choice, with the comment "a haploid record's
+GL is indexed by allele, and conflating the two orders is how a plausible wrong number gets
+written". So it blanks. But these records have real margins to report: `GQI` 116, 3 and 212 on the
+first three, against anchor `gqn` 0.821, 0.094 and 0.871 computed from the live likelihoods, where
+ploidy is not in doubt. **Here the anchor is right and the VCF is losing information it holds.**
+
+**(b) The anchor reports a PRE-linkage margin on a record linkage moved.** `anchor_gqn_for` returns
+a NaN meaning "use the sweep's value" for two quite different situations: linkage left the call
+alone, where the sweep's value is still correct, and linkage moved it but the post-linkage margin
+could not be computed, where the sweep's value is the margin of the genotype linkage moved *away
+from*. The second is the defect already fixed once on this branch -- "right magnitude, WRONG SIGN"
+-- surviving in the fallback path. The magnitudes are small here (0.000-0.002, because recovery
+fails precisely when the pre-linkage `GQN` quantized to `0.000`), so nothing reads dramatically
+wrong, but the semantics do.
+
+The remaining **97** are the class this Part was originally written about: 44.3% carry the
+symbolic-collapse signature (`AT` lists more traversals than `ALT`+1), 36.1% are multi-block, 34.0%
+are sign flips, median |delta| 0.207 with 41 at or above 0.25. Direction is mixed -- 39
+VCF-more-positive against 58 anchor-more-positive -- so a smaller VCF competitor set is part of it
+and not all of it.
+
+**Verdict: not option 1.** (a) and (b) are each a bounded fix in one function, and neither needs the
+traversal-to-ALT map that made options 2-4 expensive. The 97 stay parked.
+
+### Implemented
+
+**(a) `apply_linkage_change` learns the haploid GL layout.** It computed the re-derived `GQN` only
+under `called.size() == 2`, and cleared `called` on any `.` field. It now drops `.` fields rather
+than abandoning the record, and decides the GL layout **by the GL's own length** -- n for haploid
+against n(n+1)/2 for diploid, which is unambiguous at two or more alleles -- rather than guessing
+from the genotype's shape, which is what the original comment was right to refuse. Predicted from
+the existing VCF before building: it supplies a value for **all 159**, every one passing the length
+check with the allele index in range.
+
+The diploid branch deliberately keeps its older, looser condition. Under `--atomize-blocks` one
+snarl emits several records that **share its snarl-level GL** while each carries only its own
+block's ALTs, so `gl.size()` does not match that record's allele count and a length gate there
+would newly skip every multi-block record. That is a separate problem -- 35 of the 97 remaining
+disagreements are multi-block -- and not this change's to fix.
+
+**(b) `anchor_gqn_for` stops falling back past the moved check.** One NaN used to mean both
+"linkage left the call alone, so the sweep's value stands" and "linkage moved it but the margin
+could not be recomputed". The first is still a fallback; every failure after the moved check now
+blanks. Side effect worth knowing: `--anchors-min-gqn > 0` drops NaN rows (`anchor.cpp:368`), so
+those 324 snarls now fall out of a filtered anchor file instead of passing it with a stale number.
+
+Three TAP tests: that linkage never *blanks* a haploid record's `GQN` (under the existing
+`HAP_CHANGED` antecedent, so it cannot pass vacuously), that the nested fixture offers snarls to
+join on at all, and that no anchor reports a `gqn` where the VCF reports none.
+
+### Measured, chr20 ONT, vg `6a8b10e99` + the fix
+
+| | before | after |
+|---|---|---|
+| joinable snarls | 115,107 | 115,107 |
+| anchor `gqn` != VCF `GQN` | **579 (0.503%)** | **97 (0.084%)** |
+| -- VCF `.`, anchor a number | 482 | **0** |
+| -- anchor `.`, VCF a number | 0 | **0** |
+| -- both numeric, differing | 97 | 97 |
+
+**Genotypes are untouched**: `POS`, `REF`, `ALT` and `GT` are byte-identical across the two runs,
+which is what a quality-field fix has to be able to say. The residual 97 are the same 97 -- same
+median |delta| 0.207, same 41 at or above 0.25, same 33 sign flips -- so nothing was traded.
+
+**And the join was seeing 8% of the problem.** Counting what each fix actually moved, rather than
+what the join could see:
+
+| | | |
+|---|---|---|
+| VCF records that gained a `GQN` | **243** | 142 have an anchor row, 101 do not |
+| anchor rows whose stale `gqn` became `.` | **4,005** | **340** have a VCF line, **3,665** do not |
+
+The 3,665 are nested or off-reference snarls -- they emit anchors but no VCF line, so they had
+nothing to disagree with and were invisible to every count in this Part. They were carrying a
+pre-linkage margin for a genotype that had been moved, exactly like the 340 that were visible.
+That is the argument for fixing it at the source rather than reconciling two columns: the column
+with the error is the one a consumer reads on its own.
+
+### Noticed while doing it, not done: the anchor file has no provenance line
+
+The header records `#graph`, `#reads`, `#sample`, `#mismap-min`, `#sites` and `#filters` -- enough
+to reproduce the *inputs*, and nothing about the binary. So a consumer holding a `v7` anchors file
+cannot tell whether its `gqn` column predates this fix, and neither can we: the format is unchanged
+(same columns, same sentinel), so there is correctly no version bump to distinguish them by.
+
+A `#vg-version` header line would close that, and it is three lines of code. It is deliberately not
+in this change: the TAP suite asserts the exact sorted set of header keys, so adding one is a small
+format change with its own test to update, and it belongs with whatever else the header should
+carry rather than being smuggled in beside a `gqn` fix.
+
+The chr20 deliverables rebuilt against the fix are labelled `v7c` -- a **run** label. The format is
+still 7 and `scripts/check_anchors.py` is unchanged.
 
 ### Do not regress
 
