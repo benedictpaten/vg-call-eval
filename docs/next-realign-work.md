@@ -130,6 +130,14 @@ been better still, but this is the gate that was already being run.
 
 ## Part 2 — PR #4990 review (adamnovak, comment 5671460225)
 
+> **STATUS 2026-09-14.** 2a **done** (vg, option table owns the ownership; the old list had
+> already drifted on four live flags — see below). 2c **done** as `doc/read-likelihood-architecture.md`
+> in vg (`eefa809a1`), which answers both questions and finds a third thing neither question named.
+> 2b was decided by the author. 2d is scoped by 2c's "order of work" and is **not started**: its
+> first item, splitting `linkage_model`, is independent of the layout; the folder move and the
+> `VCFOutputCaller` → `FlowCaller` demotion both churn an open PR and want sign-off first.
+
+
 Three separable things. Only the first is a defect.
 
 ### 2a. CLI options are parsed twice, by hand — the actionable one
@@ -149,6 +157,32 @@ file, not by any check), and `--realign`/`--no-realign` had to be remembered int
 table — tag each `long_options` entry with the subsystem that owns it — so a new flag cannot drift
 out of sync and the hand-rolled prefix matcher disappears. Roughly a day across ~105 options, and it
 changes error-message wording, so it wants sign-off before starting.
+
+**DONE.** The table is now `CallOption {name, has_arg, val, owner}` with `OWN_CORE` /
+`OWN_READ_LIKELIHOOD`, and getopt's `struct option` array is generated from it. The parse loop
+records each `val` getopt returns — in argv order, without repeats — and the check is a scan of
+that, so the hand-rolled prefix matcher is gone: getopt had already done the resolution. 106
+options, 61 read-likelihood-owned, 45 core. The message is unchanged except that repeats are now
+deduped.
+
+**The list had drifted, and the drift was live** — demonstrated on the shipped binary before the
+change, not inferred:
+
+| flag | before | after |
+|---|---|---|
+| `--mosaic-out` | refused | refused |
+| `--mosaic-patch-gaps` | **accepted, silently dropped** | refused |
+| `--no-mosaic-patch-gaps` | **accepted, silently dropped** | refused |
+| `--no-mosaic-nested` | **accepted, silently dropped** | refused |
+| `--mosaic-break-unexplained` | **accepted, silently dropped** | refused |
+| `--traversals` (genuinely shared) | accepted | accepted |
+
+Ownership had been written down in three places that could disagree — the helptext's section
+headings, the refusal list, and *nothing at all* in the option table, which is the one place a new
+option must be touched. Now it is in the table.
+
+Three TAP tests guard it, including that an `OWN_CORE` option is still let through: a check that
+refuses everything would pass the obvious assertion and be useless.
 
 ### 2b. Layout: folders. DECIDED (author, 2026-09-14)
 
