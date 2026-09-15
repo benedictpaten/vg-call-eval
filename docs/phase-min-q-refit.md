@@ -143,3 +143,34 @@ The struct default in `read_phasing.hpp` stays 9.5 and is now documented as the 
 **What is NOT claimed.** That 8.5 is the optimum. 8.0 through 9.0 are one plateau on chr20 and the
 measurement cannot separate them; 8.5 is its midpoint and the point furthest from both failure
 modes. What is claimed, on two contigs, is that 9.5 is wrong.
+
+## The chr20 deliverables, rebuilt at the adopted default
+
+`work/ont-preset/`, vg `a59c58f51`, and each file now says so in its own `#vg-version` header:
+
+| file | anchors |
+|---|---|
+| `HG002.chr20.ont.preset.anchors.a59c58f51.tsv` | 474,452 |
+| `HG002.chr20.ont.preset.anchors.homsplit.a59c58f51.tsv` | 627,040 |
+| `HG002.chr20.ont.preset.a59c58f51.vcf` | 115,979 records, from the same run as the unsplit file |
+
+Validated three ways, both files clean on all of them: `check_anchors.py`; the invariant audit
+(score inside `[0, phred(--mismap-min)]`, reliability equal to the dedup mean of its own scores,
+slots within {0,1}, a half-missing genotype's slot equal to the strand its GT names); and the offset
+bounds check against the GAF's own query lengths -- 12,854,924 and 12,766,333 offsets, none outside
+its read.
+
+**How much moved against the previous set (`v7c`, vg `6a8b10e99`), measured per read:**
+
+| | (snarl, read) pairs in both | placed in a DIFFERENT slot |
+|---|---|---|
+| unsplit | 6,758,356 | **1,440,642 (21.3%)** |
+| hom-split | 6,709,690 | **2,866,551 (42.7%)** |
+
+`slot` is the settled phase order, so re-fitting the gate re-phases sites and moves reads between
+slots. The hom-split file moves nearly twice as much because the split decision itself reads the
+cross-site phase, so it inherits the change and then compounds it.
+
+Note that comparing the *set* of (pin node, slot) pairs per snarl shows only 4.9% / 6.3% changed,
+because a pure 0<->1 swap leaves that set identical. It is the wrong measure for this question and
+understates the change fourfold; the per-read number above is the one a consumer feels.
