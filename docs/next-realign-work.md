@@ -480,6 +480,20 @@ carry rather than being smuggled in beside a `gqn` fix.
 The chr20 deliverables rebuilt against the fix are labelled `v7c` -- a **run** label. The format is
 still 7 and `scripts/check_anchors.py` is unchanged.
 
+### The deliverables, rebuilt (`work/ont-preset/`, vg `aca9fc6c6`)
+
+| file | |
+|---|---|
+| `HG002.chr20.ont.preset.anchors.v7c.tsv` | 474,950 anchors, unsplit |
+| `HG002.chr20.ont.preset.anchors.v7c.homsplit.tsv` | 625,563 anchors, `--anchors-hom-split` |
+| `HG002.chr20.ont.preset.v7c.vcf` | the matching VCF, from the same run as the unsplit file |
+
+`check_anchors.py` clean on both. The homsplit file has **exactly the same 625,563 anchors** as its
+v7b predecessor -- the split decision does not read `gqn`, so nothing about the partition moved --
+with 4,002 of their `gqn` values corrected. **Use the v7c pair.** The v7b files carry a stale
+pre-linkage `gqn` on those rows and there is nothing inside them that says so; see the provenance
+note above.
+
 ### Do not regress
 
 `--anchors-min-gqn` and the `.` sentinel now mean different things than in v6: `.` is NaN ("no gap
