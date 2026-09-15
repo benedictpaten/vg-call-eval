@@ -229,8 +229,101 @@ them is the original bug.
 
 ---
 
-## Still unparked
+## Part 4 — evidence-driven anchor slots: split homozygous, collapse unconfident heterozygous
 
-The **homozygous anchor split** design (splitting a hom site's single slot by implied read phase, to
-lengthen haploid runs) was worked out in this session but is neither planned nor implemented here.
-58.5% of chr20 anchor sites are single-slot, so it is the largest outstanding item.
+**The idea, in one line.** A site has two anchor slots iff its reads are *confidently partitioned*
+into two haplotypes -- whatever its genotype says.
+
+Today slot count is hard-coded by the genotype: het gets two slots, hom gets one
+(`src/anchor.cpp:347-355`), and confidence only ever *filters afterwards*. That is backwards in both
+directions. A homozygous site with well-phased reads carries real haplotype information and throws
+it away; a heterozygous site whose reads cannot tell the alleles apart emits two slots that are a
+coin flip. **58.5% of chr20 anchor sites are single-slot** (196,400 of 335,675), and every one is a
+break in the haploid run an assembler is trying to build.
+
+### The per-read score
+
+Mostly already built. `ReadLambda::lambda` (`src/regenotype.hpp:66`) is a per-read, cross-site
+log-odds, summed over the het sites a read covers and signed by the settled frame:
+
+    site_read_log_odds(q0, p) = log( (p*q0 + (1-p)/2) / (p*(1-q0) + (1-p)/2) )
+
+`q0` is the read's allele responsibility split at that site, `p` the probability it came from one of
+the two settled haplotypes at all. It is keyed by **read alone, not (read, block)** -- deliberately,
+with the comment *"the hom case needs a lookup that has no block to offer."* The structure was built
+for this.
+
+Two properties it already has: **MAPQ is inside it**, via the `(1-p)/2` escape floored by
+`--mismap-min`, so a mismapped read cannot reach a confident strand -- damped rather than dropped.
+And it is **calibratable**: raw lambda runs into the hundreds because reads are treated as
+independent and are not, so `calibrated_log_odds` applies a fitted temper `tau ~ 0.07-0.08`.
+
+**What is missing, and is the substance of this part.** Per-site *genotype* confidence does not enter
+the sum. Verified: nothing in `regenotype.cpp` or `read_phasing.cpp` consults `gq` or `gq_fraction`.
+A marginal het call and a rock-solid one contribute identically so long as the read discriminates.
+
+There is partial self-correction -- a site wrongly called het gives `q0 ~ 0.5`, so its term is ~0 and
+it contributes nothing. That is the *benign* failure. The one it does not cover is a site
+confidently het and **wrongly phased**, which contributes a confident wrong-signed term. That is
+switch error, and weighting each site's term by the confidence its genotype is right is the damper
+for it.
+
+### The decision, both directions
+
+For each site, per read, a posterior over {strand 0, strand 1}:
+
+- **hom**: from cross-site lambda alone (the site itself has no allele signal -- both haplotypes
+  carry the same allele, by definition)
+- **het**: from this site's allele evidence *and* cross-site lambda, with **leave-one-out** so a site
+  is not used to phase itself. `read_loo` (`src/regenotype.cpp:255`) already does that subtraction;
+  at a hom site there is nothing to subtract.
+
+Then: **split iff confidently partitioned, collapse iff not.** Reads that fail the per-read gate are
+**pooled, not dropped** -- see below.
+
+### Pooling, not dropping, is the point
+
+Every existing confidence control here is subtractive: `--anchors-min-q` drops reads,
+`--phase-min-q` drops sites, `--anchors-min-gqn` drops anchors. Collapse is *graceful degradation* --
+the pin survives, its reads survive, and only the haplotype claim is withdrawn.
+
+For an assembler that is strictly better: connectivity without phase is useful, a missing pin is not.
+**A wrong split is worse than no split**: a break is expected, a confident-looking chimeric haploid
+run is not. So the gate is conservative and "pooled" stays a representable state.
+
+### Cautions
+
+- **The score saturates.** Agreement tops out at ~95-97% however large |lambda| gets, so any phred
+  has a real ceiling near 13-15 -- which is about where the existing anchor score already saturates,
+  `phred(--mismap-min)` = 13.01 under `--preset ont`. A naive threshold will be overconfident.
+- **`tau` is fitted only when `--regenotype` is on.** Splitting must either require it or fit its own.
+- **Both slots of a split hom site carry the SAME allele**, which nothing in the writer expects.
+  `site_slot_weights` length-weights by `slot_allele`, and the argmax tie-break compares allele
+  indices -- both need checking with identical alleles.
+
+### Evaluation
+
+`scripts/tier2/anchor_purity.py` is the instrument: purity, yield and calibration against reads of
+known haplotype origin, simulated separately from two haplotype paths. Its calibration check is the
+one that matters -- *"an uncalibrated score is worse than none, because a downstream filter would
+trust it."*
+
+**One trap in using it.** It currently *excludes* single-slot anchors from purity, because their
+majority purity is ~0.5 by construction. Split them and they enter the numerator, so a naive
+before/after purity comparison is not like-for-like. The comparison must either hold the site set
+fixed or report the two populations separately.
+
+### Order of work
+
+1. Thread a populated `LambdaTable` to anchor-emission time (inputs are already live members).
+2. Weight each site's term by its genotype confidence; re-measure switch error to confirm it helps.
+3. Split hom sites behind a flag, default off; pooled slot for unassignable reads.
+4. Collapse unconfident het sites, same flag family.
+5. Format bump, `check_anchors.py` update, TAP and unit coverage.
+6. Purity/yield/calibration against the known-origin harness, with the exclusion trap handled.
+
+### Gate 0
+
+Before any of it: on the existing v7b chr20 file, how many single-slot sites have reads whose lambda
+is confidently bimodal? If it is a small fraction, the ceiling on this whole part is small and steps
+3-6 are not worth it. One offline pass over the anchors plus the lambda table, no vg change.
