@@ -186,30 +186,39 @@ the wrong side of a distribution the walk moved.
 Both runs report a single phase block for the contig, so a block-orientation difference would flip
 ~100% of sites, not 30%. This is genuine re-phasing of nearly a third of chr20.
 
-## What is NOT established
+## The downstream cost, measured
 
-**Which phasing is better.** That needs `whatshap compare` against the phased truth via
-`scripts/tier2/phasing_benchmark.py`, and whatshap is not installed on this machine. The
-anchor-implied switch rate I measured (realign 6.88% against greedy 6.75%, controlled and paired,
-99.94% of per-read changes downward) is a measure of per-read slot assignment and is **unmoved by
-the gate** -- 7.06% at `--phase-min-q 8.5` -- so it is the wrong instrument for this question and
-must not be quoted as though it answered it.
+**Two corrections to an earlier draft of this document.** whatshap is *not* missing -- it is in
+`work/whatshap-venv/`, where `scripts/tier2/phasing_benchmark.py` looks for it; a bare
+`which whatshap` does not see a repo-local venv and I reported it as unavailable. And the inference
+I drew in its absence -- that with 94% of sites hung rather than reliable the phasing would fall
+back toward the panel's 3.79% -- was wrong. It does not collapse. It degrades, by a lot in relative
+terms and a little in absolute ones.
 
-What can be said without whatshap: read phasing was measured to take chr20 from 3.79% to 0.518%
-switch error, and that gain is produced by reliable sites carrying phase links. With 94.1% of sites
-now hung rather than reliable, the mechanism that produced the gain is mostly switched off, so the
-expectation is a regression back toward the panel's rate. **That is an inference from the
-mechanism, not a measurement**, and the whatshap run is the thing that would settle it.
+chr20 ONT, switch error against the T2T-Q100 phased truth, one block of 66.2 Mb in every arm:
+
+| arm | switch error | assessed pairs | phased variants |
+|---|---|---|---|
+| greedy, `--phase-min-q 9.5` | **0.3545%** | 58,672 | 75,751 |
+| realign, `--phase-min-q 9.5` (**shipped**) | **0.5794%** | 58,849 | 76,646 |
+| realign, `--phase-min-q 8.5` | **0.3826%** | 58,803 | 76,424 |
+
+So the shipped configuration is **63% worse than the walk it replaced**, and moving the gate below
+the score mode recovers most of that -- to within 8% of greedy. The block structure is identical
+across arms, so this is not the short-blocks artefact that makes switch error easy to game.
+
+**One trap in measuring this.** The truth has to be the *contig*, not the genome. HG002 is male, so
+the whole-genome T2T truth mixes haploid chrX/chrY with diploid autosomes and whatshap refuses the
+file outright -- "Inconsistent ploidy (2 and 1)", reported while reading the TRUTH, which reads like
+a problem with the calls and is not. All 115,916 chr20 call records are uniformly diploid.
 
 ## Status
 
 - The anchor *file* is correct: every invariant above passes, including the offset check that had
   never been run.
 - The regression is a fitted threshold left on the wrong side of a distribution the walk moved.
-- **No default has been changed.** `--phase-min-q` is a fitted parameter and this project fits on
-  chr20 and confirms on chr6, which has not been done. 8.5 restores the population on chr20 (79.1% of het
-  sites reliable, against greedy's 77.4%) but it was chosen to sit below the mode, not fitted, and
-  it re-phases 30% of the contig -- so it is the start of a sweep, not a value to ship.
+- **The proper fit is in progress** (`docs/phase-min-q-refit.md`): a chr20 sweep on switch error
+  and F1 together, with chr6 held out for confirmation. 8.5 is a probe, not a fitted value.
 - **A second, unrelated defect** was found by code review and verified by hand: anchors for
   `reported_inline` and `no_reference` records are collected from the PRE-linkage genotype. See
   below.
