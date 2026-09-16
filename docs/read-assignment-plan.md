@@ -4,6 +4,18 @@ Supersedes the ordering in [phase-confidence-plan.md](phase-confidence-plan.md),
 (split thresholds) is done. Written after a measurement pass that found a real defect and refuted
 three of my own explanations for it, so the diagnosis step below is a gate, not a formality.
 
+## Status: all phases done
+
+| phase | outcome |
+|---|---|
+| 1 diagnose Λ = 0 | done -- 97.8% reached no phase site, 2.2% summed to nothing, 0 phase breaks |
+| 2a coin | done -- 5,964 chr20 / 21,861 chr6 reads stop vanishing; see [read-assignment-results.md](read-assignment-results.md) |
+| 2b chain gap | **not needed** -- phase sites 76,135 against 76,077 two-slot snarls, so the chain is not excluding het sites |
+| 3 Λ == 0 site gate | done, byte-identical above q = 0 |
+| 4 mapQ lever | done and **rejected**: see [mapq-for-phase-confidence.md](mapq-for-phase-confidence.md) |
+| 5 output flags | dropped |
+| 6 read_strand hoist | done, byte-identical |
+
 ## Done
 
 `--split-min-q` fitted to **0.5** on chr20's phased-run length, confirmed on chr6 held out
