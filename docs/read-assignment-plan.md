@@ -118,14 +118,32 @@ MAGNITUDE of each term, which moves reads across the `--split-min-q` threshold -
 a term that is exactly zero, because `q0 = 0.5` gives `a = b` whatever `p` is. Causes 1, 2 and 4
 survive it untouched.
 
-## Phase 5 -- anchor output control (needs a steer)
+## Phase 5 -- per-read phase provenance, in place of output flags
 
-- `--anchors-max-reads N`: cap reads per slot, keeping the highest-scoring. Read names are 70.8% of
-  the file.
-- `--anchors-phased-reads`: emit only reads carrying a cross-site opinion.
+Both output-control options are **rejected, for the same reason as the defect this plan exists to
+fix**: they drop a read at some anchors and not others.
 
-## Open question
+- `--anchors-max-reads N` caps per ANCHOR, so a read that survives the cap at a shallow anchor and
+  loses it at a deep one reads present-absent-present. Worse than the current defect, because the
+  holes would correlate with depth and so cluster in high-coverage regions. The only hole-free form
+  is whole-read subsampling, which belongs in read selection upstream, not in the anchor writer.
+- `--anchors-phased-reads` has the same trap in subtler form. Λ is computed with leave-one-out PER
+  SITE, so "has an opinion" is not a per-read property: at a site that is the read's only informative
+  one, Λ goes to 0 there and is non-zero elsewhere. A per-(read, site) filter punches holes; only the
+  per-READ form -- does this read have an opinion anywhere? -- is safe.
 
-A coin-flipped placement would carry the same `score` as an evidenced one, so a consumer filtering on
-score could not tell them apart. Making it visible -- a reserved sentinel or a flag column -- is a v8
-format bump. Worth doing, but it is a format change and should be decided deliberately.
+And after Phase 2a the per-read form reduces to a single request: give me the strict, evidence-backed
+subset. That is better served by MARKING than by filtering at the producer. A flag means running
+`vg call` twice for two files of 295 MB each; a marker means one file serves both consumers and the
+strict set is a one-line filter. It also subsumes the open question below -- a coin-flipped placement
+otherwise carries the same `score` as an evidenced one, so a consumer cannot tell them apart.
+
+**The marker is per READ, not per placement**, because under 2a the coin applies only to reads with
+no opinion anywhere, so such a read is coin-assigned at every site it crosses. It therefore goes in
+the `#read` table -- one column on ~72,000 rows -- and not on the 12.7M `R` rows, so it costs
+essentially nothing. `#anchors-version` goes to 8, and the version gate in `scripts/check_anchors.py`
+must fail first.
+
+The one wrinkle: a `multi_block` read gets one coin per block, so the flag says "this read's
+haplotype is arbitrary" rather than naming which coin. That is the right granularity for a consumer
+deciding whether to trust it.
