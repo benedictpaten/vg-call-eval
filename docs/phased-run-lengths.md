@@ -161,6 +161,59 @@ changes a term in the statistic. Nothing here separates 1 from 2 on the metric t
 **Stays at 2.** Deciding it needs switch error measured against T2T-Q100 on a phasing whose blocks
 are carried by split homozygous anchors.
 
-## Status
+## How much of this rests on the classification
 
-chr20 chooses `--split-min-q 0.5`. chr6 hold-out confirmation is running.
+`phase_haploid_slot` (`src/graph_caller.cpp:1326`) returns 0 for a haplotype-0 call **and** for three
+refusals: a genuinely haploid locus with no second haplotype, a missing `render_phase`, and a phase
+naming a different allele than the site settled on. Those refusals are indistinguishable from a real
+slot 0 in the file, so the rule above over-counts by however many there are.
+
+Bounded by re-running with **every** slot-0 haploid charged as unphased, which is the worst case:
+
+| N50, reference bases | as classified | strict bound |
+|---|---|---|
+| chr20 q=2.0 | 2,118,890 | 592,712 |
+| chr20 q=0.5 | 3,575,641 | 782,641 |
+| chr20 gain | **+68.7%** | **+32.0%** |
+| chr6 q=2.0 | 2,327,638 | 973,156 |
+| chr6 q=0.5 | 3,541,082 | 1,226,834 |
+| chr6 gain | **+52.1%** | **+26.1%** |
+
+The absolute figures move by about 4x; **every comparison survives**, on both contigs. The truth lies
+between the two columns, and the decision does not depend on where.
+
+The empirical check says it is nearer the lenient end: refusals can only add to slot 0, yet the
+half-missing class runs 1,027 slot-0 against 1,415 slot-1 -- a slot-0 *deficit*, not the excess a
+large refused population would leave.
+
+## chr6, held out
+
+Two arms, the default and the value chr20 chose. Nothing else varied.
+
+| chr6 | q=2.0 | q=0.5 | change |
+|---|---|---|---|
+| homozygous sites split | 208,019 | 220,738 | +12,719 |
+| left collapsed | 15,350 | 2,631 | -82.9% |
+| phased snarls | 407,998 | 420,712 | +12,714 |
+| unphased snarls | 9,629 | 1,784 | -81.5% |
+| phased runs | 613 | 131 | -78.6% |
+| **run N50, read-walkable** | **2,130,682** | **2,883,125** | **+35.3%** |
+| run N50, raw | 2,327,638 | 3,541,082 | +52.1% |
+| mean run | 263,867 | 1,281,927 | 4.9x |
+| longest run | 6,455,869 | 10,305,202 | +59.6% |
+| unphased bases | 4,765,471 | 489,694 | -89.7% |
+| held-out agreement | 96.1577% | 95.8719% | -0.286 pts |
+
+The hold-out moves further than chr20 did and pays the same price for it, -0.286 points against
+chr20's -0.344.
+
+**The two chr6 VCFs are byte-identical.** `--split-min-q` moves anchors and nothing else, so none of
+this is bought by re-genotyping.
+
+## Adopted
+
+`--split-min-q` defaults to **0.5**, was 2.0 (vg `src/anchor.hpp`). It is reachable only through
+`--anchors-hom-split`, which is opt-in, so nothing changes for a run that does not ask for it.
+
+`--split-min-side` stays at 2: nothing separates it from 1 on N50 under either cut, and the held-out
+agreement cannot see the parameter at all.
