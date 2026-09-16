@@ -146,3 +146,59 @@ Two things are worth doing, and neither is a parameter change:
 
 `--phase-min-gqn` ships defaulted to -1, which admits everything and is inert. It is kept because the
 10x enrichment is real and re-measurable, not because any other value is recommended.
+
+## Reviewing a link against N neighbouring sites: implemented, and the neighbours always agree
+
+`--phase-confirm` was built to do exactly this and instrumented to report why it does nothing.
+
+| reach <= 5 | switch links (11 scored) | all links (59,188 scored) |
+|---|---|---|
+| straddles that DISAGREED with the chain's composed parity | **0** | **14 (0.02%)** |
+| override fired | 0 | 0 |
+
+It is not a gate discarding disagreements -- the disagreements do not exist. A straddling pair is
+routinely more decisive per shared read (median +0.018 across all links, +0.011 at switch links), and
+it agrees with the adjacent link 99.98% of the time, and at the failing junctions 100% of the time.
+
+**Because the neighbours are not independent witnesses.** `phase_link(i, j)` is computed from the
+same reads' allele responsibilities, and the XOR that converts a straddle into an implied sign refers
+it back through the chain's own composed parity. A distant pair is the same reads seen at different
+sites, not a second opinion. Where the reads are mismapped they are COHERENTLY wrong -- they agree
+with each other -- so every view of them returns the same wrong answer. That is the single mechanism
+behind all five interventions failing identically.
+
+One real gap remains: **35.3% of switch links never got a straddle scored at all** (against 1.4% of
+all links, a 25x enrichment), because the usability rule requires every intervening link to clear
+`--phase-break` and a switch junction's neighbours are disproportionately breaks. Worth fixing for
+completeness, but with 0 disagreements among the 11 that were tested, the expected yield is low.
+
+## Collapsing the questionable sites instead: the idea is sound, the DETECTION is the bottleneck
+
+Rather than phase a doubtful site correctly, emit it without a haplotype claim -- an honest phase
+break that keeps contiguity. The asymmetry is strongly in its favour: a switch corrupts every site
+downstream (mean 55.5), a collapsed site costs only itself, and absent information is far less
+damaging to an assembly than wrong information.
+
+The obstacle is that the sites cannot be identified. Every detector computable from the calls alone,
+scored as recall of the 52 switches against the fraction of the 75,795 het sites it would collapse:
+
+| detector | recall | cost | lift |
+|---|---|---|---|
+| span to next het < 25 | 17.3% | 2.18% | 7.9x |
+| GQN < 0 | 11.5% | 3.51% | 3.3x |
+| site reliability < 8.5 | 32.7% | 16.36% | 2.0x |
+| span<20 OR GQN<0 OR rel<8.5 | 38.5% | 17.56% | 2.2x |
+| **regional**: mean reliability, bottom 10% of 100 kb windows | 23.1% | 3.86% | 6.0x |
+| **regional**: GQN<0 fraction, top 10% of windows | 17.3% | 2.04% | 8.5x |
+| **regional**: het density, top 10% of windows | 25.0% | 25.71% | 1.0x |
+
+**Nothing reaches half the switches at a tolerable cost.** Regional smoothing does not beat per-site
+statistics, which is worth stating because the errors demonstrably DO cluster -- 44% within 100 kb of
+another against 15% expected. The clustering is real and these features do not capture it.
+
+Which points at what is missing rather than at a dead end: **mappability**. The switches sit in
+pericentromeric repeats, eleven of them in one megabase at 26 Mb with six inside 745 bp, and none of
+reliability, GQN, span or het density is a mappability measure. A segmental-duplication or repeat
+annotation, or a per-read multi-placement count, is the obvious feature to try and is the one the
+caller does not currently have. Until a detector exists that finds these sites, a collapse mechanism
+would be gating on noise.
