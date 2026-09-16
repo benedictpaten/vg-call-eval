@@ -186,6 +186,28 @@ The empirical check says it is nearer the lenient end: refusals can only add to 
 half-missing class runs 1,027 slot-0 against 1,415 slot-1 -- a slot-0 *deficit*, not the excess a
 large refused population would leave.
 
+### The VCF join, checked rather than assumed
+
+Classifying a one-slot slot-0 snarl needs its genotype, which means joining the anchor `snarl` column
+to the VCF `ID`. That join is **not** one-to-one in general: `--atomize-blocks` is on by default under
+`--read-likelihood`, every block record of one snarl carries the same ID, and a block record's GT is
+in block-local allele numbering, so a heterozygous snarl can print `1|1`. Reading the first record per
+ID would then classify it as a collapsed homozygote.
+
+Measured on the chr20 output rather than assumed:
+
+| | |
+|---|---|
+| VCF records / distinct IDs | 115,979 / 115,491 |
+| IDs carrying more than one record | 352 (0.30%) |
+| snarls whose class is read off the GT at all | 5,464 |
+| **of those, with more than one record** | **13** |
+| **of those, where the records disagree on class** | **0** |
+
+So the hazard is real in the general case and inert in this one. A measurement on a run made with
+`-A`, or on a graph with more block emission, would have to group by ID and reconcile before reading
+a genotype.
+
 ## chr6, held out
 
 Two arms, the default and the value chr20 chose. Nothing else varied.
