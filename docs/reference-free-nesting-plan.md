@@ -86,6 +86,36 @@ This is the one quantity with real modelling risk: `switch_probability` is calib
 distances, and a traversal distance is not interchangeable with one. It must be checked rather than
 assumed.
 
+### DECIDED: the unstable, genotype-dependent order
+
+The sibling offset comes from an alignment of the parent's two SETTLED traversals, recomputed each
+re-genotyping round. It is therefore inside the loop -- order feeds the linkage HMM, which settles the
+genotype, which picks the traversals, which define the order.
+
+I raised the alternative (freeze the order on round 1, as the temper already is) because the loop
+already fails to converge: a period-3 limit cycle at round 7, whose mechanism is a parent flipping and
+its child leaving the chain. A genotype-dependent ordering adds a second discrete state change to the
+same loop. **The call is to take the unstable order anyway** -- convergence is not the priority, and a
+meaningful biological order is. Recorded here so a later convergence surprise is attributed to a known
+decision rather than re-debugged from scratch.
+
+### Computing the sibling offset without a general aligner
+
+The two settled traversals share endpoints, and in a DAG the child chains visited by BOTH appear in
+the SAME relative order in each. So no alignment algorithm is needed:
+
+1. Walk each traversal and list the child snarls it enters, in order.
+2. The children on both traversals are a common subsequence, in the same order in both -- these are
+   the anchors.
+3. Merge: emit the anchors in order, and between consecutive anchors emit the private children of
+   each traversal.
+4. The merged index is the offset.
+
+**Ties are real and must break deterministically.** Between one pair of anchors, `trav_first` and
+`trav_second` may each contribute private children -- a heterozygous insertion carrying its own
+sub-variation on each allele, which is the complex-locus case this whole change exists for. So the
+offset is the triple `(merged index, slot, start node id)`, never a bare integer.
+
 ## Phases, each with its own gate
 
 **Phase 1 -- tree key, computed but unused.** Derive and store it; sort by it ONLY where it provably
