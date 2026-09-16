@@ -1,5 +1,13 @@
 # Splitting homozygous anchors: how far to push the threshold
 
+> **The run-length tables in this file use a superseded definition of "phased".** They count an
+> anchor as phased only when it carries two slots, which throws every *haploid* anchor onto the
+> unphased side -- and a haploid anchor's single slot names a haplotype (`src/anchor.cpp:415`). The
+> corrected measurement is [phased-run-lengths.md](phased-run-lengths.md), and it changes the
+> magnitudes by two orders of magnitude, though not the conclusion. What remains valid here is the
+> split/unsplit site accounting, the candidate-pool identity, the gap statistics, and the
+> characterisation of what is left haploid.
+
 The goal is long-range phasing, so the measure is how far one haplotype can be followed before the
 chain breaks. `--anchors-hom-split` buys that by splitting a homozygous site's single slot when the
 reads crossing it carry a confident cross-site phase; `--split-min-q` is the confidence the partition
