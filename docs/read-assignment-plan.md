@@ -54,10 +54,23 @@ opinion**, and it is what `--split-min-q` thresholds.
 3. **Exact cancellation** across sites: contradictory evidence. Nothing to know, arguably.
 4. **The site was excluded from the chain.** Five guards at `src/graph_caller.cpp:6058-6084` drop a
    het site from `phase_sites`: no PhaseCall, `ploidy != 2` or `trav_first == trav_second`, no call
-   info, no phase evidence, or a PhaseCall naming a traversal the matrix lacks. **Something IS
-   knowable and the chain is not using it.**
+   info, no phase evidence, or a PhaseCall naming a traversal the matrix lacks. A read whose het
+   sites are ALL excluded is absent from the lambda table entirely. **Something IS knowable and the
+   chain is not using it**, and from inside the table this is indistinguishable from cause 1.
 5. `multi_block`: the read spans a phase break, so its two halves label strands independently.
    Reported as 0 on both chr20 and chr6, but not structurally guaranteed.
+
+**NOT a cause at a homozygous site: `sites == 0` after leave-one-out.** I listed it earlier and it is
+wrong. Leave-one-out only subtracts when the site being asked about is itself in `phase_sites`, and
+`phase_sites` excludes every record with `trav_first == trav_second` (`src/graph_caller.cpp:6065`) --
+which is exactly what a homozygous site is. So nothing is subtracted and `sites` is not decremented.
+Verified by three independent adversarial reads, 0/3 refuted; the codebase already states it at
+`src/graph_caller.cpp:6344`: "for it the leave-one-out is automatic, because it contributed nothing
+to Lambda in the first place." The value the split gate sees is the read's full tempered log-odds.
+
+That is why a single global Λ for assignment is not a simplification: **it is already the behaviour.**
+Removing the leave-one-out from this path would change no output. What it would change is legibility,
+and that is worth something -- the shared accessor is what made me report a cause that cannot fire.
 
 **Causes 1-3 are truly unassignable; a coin is right for them. Cause 4 is a chain gap; a coin would
 throw away real evidence to paper over it.** That distinction is the whole design.
@@ -118,32 +131,39 @@ MAGNITUDE of each term, which moves reads across the `--split-min-q` threshold -
 a term that is exactly zero, because `q0 = 0.5` gives `a = b` whatever `p` is. Causes 1, 2 and 4
 survive it untouched.
 
-## Phase 5 -- per-read phase provenance, in place of output flags
+## Phase 5 -- DROPPED
 
-Both output-control options are **rejected, for the same reason as the defect this plan exists to
-fix**: they drop a read at some anchors and not others.
+Both output-control flags are rejected, for the same reason as the defect this plan exists to fix:
+they drop a read at some anchors and not others.
 
-- `--anchors-max-reads N` caps per ANCHOR, so a read that survives the cap at a shallow anchor and
-  loses it at a deep one reads present-absent-present. Worse than the current defect, because the
-  holes would correlate with depth and so cluster in high-coverage regions. The only hole-free form
-  is whole-read subsampling, which belongs in read selection upstream, not in the anchor writer.
-- `--anchors-phased-reads` has the same trap in subtler form. Λ is computed with leave-one-out PER
-  SITE, so "has an opinion" is not a per-read property: at a site that is the read's only informative
-  one, Λ goes to 0 there and is non-zero elsewhere. A per-(read, site) filter punches holes; only the
-  per-READ form -- does this read have an opinion anywhere? -- is safe.
+- `--anchors-max-reads N` caps per ANCHOR, so a read surviving the cap at a shallow anchor and losing
+  it at a deep one reads present-absent-present -- worse than the current defect, because the holes
+  would correlate with depth and cluster in high-coverage regions. The only hole-free form is
+  whole-read subsampling, which belongs in read selection upstream.
+- `--anchors-phased-reads` has the same trap in subtler form: Λ's leave-one-out is per site, so a
+  per-(read, site) filter punches holes and only the per-read form is safe.
 
-And after Phase 2a the per-read form reduces to a single request: give me the strict, evidence-backed
-subset. That is better served by MARKING than by filtering at the producer. A flag means running
-`vg call` twice for two files of 295 MB each; a marker means one file serves both consumers and the
-strict set is a one-line filter. It also subsumes the open question below -- a coin-flipped placement
-otherwise carries the same `score` as an evidenced one, so a consumer cannot tell them apart.
+And the per-read provenance marker is dropped too: the reads it would mark are exactly the reads with
+no phase evidence, so it is a distinction without a difference for any consumer. **No format bump.**
 
-**The marker is per READ, not per placement**, because under 2a the coin applies only to reads with
-no opinion anywhere, so such a read is coin-assigned at every site it crosses. It therefore goes in
-the `#read` table -- one column on ~72,000 rows -- and not on the 12.7M `R` rows, so it costs
-essentially nothing. `#anchors-version` goes to 8, and the version gate in `scripts/check_anchors.py`
-must fail first.
+## Phase 6 -- build `read_strand` only where it is read (pure performance, output-identical)
 
-The one wrinkle: a `multi_block` read gets one coin per block, so the flag says "this read's
-haplotype is arbitrary" rather than naming which coin. That is the right granularity for a consumer
-deciding whether to trust it.
+`src/graph_caller.cpp:1507` builds the per-read log-odds vector at EVERY site whenever
+`--anchors-hom-split` is on, but `build_site_anchors` dereferences it only inside `if (hom)`
+(`src/anchor.cpp:378`, `389`, `493`). So at het, haploid and non-diploid sites -- and at every site
+the function early-returns from -- the vector is built and never read.
+
+And at a het site that IS a phase site the leave-one-out branch fires, which rebuilds the site's whole
+own-map once per read: **Θ(n²)**, against Θ(n) at a hom site where the lookup misses. Worse, the
+self-check at `src/graph_caller.cpp:1548` then recomputes the same values for the same reads, so a het
+phase site pays that quadratic twice, once for a vector nobody reads.
+
+Gate the construction on `hom && !haploid && genotype.size() == 2`, mirroring `src/anchor.cpp:378`
+exactly. Three adversarial reads agree nothing changes: both dereferences are inside the hom branch,
+and `hom_split`, `hom_unsplit` and `hom_split_no_opinion` all live there too.
+
+**Constraint:** `src/anchor.cpp:379` gates on `read_strand->size() == evidence.reads.size()` and
+indexes by the evidence index, so hom sites must still get a FULL-LENGTH vector. A filtered one makes
+the gate decline silently and every hom site reports `hom_unsplit`.
+
+**Gate: VCF and anchor file byte-identical, plus wall-clock.**
