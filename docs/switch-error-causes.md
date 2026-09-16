@@ -72,6 +72,57 @@ enriched at switch junctions (25.0% against 2.5%, surviving stratification by ga
 **symptom** of the underlying bad region, not an independent lever. In a mismapped locus the reads
 are wrong, so the panel overrides the genotype AND the phase goes wrong, from one cause.
 
+## Testing the chosen link against more flanking sites: implemented, and it does not fire
+
+The one intervention the earlier sweeps did NOT test. `--phase-confirm` re-tests a link whose |d| is
+marginal against the single most decisive pair that STRADDLES it -- the pair (rel[m+1-k], rel[m+k])
+for k up to `--phase-reach` -- and adopts its implied sign, which is that pair's sign with the
+intervening links' signs XORed out. This is not what stage 2 does at a break: that sums nine pairs,
+diluting the decisive far one with the near ones, and refers each through the two blocks' already
+frozen internal parity.
+
+Three defects had to be fixed before the measurement meant anything, two of them found by adversarial
+review with a standalone driver and not by the sweep:
+
+1. **The operative band.** A link below `--phase-break` IS a break -- the chain is cut there and the
+   next segment restarts at o = 0 -- so its sign is never read. The pass was rewriting exactly those.
+   The band is [break, confirm), and a confirm at or below break is now refused rather than run.
+2. **The usability bar.** Intervening links had to clear `confirm`, so at confirm 100 nothing
+   qualified, and `phase_link` was never called -- while the counter reported 60,202 links "tested".
+   A zero that means "never looked" is indistinguishable from one that means "looked and found
+   nothing". The bar is now `break`, which also stops a straddle spanning a break.
+3. **The comparison scale, which was my error, not a coding one.** A read reaching from m+1-k to m+k
+   necessarily spans m to m+1, so a straddling pair draws on a SUBSET of the adjacent pair's reads
+   and has fewer terms. `phase_link` returns a SUM, so on raw magnitude the straddle can essentially
+   never win whatever it says. The measurement that motivated the feature was per read all along --
+   |concordance - 0.5| -- so the comparison is now the mean per shared read.
+
+With all three fixed, joined to the switch positions by RECORD KEY (`PhaseSite::position` is the
+snarl's position, not the VCF POS; the two sets overlap on 1,904 of 116,000, and a position join
+silently reports zero overlap):
+
+| | switch links (n=17) | all links (n=60,027) |
+|---|---|---|
+| \|d\| | 24.6 | 30.1 |
+| per-read mean | 0.684 | 0.741 |
+| **straddle overturned the sign** | **0 of 17** | **0** |
+| straddle per-read gain | **median 0.0000**, max 0.155 | median +0.0165 |
+
+Two things follow, and the second is the answer.
+
+**Only 17 of the 52 switches are stage-1 chain links at all.** The other 35 are at unreliable sites
+hung off the chain by stage 3, or at relink junctions. So a third of the problem is not even in the
+part of the algorithm that this was aimed at.
+
+**At the 17 that are, the straddling evidence gains nothing and never disagrees.** Across all 60,027
+links a straddle is routinely more decisive per read (median +0.0165, max +0.66) and agrees with the
+adjacent link essentially always; at the failing links the gain is a median of exactly zero. The far
+view says what the near view says, because both are reading the same mismapped reads.
+
+That is the same answer every other intervention gave, arrived at from the opposite direction, and it
+is what makes the picture consistent: `--phase-break`, `--phase-cap`, `--phase-min-gqn` and
+`--phase-confirm` all fail identically because they all re-weight evidence that is wrong at source.
+
 ## Resolution
 
 **The 52 switches are dominated by a handful of hard loci, chiefly pericentromeric, where read
