@@ -117,3 +117,10 @@ chr6's best.
 The conservative alternative is 11, which improves both (chr20 55 -> 49, chr6 63 -> 60) while
 discarding the least. Either is a default change to a shipped preset and should be a deliberate call,
 not a consequence of this measurement.
+
+---
+
+**CORRECTION (vg `05acbfc6a`).** The switch-error argument on this page does not
+hold: it is one pericentromeric megabase on chr20, does not replicate on chr6, and the shipped
+value was never the measured arm. The ONT floor is now 5, set on reliable het count instead. See
+[mapq-floor-is-five.md](mapq-floor-is-five.md).

@@ -106,3 +106,10 @@ placed in a linear order and are excluded rather than guessed at:
 collapsed ends a run even when everything around it is phased. Re-breaking at gaps wider than the ONT
 read N50 (33 kb) barely dents it -- 1,420 -> 1,272 kb -- so these runs are walkable, not an artefact
 of naming haplotypes across holes.
+
+---
+
+**CORRECTION (vg `05acbfc6a`).** The switch-error argument on this page does not
+hold: it is one pericentromeric megabase on chr20, does not replicate on chr6, and the shipped
+value was never the measured arm. The ONT floor is now 5, set on reliable het count instead. See
+[mapq-floor-is-five.md](mapq-floor-is-five.md).
