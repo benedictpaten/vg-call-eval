@@ -70,3 +70,61 @@ contig-wide -- a 10x enrichment.
 count for off-reference chains with no coordinate. `DP:f:` is mean read depth over its pins. The CSV
 carries `Name,Class,Pins,SpanBp,Depth,Locus`; `Locus` reads `off-ref` for a chain no reference path
 positions, which is a quick way to find the sites that exist only in the anchors.
+
+## What causes the fragmentation
+
+Measured over all of chr20 by classifying every unitig end. Read *termination* is not the cause --
+it accounts for 0.6% of ends, because a read that merely ends contributes no link and so cannot
+block a merge. The causes are branches:
+
+| what terminates a unitig | share of 189,082 ends |
+|---|---|
+| the partner side branches | 34.8% |
+| SAME next site, reads split between its two slots | 28.2% |
+| DIFFERENT next sites -- reads skip past one | 22.7% |
+| mixed: different sites AND split slots | 10.3% |
+| a collapsed (unsplit hom) node | 3.3% |
+| dead end | 0.6% |
+
+Underneath that is one number: **4.39% of read transitions between consecutive two-slot sites
+change slot**, which is the ~95% cross-site phase accuracy already on record. But the average is
+misleading -- the errors are concentrated. Only 0.6% of sites have half their arriving reads
+flipping, while 14% have a tenth or more, and it is that tail that branches the graph.
+
+Those sites have a clear signature, and it is not coverage:
+
+| | high-flip (>=20%) | clean (<5%) |
+|---|---|---|
+| n | 11,634 | 123,142 |
+| 1 bp indels | **42%** | 4% |
+| SNVs | 30% | 85% |
+| median reliability | **8.82** | 13.01 (the ceiling) |
+| median DP | 43 | 42 |
+
+Identical depth, 10.5x enriched for 1 bp indels, and reliability sitting right at the
+`--phase-min-q` gate of 9.5. These are sites the phaser itself already declines to trust, written
+into the anchor file anyway -- which is correct, since the anchors are not the phasing chain, but
+it means a consumer should filter.
+
+## Filtering
+
+`--min-gqn` and `--min-reliability` do that. On chr20 hom-split anchors:
+
+| filter | pins | unitigs | fold | longest | NG50 | slot-flip |
+|---|---|---|---|---|---|---|
+| none | 654,830 | 94,541 | 6.9x | 171.6 kb | 6.6 kb | 4.39% |
+| `--min-gqn 0.3` | 547,936 | 27,866 | 19.7x | 171.6 kb | 33.8 kb | 1.78% |
+| `--min-reliability 9` | 489,436 | 57,904 | 8.5x | 171.6 kb | 11.9 kb | 1.36% |
+| **both** | **430,876** | **19,702** | **21.9x** | **226.6 kb** | **47.9 kb** | **0.91%** |
+
+Both together cost 34% of the pins and buy a 4.8x reduction in node count, a 7.3x NG50, and a 4.8x
+drop in the slot-flip rate. Bandage reports the filtered graph as 19,702 nodes in 72 components with
+a largest component spanning 55.3 Mb of the 66.2 Mb contig and an N50 of 33.8 kb.
+
+Note the two filters are not redundant and rank differently: gqn is much the stronger lever on graph
+*structure* (19.7x against 8.5x) while reliability is the stronger lever on the *flip rate* (1.36%
+against 1.78%). Use both.
+
+**gqn is field 5 and `explained` is field 6** -- easy to transpose, and a transposition is nearly
+silent, because `explained` is >=0.98 for three quarters of anchors so a threshold on it drops
+almost nothing and looks like a null result.

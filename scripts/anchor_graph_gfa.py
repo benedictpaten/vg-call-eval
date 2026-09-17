@@ -53,7 +53,7 @@ def load_vcf(path):
     return pos, gt
 
 
-def read_anchors(path, pos, region, max_reads=None):
+def read_anchors(path, pos, region, max_reads=None, min_rel=0.0, min_gqn=None):
     """One segment per pin. Returns segments, per-read packed placements, and per-segment depth."""
     seg_id, seg_key = {}, []
     slots_of_site = collections.defaultdict(set)
@@ -67,6 +67,17 @@ def read_anchors(path, pos, region, max_reads=None):
         c = line.rstrip("\n").split("\t")
         if c[0] == "A":
             snarl, slot = c[2], int(c[3])
+            if min_rel > 0.0 or min_gqn is not None:
+                r, q = c[7], c[5]   # c[5] is gqn; c[6] is `explained`
+                bad = min_rel > 0.0 and (r in (".", "") or float(r) < min_rel)
+                # gqn is SIGNED in [-1,1]; negative means the linkage layer called AGAINST the
+                # reads, so a signed test drops those as well as the merely low-confidence.
+                if not bad and min_gqn is not None:
+                    bad = q in (".", "") or float(q) < min_gqn
+                if bad:
+                    cur = -1
+                    keep_cur = False
+                    continue
             slots_of_site[snarl].add(slot)
             if region:
                 p = pos.get(snarl)
@@ -189,13 +200,23 @@ def main():
     ap.add_argument("--min-edge-frac", type=float, default=0.15,
                     help="drop a link carrying less than this fraction of the busiest link at "
                          "BOTH of its sides; this is the 'all reads continue or terminate' rule [0.15]")
+    ap.add_argument("--min-reliability", type=float, default=0.0,
+                    help="drop anchors whose site reliability is below this. The phaser's own gate "
+                         "is --phase-min-q (9.5); sites under it are 10x enriched for 1 bp indels "
+                         "and are what fragments the graph [0 = keep everything]")
+    ap.add_argument("--min-gqn", type=float,
+                    help="drop anchors whose site gqn is below this. SIGNED in [-1,1], so a "
+                         "positive threshold also drops the sites where linkage called against "
+                         "the reads")
     ap.add_argument("--min-unitig-pins", type=int, default=1,
                     help="omit unitigs holding fewer pins than this [1]")
     a = ap.parse_args()
 
     region = parse_region(a.region)
     pos, gt = load_vcf(a.vcf)
-    seg_key, seg_id, slots_of_site, per_read, depth = read_anchors(a.anchors, pos, region)
+    seg_key, seg_id, slots_of_site, per_read, depth = read_anchors(a.anchors, pos, region,
+                                                                          min_rel=a.min_reliability,
+                                                                          min_gqn=a.min_gqn)
     print(f"pins {len(seg_key)}   reads {len(per_read)}   placements {sum(depth)}", file=sys.stderr)
 
     links = build_links(per_read)
