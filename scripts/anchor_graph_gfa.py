@@ -187,6 +187,85 @@ def compact(nseg, links, min_w, min_frac=0.0):
     return unitigs, kept, nxt
 
 
+
+def write_svg(path, uinfo, glen, contig):
+    """A positional view Bandage cannot give: every segment drawn at its locus.
+
+    Bandage lays the graph out by force, which for a near-linear anchor graph collapses a whole
+    chromosome into an uninformative thread. Here x IS reference position, so the two haplotype
+    lanes, the places they pinch to a collapsed node, and the gaps are directly readable.
+
+    Off-reference chains have no coordinate and so cannot go in that panel, but they are NOT
+    dropped -- they get a second panel below, laid out in node order at constant width per pin.
+    Leaving them out would hide a third of the graph, and off-reference chains are the whole point
+    of the nesting work.
+    """
+    W, LEFT, RIGHT = 1700, 78, 30
+    plot = W - LEFT - RIGHT
+    LANE = {"hap0": 60, "collapsed": 100, "haploid": 100, "hap1": 140}
+    COL = {"hap0": "#1f77b4", "hap1": "#d62728", "collapsed": "#111111", "haploid": "#ff8c00"}
+    H = 470
+    x = lambda p: LEFT + plot * p / glen
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+           f'viewBox="0 0 {W} {H}" font-family="system-ui,sans-serif" font-size="11">',
+           f'<rect width="{W}" height="{H}" fill="white"/>']
+
+    onref = [u for u in uinfo if u[5]]
+    offref = [u for u in uinfo if not u[5]]
+
+    for n, span, d, cls, locus, ps in onref:
+        lo, hi = min(p[1] for p in ps), max(p[1] for p in ps)
+        w = max(0.6, x(hi) - x(lo))
+        out.append(f'<rect x="{x(lo):.2f}" y="{LANE.get(cls,100)}" width="{w:.2f}" height="7" '
+                   f'fill="{COL.get(cls,"#888")}" opacity="0.85"/>')
+
+    binsz = 200000
+    nb = glen // binsz + 1
+    hist = [0] * nb
+    for n, span, d, cls, locus, ps in onref:
+        hist[min(p[1] for p in ps) // binsz] += 1
+    top = max(hist) or 1
+    for i, v in enumerate(hist):
+        if v:
+            h = 70 * v / top
+            out.append(f'<rect x="{x(i*binsz):.2f}" y="{250-h:.2f}" '
+                       f'width="{max(0.8, plot/nb):.2f}" height="{h:.2f}" fill="#555" opacity="0.8"/>')
+    out.append(f'<line x1="{LEFT}" y1="250" x2="{W-RIGHT}" y2="250" stroke="#000"/>')
+    for mb in range(0, int(glen/1e6) + 1, 5):
+        px = x(mb * 1000000)
+        out.append(f'<line x1="{px:.1f}" y1="250" x2="{px:.1f}" y2="255" stroke="#000"/>')
+        out.append(f'<text x="{px:.1f}" y="268" text-anchor="middle" fill="#333">{mb}</text>')
+    out.append(f'<text x="{W/2}" y="286" text-anchor="middle" fill="#333">{contig} position (Mb)</text>')
+    for lbl, y0, c in (("hap0", 67, COL["hap0"]), ("collapsed", 107, COL["collapsed"]),
+                       ("hap1", 147, COL["hap1"]), (f"segs / {binsz//1000}kb", 225, "#555")):
+        out.append(f'<text x="{LEFT-8}" y="{y0}" text-anchor="end" fill="{c}">{lbl}</text>')
+
+    # ---- off-reference panel: no coordinate exists, so lay them out in node order by pin count
+    OY = 340
+    totpins = sum(u[0] for u in offref) or 1
+    out.append(f'<text x="{LEFT}" y="{OY-16}" fill="#111" font-size="12">'
+               f'off-reference chains &#8212; no reference coordinate exists; '
+               f'{len(offref)} segments, {totpins} pins, laid out in node order, width &#8733; pins</text>')
+    cx = LEFT
+    for n, span, d, cls, locus, ps in offref:
+        w = plot * n / totpins
+        out.append(f'<rect x="{cx:.3f}" y="{OY}" width="{max(0.35, w):.3f}" height="22" '
+                   f'fill="{COL.get(cls,"#888")}" opacity="0.85"/>')
+        cx += w
+    out.append(f'<line x1="{LEFT}" y1="{OY+22}" x2="{W-RIGHT}" y2="{OY+22}" stroke="#000"/>')
+    out.append(f'<text x="{LEFT-8}" y="{OY+16}" text-anchor="end" fill="#333">off-ref</text>')
+
+    out.append(f'<text x="{LEFT}" y="24" fill="#111" font-size="13">'
+               f'{len(uinfo)} segments total: {len(onref)} positioned (top), '
+               f'{len(offref)} off-reference (bottom) &#8212; nothing omitted</text>')
+    out.append(f'<text x="{LEFT}" y="40" fill="#666">peak {top} segment starts per '
+               f'{binsz//1000} kb</text>')
+    out.append("</svg>")
+    open(path, "w").write("\n".join(out))
+
+CONTIG_NAME = [None]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -194,6 +273,9 @@ def main():
     ap.add_argument("--vcf", help="call VCF; supplies positions (join on ID) so LN is real bases")
     ap.add_argument("--gfa", required=True)
     ap.add_argument("--csv", help="Bandage annotation CSV")
+    ap.add_argument("--svg", help="positional summary SVG: every segment at its locus")
+    ap.add_argument("--contig-length", type=int, default=66210255,
+                    help="contig length for the SVG x-axis and for NG50 [chr20 CHM13]")
     ap.add_argument("--region", help="contig[:start-end]; restrict to positioned sites inside it")
     ap.add_argument("--min-edge-reads", type=int, default=2,
                     help="absolute floor: drop links carried by fewer reads than this [2]")
@@ -213,6 +295,7 @@ def main():
     a = ap.parse_args()
 
     region = parse_region(a.region)
+    CONTIG_NAME[0] = region[0] if region else None
     pos, gt = load_vcf(a.vcf)
     seg_key, seg_id, slots_of_site, per_read, depth = read_anchors(a.anchors, pos, region,
                                                                           min_rel=a.min_reliability,
@@ -286,6 +369,11 @@ def main():
                     f"\t0M\tRC:i:{cnt}\n")
             nl += 1
     print(f"wrote {len(big)} segments and {nl} links to {a.gfa}", file=sys.stderr)
+
+    if a.svg:
+        ctg = next((u[5][0][0] for u in uinfo if u[5]), "contig")
+        write_svg(a.svg, uinfo, a.contig_length, ctg)
+        print(f"wrote {a.svg}", file=sys.stderr)
 
     if a.csv:
         with open(a.csv, "w") as f:
