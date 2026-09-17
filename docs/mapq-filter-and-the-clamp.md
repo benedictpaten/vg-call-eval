@@ -86,8 +86,34 @@ read's phase VOTE, which is already achieved. Removal additionally takes the rea
 So the clamp is not what wants redesigning. The harm flows through genotyping and through the
 reliability mean, and only exclusion touches either.
 
-## Status
+## chr6, held out
 
-`--read-min-mapq` already exists and defaults to 0. The chr20 optimum is 20-30. **Not yet a
-recommended default**: chr6 is the hold-out and the scan there is pending, and this session has
-already produced one chr20 optimum (`--phase-min-q 10`) that the hold-out refused.
+| `--read-min-mapq` | het sites | reliable hets | raw rate | true switches | flips |
+|---|---|---|---|---|---|
+| **0 (default)** | 197,662 | 162,622 | 0.2866% | **63** | 198 |
+| 11 | 197,563 | **163,527** | 0.2860% | 60 | 199 |
+| 20 | 197,426 | 163,404 | 0.2835% | 60 | 197 |
+| 30 | 197,425 | 163,413 | 0.2817% | 59 | 196 |
+| 60 | 197,333 | 163,406 | **0.2761%** | **58** | 192 |
+
+**It replicates, and that matters because the last chr20 optimum did not.** Switches fall monotonically
+63 -> 58, flips 198 -> 192, the raw rate 0.2866% -> 0.2761%, and reliable hets rise. **No arm is worse
+than baseline on either contig.**
+
+What does NOT transfer is the precise optimum: chr20 bottoms at 20-30 and ticks back up at 60, while
+chr6 keeps improving to 60. So the shape of the curve is contig-specific and only the direction is
+shared -- which argues for a conservative value rather than chr20's argmin.
+
+The magnitudes differ too: chr20 -10 switches (18%), chr6 -5 (8%). chr20 carries the pericentromeric
+and subtelomeric clusters this began with; chr6's are presumably elsewhere.
+
+## Status and recommendation
+
+`--read-min-mapq` already exists and defaults to 0. On the evidence -- both contigs improved, monotone,
+no arm worse anywhere, F1 flat to the fourth decimal in every class on chr20, and reliable het counts
+up on both -- a default in the **20-30** band is defensible: chr20's optimum, and within one switch of
+chr6's best.
+
+The conservative alternative is 11, which improves both (chr20 55 -> 49, chr6 63 -> 60) while
+discarding the least. Either is a default change to a shipped preset and should be a deliberate call,
+not a consequence of this measurement.
