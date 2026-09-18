@@ -38,9 +38,17 @@ reported SUBSET of the same unchanged placements, and it is easy to quote as a g
 
 ## What the sweep does measure: the confidence gradient
 
-Differencing the confident bands gives the accuracy of each stratum:
+**"correct" below means AGREES WITH THE ALLELE MATCH, not agrees with truth.** The check compares
+the read's cross-site strand against the slot the site's own sequence put it in; neither side is
+ground truth and both carry error. From the 6.44% het-to-het flip rate, solving `flip = 2p(1-p)`
+puts the allele match's own error at about **3.3% per site**, so at |lo| >= 8 the 4.49%
+disagreement could be mostly the ALLELE side and the strand's own error nearer 1.2%. Independence
+is doubtful -- both read the same `rel_at` values and mismapping is correlated along a read -- so
+treat that as a bound rather than a decomposition.
 
-| `\|lo\|` | reads | share | correct |
+Differencing the confident bands:
+
+| `\|lo\|` | reads | share | agrees with allele match |
 |---|---|---|---|
 | < 0.5 | 50,546 | 1.6% | **71.7%** |
 | 0.5 - 1.0 | 47,121 | 1.5% | 84.8% |
@@ -55,9 +63,13 @@ reads reaches only 95.51%.
 
 ## Two reasons not to add one
 
-**It is a floor, not a tail.** Reads at |lo| >= 8 nats -- Lambda about 114, forty-odd sites of
-agreeing evidence -- are still only 95.5% right. That is the correlated-mismapping floor
-[[read-strand-confidence-has-a-floor]] already identified, and no threshold reaches past it.
+**The apparent ceiling may not be the strand's.** Reads at |lo| >= 8 nats agree with the allele
+match only 95.5% of the time, which LOOKS like the correlated-mismapping floor
+[[read-strand-confidence-has-a-floor]] identified. But with the allele match itself erring ~3.3% per
+site, most of that 4.5% may be the reference rather than the estimator, and the strand may have more
+headroom than this table shows. **This argument is weaker than it first appears and should not be
+used to close the question**; a measurement against real truth, not against the allele partition,
+is what would settle it.
 
 **Even the worst reads beat a coin.** The sub-0.5 band is 71.7% correct against 50% for the
 deterministic coin the `lo == 0.0` branch uses, so coining them would make the output worse.
