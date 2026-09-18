@@ -84,7 +84,43 @@ pre-sorted lists with no allocation. **Cost is not a reason to prefer any of the
 The `K^2` term only bites if the workload changes shape -- far denser sites, or a much lower
 `--phase-break`. It is the term to watch if the preset moves.
 
+## Lookback, and why it is inert
+
+`--phase-lookback K` decides a new chain site by a weighted vote over the previous K already-settled
+sites instead of obeying the single adjacent link's sign. It is the one design that attacks the
+cascade itself rather than routing around it.
+
+| arm | overruled the adjacent link | switches |
+|---|---|---|
+| chr20 K=3, OLD defaults | 1 site | 33 (unchanged) |
+| chr20 K=8, OLD defaults | 1 site | 33 (unchanged) |
+| chr6 K=3 / K=8, OLD defaults | 2 / 5 sites | -- |
+| **chr20 K=8, NEW defaults** | **0 sites** | 27, **VCF byte-identical** |
+| **chr6 K=8, NEW defaults** | **0 sites** | 28, **VCF byte-identical** |
+
+Under the new defaults it is not merely ineffective, it is switched off by geometry: lookback never
+crosses a break, `--phase-break 20` gives 10,623 breaks over ~61,000 backbone sites, so the mean
+segment is about **six sites** and a K = 8 window essentially never has eight predecessors in its own
+segment. User CPU 1288 against 1301 on chr20 and 2001 against 1997 on chr6 -- noise in both
+directions, as expected when zero decisions change.
+
+**Lookback and `--phase-break` are substitutes, not complements.** Both address one bad link
+propagating through a long sign-only cascade: the break threshold by making cascades too short for
+it to travel, lookback by outvoting it inside a long one. Taking the first removes what the second
+needs. The head-to-head -- lookback AGAINST break 20 at the old threshold -- was never run, so the
+substitution went the right way on the evidence available but was not directly tested.
+
 ## Status
 
-Nothing here is defaulted on beyond `--phase-coherence 0.70`. `rounds2 + break20` is the candidate
-with a clean gate; relink 10 is unresolved and would need chr6 repeated before it could ship.
+**Shipped as defaults** (vg `621f79dee`): `--phase-coherence 0.70`, `--phase-coh-rounds 2`,
+`--phase-break 20`, `--phase-relink 10`. Confirmed with no flags at all: chr20 27 switches, chr6 28,
+reproducing the selected arm down to the chain-break and demotion counts. F1 flat on chr20
+(0.95900) and UP on chr6 (0.96517 -> 0.96548, TP +80, FP -97). Against the pre-coherence baseline
+this is chr20 51 -> 27 and chr6 62 -> 28.
+
+`--phase-relink 10` carries the weakest evidence of the three and the code comment says so: no
+consistent direction on switches, adopted on the chr6 F1 movement, which is one observation on one
+contig and could still be the genotype perturbation any phasing change causes through re-genotyping.
+
+Off by default and measured negative: `--phase-cp`, `--phase-triangle`, `--phase-backbone`,
+`--phase-lookback`, `--phase-coh-reads`.
