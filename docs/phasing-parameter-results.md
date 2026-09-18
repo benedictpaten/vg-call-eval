@@ -98,11 +98,16 @@ cascade itself rather than routing around it.
 | **chr20 K=8, NEW defaults** | **0 sites** | 27, **VCF byte-identical** |
 | **chr6 K=8, NEW defaults** | **0 sites** | 28, **VCF byte-identical** |
 
-Under the new defaults it is not merely ineffective, it is switched off by geometry: lookback never
-crosses a break, `--phase-break 20` gives 10,623 breaks over ~61,000 backbone sites, so the mean
-segment is about **six sites** and a K = 8 window essentially never has eight predecessors in its own
-segment. User CPU 1288 against 1301 on chr20 and 2001 against 1997 on chr6 -- noise in both
-directions, as expected when zero decisions change.
+**It is not switched off -- it runs and finds nothing.** The window degrades gracefully: the loop
+walks back as far as the segment start allows and votes over however many predecessors it finds,
+needing only two. So at K = 8 on the shipped defaults it engaged on **40,013 of chr20's decisions
+(65%)** and **133,740 of chr6's (82%)** -- about 174,000 in total, with windows of 2-8 -- and
+overruled the adjacent link **zero** times. chr6's mean segment is 10.9 sites, wider than the
+window, so short segments do not explain it on either contig. User CPU 1288 against 1301 on chr20
+and 2001 against 1997 on chr6, noise in both directions, as expected when no decision changes.
+
+This is the cleanest of the four probes: a weighted vote over up to eight predecessors agreed with
+the single adjacent link on 174,000 consecutive decisions.
 
 **Lookback and `--phase-break` are substitutes, not complements.** Both address one bad link
 propagating through a long sign-only cascade: the break threshold by making cascades too short for
