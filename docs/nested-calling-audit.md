@@ -240,3 +240,78 @@ population should go to zero.
 
 **Status: root cause narrowed to the copies/ploidy determination for nested children; the specific
 mask defect is NOT yet isolated. `src/` is at `b9a9c3653`, unmodified.**
+
+## ROOT CAUSE: the ploidy error is inherited, not a logic defect
+
+The nested-calling logic is sound. It faithfully answers "which of my parent's two settled
+traversals carries me", and that answer is wrong whenever the parent's settled pair misrepresents
+the sample.
+
+### The evidence
+
+Parents of the children the guard refuses, against parents of the children it keeps:
+
+| | het rate | median GQ | median AD skew |
+|---|---|---|---|
+| parents of REFUSED children | 87.6% | **16.0** | **0.829** |
+| parents of KEPT children | 87.8% | **41.0** | 0.683 |
+
+Same het rate, but the refused children's parents are called heterozygous at **GQ 16 with 83% of
+their reads on one allele**. That is a het call that should be homozygous.
+
+And the children behave exactly as that predicts:
+
+| | sites | median confident depth | median minority share |
+|---|---|---|---|
+| REFUSED | 829 | **23** | **0.424** |
+| KEPT | 6,631 | 16 | **0.000** |
+
+**1.44x the depth and a 50/50 split**, against a kept population that is perfectly unanimous. A
+child on one haplotype sees half the reads; a child on both sees all of them. As a mixture that
+puts ~44% of the refused population at loci that are diploid and were called haploid.
+
+Corroborating, from truth: 15.2% of refused children's parents sit at a locus where our ALT does
+not match truth's, against 3.9% for kept -- a 3.9x enrichment in mis-specified representation.
+
+### The chain
+
+1. A parent is called het at low confidence while its reads say it is nearly homozygous.
+2. Only one of the two named traversals crosses the child, so `copies = 1`.
+3. The child is called HAPLOID and handed a strand.
+4. If the parent is really homozygous both haplotypes carry the chain, so the child's reads arrive
+   50/50 at ~1.44x a haploid child's depth.
+5. The strand names a haplotype at a locus that has two, and falls into a slot arbitrarily.
+
+This is why eighteen logic hypotheses failed: there was no logic defect. `nested_strand_of`,
+`relate_to_parent`, the crossing mask, the group stamp, the cascade and `phase_haploid_slot` are
+each correct, and the derivation was verified exact for all 11,700 of chr20's nested children.
+
+### What was fixed
+
+**`8efcf0f8d` -- refuse a strand the reads contradict.** The inherited error is detectable from the
+child's own reads, which is the only independent evidence available, and that is the right place to
+catch it. chr20: 829 of 7,460 refused; near-50/50 sites 15.0% -> 0.1% (slot 0) and 2.9% -> 0.0%
+(slot 1); agreement 71.45% -> 76.28% and 95.05% -> 95.99%. chr6 hold-out: 470 of 7,476 refused.
+Both contigs: ZERO allele changes (115,660 and 302,511 records), only GT spellings `a|.` -> `a`.
+436/436 TAP, lint clean.
+
+**`fa0051832` -- one derivation.** The copy count and the carrying traversal are the same fact and
+had two copies of the arithmetic, reading the settled pair from different places, with a comment
+still describing the deleted `Entry::parent_trav` as if the answer were stored. Both now call
+`LinkageCollector::relate_to_parent`. chr20 VCF body and anchors body byte-identical.
+
+### What is NOT fixed, and should not be fixed here
+
+The parent genotypes. A nested child cannot be more reliable than the parent whose pair it indexes,
+and a het call at GQ 16 with AD skew 0.83 is a genotyping-quality problem, not a nested-calling one.
+The guard converts its consequence from a false haplotype claim into an honest absence, which is
+what the anchors can express. Raising the bar for calling a parent heterozygous is the upstream fix
+and belongs with the genotyper.
+
+### A retraction
+
+An earlier round of this document proposed that the crossing mask goes stale because it is
+"deliberately NOT rewritten" on a re-score. That is wrong: `pr.travs` is moved into the record once
+at creation and never replaced in the read-likelihood path (the one `record.travs = embedded_travs`
+assignment is `NestedFlowCaller`, the old `-A` caller, a different type). Freezing the mask is
+correct and the comment's reasoning holds.
