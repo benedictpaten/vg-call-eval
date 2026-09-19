@@ -192,3 +192,51 @@ The test: at render time, independently recompute `crossings_of_child(travs[trav
 for a sample of slot-0 children and compare it against the mask bit. A disagreement confirms it.
 
 **Status: NOT FIXED.** `src/` is at `b9a9c3653`.
+
+## Round 4: it is a PLOIDY bug, not a strand bug
+
+### The discriminator
+
+A wrong **label** gives a clean read set with the wrong sign. A wrong **ploidy** gives a 50/50 read
+set where no strand exists at all. Confident reads only (|lo| >= 8):
+
+| slot | sites | near-50/50 (0.35-0.65) | clean (>=0.9 or <=0.1) |
+|---|---|---|---|
+| 0 | 5,099 | **767 (15.0%)** | 2,901 (56.9%) |
+| 1 | 2,393 | **69 (2.9%)** | 2,008 (83.9%) |
+
+**Slot 0 carries 5x the rate of 50/50 sites**, and only 2.4% of slot-0 sites are cleanly inverted.
+So the excess is not mislabelled haplotypes -- it is sites called HAPLOID whose reads come from
+BOTH parent alleles. For those the site should be ploidy 2 and there is no strand to name; the
+`a|.` it emits is a haplotype claim about a locus that has two.
+
+That is why every strand hypothesis failed: **the strand derivation is correct.** Cross-tabulating
+the crossing bits against the assigned strand accounts for all 11,700 records exactly -- 5,429 +
+5,134 under diploid parents, and 1,137 under haploid parents correctly inheriting
+`parent_nested_strand` rather than an allele index.
+
+### Where it comes from, and what is still missing
+
+`copies = bit(trav_first) + bit(trav_second)` over `child.parent_crossing`. A bit that reads 0
+spuriously undercounts copies, makes a diploid child haploid, and hands it the one traversal whose
+bit survived. The mask is built once at descent from `pr.travs`; the settled pair is read through
+`trav_arena`, and a re-score can add an allele to that space.
+
+**Not yet isolated.** Testing whether a settled traversal lies beyond the mask's highest set bit
+found 1,240 such pairs (12.2%), but they skew to strand 1 (1,053 against 187) -- the opposite of the
+slot-0 excess. So that is not the mechanism either.
+
+### The fix does not have to wait for the mechanism
+
+The condition is self-detectable at run time and needs no truth: **a site called haploid whose
+confident supporting reads split near 50/50 is not haploid.** On chr20 that is 767 of 5,099
+slot-0 sites and 69 of 2,393 slot-1 sites. The safe action is to refuse the strand there --
+`nested_strand = -1`, no `a|.` -- which turns a false haplotype claim into an honest absence.
+That is strictly better for assembly than the present behaviour, where ~3,500 chr20 records carry a
+label written identically to the ~95%-correct ones.
+
+Fixing `copies` properly is better still, and the measurement above is the gate for it: the 50/50
+population should go to zero.
+
+**Status: root cause narrowed to the copies/ploidy determination for nested children; the specific
+mask defect is NOT yet isolated. `src/` is at `b9a9c3653`, unmodified.**
