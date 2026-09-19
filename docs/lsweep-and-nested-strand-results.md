@@ -80,3 +80,38 @@ top-level phased hets are 49.9/50.1. From the cascade dump, 11,657 nested haploi
 55.0/45.0 after the cascade, and the imbalance lives entirely in the flipped-parent group (59.1% on
 strand 0 against 48.5% for unflipped parents) -- the cascade itself mirrors correctly, so the skew
 is in the pre-cascade assignment.
+
+## Update: the fallback is NOT the explanation
+
+Re-run distinguishing a real nested strand from `phase_haploid_slot`'s fallback:
+
+| class | sites | placements | agree |
+|---|---|---|---|
+| real strand 0 | 6,751 | 160,782 | **65.61%** |
+| real strand 1 | 4,104 | 84,473 | **91.08%** |
+| fallback (no strand) -> slot 0 | 26 | 36 | 0.00% |
+
+Only 26 sites take the fallback, so it explains nothing; restricted to real strands the figure is
+74.38%, unchanged. **The asymmetry is in genuine strand assignments.**
+
+Two further facts, from the cascade dump (11,657 children):
+
+- **The skew grows with nesting depth**: 52.3% on strand 0 at generation 1, 58.7% at 2, 66.6% at 3,
+  65.4% at 4, 71.4% at 5. A cascade that were symmetric would not drift with depth.
+- Children under a **ploidy-1 parent** sit at 64.7% on strand 0 against 53.6% under a ploidy-2
+  parent. The ploidy-1 path inherits the parent's own strand, so a deep chain inherits through
+  several levels.
+- Every parent is in `phase_index`, so `frame_flipped` never silently defaults for a child whose
+  parent was flipped. That hypothesis is out.
+
+A candidate remains unconfirmed: `nested_strand_of`'s diploid branch tests
+`parent_trav_first == carrying` before `parent_trav_second == carrying`, so a chain carried by BOTH
+parent strands returns 0 rather than -1 -- and `g_nest_both`, the counter that exists for exactly
+that case, reports 0 because the first test fires first. For a ploidy-1 child this should be
+unreachable (a chain crossed by both parent copies ought to be genotyped at ploidy 2), so it does
+not obviously explain the numbers, and it is recorded as the next thing to check rather than as a
+diagnosis.
+
+**None of this is visible to any gate in use**: whatshap never assesses a half-missing record and
+the genotype does not move, so neither switch error nor F1 can see it. 3,117 chr20 records carry
+these strands.
