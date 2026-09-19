@@ -64,3 +64,65 @@ record and the genotype does not move. 3,117 chr20 records carry these strands.
 Two of these dumps came from runs that differ in `--anchors-out`, which implies off-reference
 nesting and so descends into more nested chains. Counts from such runs are NOT comparable -- an
 apparent 6,753/4,104 against 2,910/3,901 discrepancy was exactly this and nothing more.
+
+## Round 2 of the chase: two more hypotheses killed, root cause still not found
+
+**Hypothesis: the group-wide stamp.** `resolve_generation` derives the strand from
+`kv.second.front()` -- one child -- and writes it to every member of the group. If members sat on
+different parent strands they would all inherit the front one's. **Refuted: 0 of 20,068 children
+are stamped with a strand differing from their own relation.** Groups are homogeneous in
+`carrying` by construction (the group key includes the chain), so the front child is representative.
+This also explains the `g_nest_both` counter reading 0 -- it is only reached when the front child
+has `carrying == -2`, so it under-reports, but nothing is mis-stamped.
+
+**Hypothesis: two sources for the parent's pair.** `carrying` comes from `relate(child,
+entries[pidx])`, which reads the parent's **Entry** (the order the barrier settled), while
+`nested_strand_of` compares it against **`pin->second.trav_first/trav_second`** -- the
+**PhaseCall**, which `apply_read_phasing` rewrites in place when it swaps a pair. At derivation
+**48.9% of diploid parents have those two orders disagreeing**, and the strand splits accordingly:
+74.5% on strand 0 where the pair is swapped against 29.6% where it is not.
+
+**Refuted, by building the fix and measuring it.** Deriving `carrying` from the PhaseCall's own pair
+instead produced **byte-identical output**. `carrying` is a traversal VALUE, not an index into the
+pair, so `relate_to_parent(mask, ta, tb)` and `relate_to_parent(mask, tb, ta)` return the same
+thing -- swapping the order cannot change which traversal crosses the child. The 74.5/29.6 split is
+therefore a *consequence*, not a cause: where the pair is swapped, `trav_first` is the other
+traversal and the same child correctly gets the other index. The field is doing its job.
+
+### Where the imbalance enters, precisely
+
+Three stages in one run, keyed by record_key:
+
+| stage | strand 0 | strand 1 | % on 0 |
+|---|---|---|---|
+| A. derived in `resolve_generation` | 5,427 | 6,314 | 46.2% |
+| B. after the read-phasing cascade | 6,753 | 4,104 | **62.2%** |
+| C. stamped on the anchors | 6,779 | 4,104 | 62.3% |
+
+B -> C is exact (0 mismatches). The cascade is also exact: **`B == A XOR parent_flipped` holds for
+all 11,709 children, 0 violations.** So the shift is not an error in the cascade -- it is the
+correlation it acts on:
+
+| at derivation | strand 0 | strand 1 |
+|---|---|---|
+| children whose parent will flip | 1,889 | 3,732 (33.6% on 0) |
+| children whose parent will not | 3,515 | 2,573 (57.7% on 0) |
+
+and that correlation is itself the correct consequence of the swap state, per the refutation above.
+
+### What is still unexplained
+
+Every step now reconciles, yet the output is still wrong: **slot 0 agrees with its own reads 72.55%
+and slot 1 92.80%** (supporting reads only). Nothing found so far accounts for a 20-point gap.
+
+**The sharpest untested hypothesis.** `agree` compares `lo > 0` -- the read's strand in the CHAIN's
+frame -- against `slot == 0` -- the child's position in its PARENT's pair. Those are commensurable
+only if the parent's pair order is the chain frame, which holds only where the parent is a **phase
+site** and so received an `o[]`. A parent excluded from `phase_sites` (homozygous, ploidy != 2, or
+otherwise) keeps the panel's order, which is related to the chain frame only by accident. Proxies
+for this (parent ploidy, parent homozygosity in the FINAL call) do not separate it cleanly, so the
+test has to be the real one: condition the agreement on whether the parent's record_key is in
+`phase_sites`. That is the next thing to run.
+
+**Status: NOT FIXED.** `src/` is at `b9a9c3653`; the one fix attempted was measured, found inert,
+and reverted.
