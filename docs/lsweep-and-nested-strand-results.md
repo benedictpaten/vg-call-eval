@@ -115,3 +115,49 @@ diagnosis.
 **None of this is visible to any gate in use**: whatshap never assesses a half-missing record and
 the genotype does not move, so neither switch error nor F1 can see it. 3,117 chr20 records carry
 these strands.
+
+## Update 2: a real defect found, and a residual that is still open
+
+### Refuted, with data
+
+| hypothesis | verdict |
+|---|---|
+| `phase_haploid_slot`'s three `return 0` fallbacks pool unanswerable sites into slot 0 | **no** -- 26 of 10,883 sites |
+| the parent's (or child's) `order_arbitrary` coin flip | **no** -- 0 for every child and every parent |
+| a homozygous parent, where `nested_strand_of`'s first test wins | **no** -- those score *better* (82.4% vs 70.8%) |
+| `frame_flipped` silently defaulting for a parent it cannot find | **no** -- the lookup hits 100% of the time |
+| the 64-bit crossing mask overflowing on `tb` | **no** -- max traversal index is 1 and 16 |
+| my own measure including reads from the other haplotype | **partly** -- restricting to reads that support the called allele lifts 74.4% -> 79.9%, but the slot gap survives |
+| reference-vs-alt sequence attracting mismapped reads | **no** -- at the SAME carrying traversal (1), slot 0 scores 72.56% and slot 1 scores 95.72% |
+
+### The defect
+
+**1,442 children sit under a parent whose settled pair is homozygous, and hold strand 1.**
+`nested_strand_of` cannot produce that: with `trav_first == trav_second` the first test fires and
+returns 0. So those strands were derived against a parent pair that was heterozygous **at the time
+the barrier derived them** and is homozygous in the record that ships.
+
+2,358 children in total sit under a now-homozygous parent -- a parent that carries the chain on
+BOTH copies, where no strand is meaningful at all -- and every one of them holds a real strand, not
+the fallback.
+
+`nested_strand` is derived once, in the barrier, against the parent's pair at that moment. The
+read-phasing cascade carries a later **swap** of that pair. Nothing carries a later **change** of it.
+
+### The residual, still unexplained
+
+The defect above does not account for the main asymmetry. Restricted to heterozygous parents, where
+the rule is well defined:
+
+| | sites | placements | agree |
+|---|---|---|---|
+| slot 0, parent het | 5,697 | 107,816 | **70.77%** |
+| slot 1, parent het | 2,596 | 59,496 | **92.12%** |
+
+A 21-point gap with no mechanism yet. The per-site distribution is a broad spread, not a spike at
+zero (slot 0: 2.4% fully inverted, 49.7% clean; slot 1: 0.5% and 81.4%), so this is not a sign error
+on a subpopulation -- those sites' reads are genuinely mixed. Next thing to look at is how
+`carrying` is computed for the ploidy-1 group in `resolve_generation`, since `relate_to_parent`
+itself is symmetric and clean.
+
+None of this is visible to F1 or switch error.
