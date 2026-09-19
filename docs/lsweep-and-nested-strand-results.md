@@ -1,0 +1,82 @@
+# The L-sweep, and what verifies a nested haploid strand
+
+Two questions, both run on chr20 with chr6 held out.
+
+## 1. Can links that SPAN a junction see what adjacent links cannot?
+
+The chain has no redundancy: stage 1 is `o[m+1] = o[m] ^ (d[m] < 0)` and stage 2 orients each block
+against the previous one, so one wrong sign flips everything downstream. That is why 13 parity
+changes make 24.72 Mb of mis-phased sequence on chr20.
+
+A single-site bypass had already come back null, but it skips a few hundred bases and so stays
+inside the ~2 kb mis-specified region, using the same mis-aligned reads. Reads span a median 21 kb,
+so a link from a clean site ~10 kb before to a clean site ~10 kb after should be carried by reads
+whose alleles at BOTH endpoints are fine. **Nothing in the algorithm computes it.**
+
+Instrumented `phase_link(rel[m+1-L], rel[m+L])` for L in {2, 5, 10, 20, 50}.
+
+**A correction that mattered.** The first pass compared each span against the parity implied by the
+signs of `d`. That is the wrong baseline wherever stage 2 relinked -- there the orientation came
+from the K x K vote, not from `d` -- so it silently excluded every relink event, which is the
+population the whole idea targets. Re-run against the settled `o[]` dumped after stage 3:
+
+| events with >= 1 disagreeing spanning link | chr20 | chr6 (hold-out) |
+|---|---|---|
+| **relink events** | **2 of 4** | **2 of 4** |
+| cascade events | 1 of 9 | 4 of 15 |
+| all events | 3 of 13 | 6 of 19 |
+| junctions flagged | 769 / 61,012 (1.26%) | 1,078 / 162,518 (0.66%) |
+| lift | 18x | 48x |
+
+**The 50% recall on relinks replicates exactly.** And the split is mechanistically right: a spanning
+link helps where stage 1 had no evidence, and does not where the reads are uniformly wrong.
+
+At the cascade errors the null is thorough. Filtered to spans enclosing an ODD number of erroneous
+junctions (an even number cancels and the test is vacuous -- these junctions cluster, so this
+matters), chr20 gives **0 disagreements out of 6-8 informative tests at every L**, including L = 10
+(median span 11.6 kb, 30 shared reads) and L = 20 (25.9 kb, 21 reads). Nor is anything else
+anomalous there: shared reads, evidence per read, magnitude and span all sit on the background.
+
+So at a cascade error the reads are wrong over spans far longer than the mis-specified region -- a
+read crossing it is mis-assigned along its whole length. No link-based scheme reaches those.
+
+**The actionable consequence**: stage 2 already looks `--phase-relink 10` sites each side, and these
+spanning links reach 50. Widening `--phase-relink` is the existing-parameter version of the idea,
+and it is measured in mis-phased bases in the sweep beside this document.
+
+## 2. Does a nested haploid site's inherited strand agree with its own reads?
+
+A nested haploid site is excluded from the phasing chain -- `phase_sites` skips `ploidy != 2` -- so
+its strand comes only from `nested_strand_of` against the parent's settled pair. Parity with the
+parent is guaranteed by construction. Correctness is never checked, and no gate can see it:
+whatshap never assesses a half-missing record and the genotype does not move.
+
+Checked against each site's own reads, held out by `read_strand_log_odds`' leave-one-out:
+
+| | sites | opinionated placements | agree |
+|---|---|---|---|
+| chr20 | 10,883 | 245,291 | **74.37%** |
+| chr6 (hold-out) | 8,768 | 216,160 | **84.92%** |
+
+Against the ~95% the het self-check reaches where the strand IS checkable. And on chr20 the two
+slots are wildly different:
+
+| slot | chr20 | chr6 |
+|---|---|---|
+| 0 | **65.60%** (160,818) | 84.44% (82,961) |
+| 1 | **91.08%** (84,473) | 85.23% (133,199) |
+
+chr20's slot 1 is at the het ceiling while its slot 0 is 25 points worse; chr6 is balanced. 12.8% of
+chr20's sites have a MAJORITY of their reads disagreeing.
+
+**The likely mechanism.** `phase_haploid_slot` has three `return 0` fallbacks -- no phase entry,
+ploidy != 1 or nested_strand < 0, and a PhaseCall about a different genotype. It returns 0 for
+"strand 0" and for "cannot tell", and nothing downstream can distinguish them, so every unanswerable
+site lands in slot 0 looking like a haplotype claim. A run distinguishing a real nested strand from
+the fallback is pending.
+
+The earlier count asymmetry has the same shape: chr20 emits 2,105 `x|.` against 1,012 `.|x` while
+top-level phased hets are 49.9/50.1. From the cascade dump, 11,657 nested haploid children split
+55.0/45.0 after the cascade, and the imbalance lives entirely in the flipped-parent group (59.1% on
+strand 0 against 48.5% for unflipped parents) -- the cascade itself mirrors correctly, so the skew
+is in the pre-cascade assignment.
