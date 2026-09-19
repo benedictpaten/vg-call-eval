@@ -126,3 +126,69 @@ test has to be the real one: condition the agreement on whether the parent's rec
 
 **Status: NOT FIXED.** `src/` is at `b9a9c3653`; the one fix attempted was measured, found inert,
 and reverted.
+
+## Round 3: the error is proven real and quantified. The cause is still not found.
+
+### Proven real
+
+Restricting the check to **confident** reads -- |lo| >= 8, which agree with the allele partition at
+het sites 95.9% of the time -- separates a wrong label from a noisy one:
+
+| slot | all supporting reads | confident reads only |
+|---|---|---|
+| 1 | 92.80% | **95.05%** -- at the ceiling |
+| 0 | 72.55% | **71.45%** -- moves the wrong way |
+
+At slot-0 sites **28.5% of confident reads say the opposite strand**. Those reads are right ~96% of
+the time. This is not a measurement artefact and not weak evidence: the label is wrong.
+
+### Quantified
+
+Treating slot 0 as a mixture of correct assignments (at slot 1's 95.05% ceiling) and random ones:
+
+| population | observed | implied random fraction |
+|---|---|---|
+| slot 1 | 95.05% | **0%** |
+| slot 0, parent flipped | 79.21% | 35.2% |
+| slot 0, parent not flipped | 63.13% | **70.9%** |
+| slot 0 overall | 71.45% | **52.4%** |
+
+chr20 emits 6,779 slot-0 records, so roughly **3,500 nested haploid records carry a haplotype label
+with no information in it** -- written identically to the 4,104 slot-1 records that are ~95%
+correct. Invisible to F1 and to whatshap, which never assesses a half-missing record.
+
+### Sixteen hypotheses eliminated with data
+
+`phase_haploid_slot`'s fallbacks (26 sites) · `order_arbitrary` (0 everywhere) · homozygous parents
+(score *better*) · `frame_flipped` missing a parent (hits 100%) · the 64-bit crossing-mask overflow
+(max traversal index 16, properly tested) · reads from the other haplotype (restricting to
+supporting reads leaves the gap) · reference-vs-alt (survives conditioning: 79.92/90.73 on
+reference, 71.92/92.95 off it) · the parent being a phase site (79.38 vs 82.82, gap in both) ·
+the group-wide stamp (0 of 20,068 mis-stamped) · two sources for the parent's pair (fix built,
+byte-identical, because `carrying` is a VALUE and so order-independent) · a global sign bias in
+`lo` (50.39/49.61) · my tie-break admitting flat reads (moves slot 0 by 1.2 points) · the called
+allele · weak reads · the parent's flip status (slot 1 is ~95% either way) · whether the parent's
+order was ever `decided` (all 78,176 phase sites are decided).
+
+The cascade is exact: **`B == A XOR parent_flipped` holds for all 11,709 children, 0 violations**,
+and derivation is balanced at 46.2% on strand 0. Every step reconciles individually.
+
+### The lead I would follow next
+
+`nested_strand_of` returns 0 on its FIRST match and 1 on the second, so slot 0 is the bucket that
+collects any case where `carrying` wrongly equals `trav_first`. `carrying` comes from
+`child.parent_crossing`, a bitmask where **bit i means "the parent's candidate traversal i crosses
+this child"**, built by `child_crossing_mask(pr.travs, ...)` during the parent's descent. It is
+indexed by `traversal_of(trav_arena, parent.trav_offset, parent.num_alleles, parent.final_i)`.
+
+**Those two index spaces have never been verified to be the same list.** The mask indexes
+`pr.travs` as it stood at descent; `trav_arena` holds what the linkage layer recorded. If the
+parent's candidate set is re-scored between descent and settlement -- and re-genotyping does
+re-score sites -- the bit positions and the arena positions need not correspond, and a mis-indexed
+bit would make `first` true for a child that does not cross `trav_first`, which lands it in slot 0
+with a meaningless strand. That matches the signature exactly: slot 1 clean, slot 0 a 50/50 mixture.
+
+The test: at render time, independently recompute `crossings_of_child(travs[trav_first], child)`
+for a sample of slot-0 children and compare it against the mask bit. A disagreement confirms it.
+
+**Status: NOT FIXED.** `src/` is at `b9a9c3653`.
