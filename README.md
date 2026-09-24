@@ -20,6 +20,7 @@ tier-2 pages below it are where parameters were fitted and mechanisms tested.
 |---|---|
 | [docs/wgs-results.md](docs/wgs-results.md) | **start here** — HG002 against T2T-Q100 across all 24 contigs, on the 34-haplotype graph with nested calling, phasing and mosaic on. Regenerated wholesale by `scripts/wgs/bench_wgs.py`, prose figures included |
 | [docs/pangenie-comparison.md](docs/pangenie-comparison.md) | vg against PanGenie on the same graph and the same reads: vg ahead on every small-variant class, PanGenie ahead on SVs |
+| [docs/coverage.md](docs/coverage.md) | accuracy and phasing from 5x to full depth, short reads and ONT, on chr20 and chr6: short-read small variants still improving at 30x, ONT indels peaking at 20x, and recall and precision separately, with block-bootstrap intervals |
 | [docs/sv-residual-errors.md](docs/sv-residual-errors.md) | what is inside that SV gap, and whether nested calling reached it. Working pages: [sv-delta.md](docs/sv-delta.md), [sv-fp-anatomy.md](docs/sv-fp-anatomy.md), [sv-fn-mechanism.md](docs/sv-fn-mechanism.md), [sv-unmatched.md](docs/sv-unmatched.md), [sv-quality-gates.md](docs/sv-quality-gates.md) |
 | [docs/wgs-performance.md](docs/wgs-performance.md) | how to run all 24 contigs, what it costs, and why assembling the mosaic is not `cat` |
 | [docs/nested-calling-design.md](docs/nested-calling-design.md) | the nested-calling design, its stages, and the single-sweep redesign that made parent/child genotype incoherence impossible rather than flagged |
