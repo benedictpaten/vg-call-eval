@@ -68,7 +68,10 @@ precision against -0.0019 [-0.0037, +0.0001] of recall, which is not significant
 on both contigs and then falls as well, at half the rate (25x to full: recall -0.0052, precision
 -0.0100). More reads lend support to ONT's systematic indel errors, mostly homopolymer miscounts,
 rather than averaging them away (see [indel-uncertainty.md](indel-uncertainty.md)). SNV F1 still rises
-to full depth.
+to full depth. **Fixed since by `--hp-prior`**, a stronger panel prior at homopolymer-run indels that
+`--preset ont` now sets: indel F1 rises at every depth to full on both contigs, +0.026 at 43x on
+chr20 and +0.023 at 45x on held-out chr6 ([ont-hp-prior.md](ont-hp-prior.md)); the tables here are
+from before it.
 
 **Recall does most of the work of depth.** Pooled 5x to full, short-read SNV recall rises +0.0268
 [+0.0255, +0.0281] against +0.0038 for precision, and indel recall +0.0572 against +0.0267. ONT
