@@ -16,45 +16,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import bench_metrics as bm  # noqa: E402
+
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
-
-
-def f1(tp: int, fp: int, fn: int) -> float:
-    return 2 * tp / (2 * tp + fp + fn) if tp else float("nan")
-
-
-def pick(rows, comparison, vtype):
-    for r in rows or []:
-        if r.get("comparison", "").upper() == comparison and r.get("variant_type") == vtype:
-            return r
-    return None
-
-
-def totals(results, contigs, vtype):
-    tp = fp = fn = 0
-    for r in results:
-        if r["contig"] not in contigs:
-            continue
-        row = pick(r.get("aardvark"), "GT", vtype)
-        if row:
-            tp += int(row.get("truth_tp", 0) or 0)
-            fp += int(row.get("query_fp", 0) or 0)
-            fn += int(row.get("truth_fn", 0) or 0)
-    return tp, fp, fn
-
-
-def sv_totals(results, contigs):
-    tp = fp = fn = 0
-    for r in results:
-        if r["contig"] not in contigs:
-            continue
-        s = r.get("truvari") or {}
-        tp += int(s.get("TP-base", 0) or 0)
-        fp += int(s.get("FP", 0) or 0)
-        fn += int(s.get("FN", 0) or 0)
-    return tp, fp, fn
 
 
 def main() -> None:
@@ -74,30 +42,24 @@ def main() -> None:
     report = {}
     for scope, contigs in (("autosomes (chr1-22)", set(AUTOSOMES)), ("chrX", {"chrX"})):
         print(f"\n== {scope} ==\n")
-        print(f"{'':10} " + "".join(f"{n:>34}" for n in names))
-        print(f"{'':10} " + "".join(f"{'TP':>10}{'FP':>9}{'FN':>8}{'F1':>7}" for _ in names))
-        for label, vtype in (("ALL", "ALL"), ("SNV", "Snv"), ("Indel", "JointIndel")):
+        # Truth-side TP beside FN, query-side TP beside FP: each is the count its rate is over.
+        print(f"{'':10} " + "".join(f"{n:>44}" for n in names))
+        print(f"{'':10} " + "".join(f"{'truth TP':>10}{'FN':>8}{'query TP':>10}{'FP':>9}{'F1':>7}"
+                                    for _ in names))
+        for label, vtype in (("ALL", "ALL"), ("SNV", "Snv"), ("Indel", "JointIndel"), ("SV", None)):
             cells = ""
             for n in names:
-                tp, fp, fn = totals(sets[n], contigs, vtype)
-                cells += f"{tp:10,}{fp:9,}{fn:8,}{f1(tp,fp,fn):7.4f}"
+                c = bm.small(sets[n], contigs, vtype) if vtype else bm.sv(sets[n], contigs)
+                cells += f"{c.truth_tp:10,}{c.truth_fn:8,}{c.query_tp:10,}{c.query_fp:9,}{c.f1:7.4f}"
                 report.setdefault(scope, {}).setdefault(label, {})[n] = {
-                    "tp": tp, "fp": fp, "fn": fn, "f1": f1(tp, fp, fn),
-                    "recall": tp / (tp + fn) if tp + fn else None,
-                    "precision": tp / (tp + fp) if tp + fp else None}
-            print(f"{label:10} " + cells)
-        cells = ""
-        for n in names:
-            tp, fp, fn = sv_totals(sets[n], contigs)
-            cells += f"{tp:10,}{fp:9,}{fn:8,}{f1(tp,fp,fn):7.4f}"
-            report.setdefault(scope, {}).setdefault("SV", {})[n] = {
-                "tp": tp, "fp": fp, "fn": fn, "f1": f1(tp, fp, fn)}
-        print(f"{'SV>=50bp':10} " + cells)
+                    "truth_tp": c.truth_tp, "fn": c.truth_fn, "query_tp": c.query_tp,
+                    "fp": c.query_fp, "f1": c.f1, "recall": c.recall, "precision": c.precision}
+            print(f"{'SV>=50bp' if label == 'SV' else label:10} " + cells)
 
     print("\nRecall and precision on the autosomes:\n")
     print(f"{'':10} " + "".join(f"{n:>26}" for n in names))
     print(f"{'':10} " + "".join(f"{'recall':>13}{'precision':>13}" for _ in names))
-    for label in ("ALL", "SNV", "Indel"):
+    for label in ("ALL", "SNV", "Indel", "SV"):
         cells = ""
         for n in names:
             d = report["autosomes (chr1-22)"][label][n]

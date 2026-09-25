@@ -32,8 +32,12 @@ from __future__ import annotations
 import argparse
 import statistics
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import bench_metrics as bm  # noqa: E402
 
 K = 31
 COMP = str.maketrans("ACGT", "TGCA")
@@ -53,19 +57,11 @@ def query(vcf: Path, fmt: str, region: str | None = None) -> list[list[str]]:
     return [l.split("\t") for l in out.splitlines()]
 
 
-def f1(tp: int, fp: int, fn: int) -> float:
-    """Symmetric F1 from counts.
-
-    aardvark's own F1 uses truth_tp for recall and query_tp for precision, which differ slightly;
-    this one is used for every contig here so the comparisons are internally consistent.
-    """
-    return 2 * tp / (2 * tp + fp + fn) if tp else 0.0
-
-
 def load(work: Path, contig: str) -> dict:
     """BD decisions joined to the caller's own FORMAT fields, keyed by position."""
     adir = work / "score" / f"{contig}.aardvark"
-    bd = {int(r[0]): r[1] for r in query(adir / "query.vcf.gz", "%POS\t[%BD]\n")}
+    query_bd = [(int(r[0]), r[1]) for r in query(adir / "query.vcf.gz", "%POS\t[%BD]\n")]
+    bd = dict(query_bd)
     truth_bd = [(int(r[0]), r[1]) for r in query(adir / "truth.vcf.gz", "%POS\t[%BD]\n")]
     rows = []
     for r in query(work / contig / f"{contig}.vcf.gz", "%POS\t[%GT\t%DP\t%AD\t%DR\t%GQ]\n"):
@@ -82,7 +78,7 @@ def load(work: Path, contig: str) -> dict:
             "bal": min(ad) / sum(ad) if len(ad) >= 2 and sum(ad) else float("nan"),
             "bd": bd.get(pos),
         })
-    return {"rows": rows, "truth_bd": truth_bd}
+    return {"rows": rows, "query_bd": query_bd, "truth_bd": truth_bd}
 
 
 def med(v):
@@ -91,17 +87,27 @@ def med(v):
 
 
 def report_gq(data: dict) -> None:
-    print("\n== F1 vs GQ threshold (symmetric F1, so columns are comparable) ==")
+    # GQ lives on the caller's records, so these counts come from joining aardvark's BD onto them
+    # by position. The join collapses records that share a position, which leaves even the GQ>=0
+    # row within about 0.001 of aardvark's F1 rather than equal to it; report_hotspots counts from
+    # aardvark's own VCFs and is exact. Precision is over the kept query records. The truth-side BD
+    # does not say which query record matched it, so a gated row's recall scales the truth TP count
+    # by the share of query TPs kept, as scripts/tier2/filter_lib.py's prf does.
+    print("\n== F1 vs GQ threshold ==")
     contigs = list(data)
     print(f"{'GQ>=':>6} " + " ".join(f"{c:>9}" for c in contigs))
     for thr in (0, 10, 20, 30):
         cells = []
         for c in contigs:
             d = data[c]
-            tp = sum(1 for r in d["rows"] if r["bd"] == "TP" and r["gq"] >= thr)
+            qtp = sum(1 for r in d["rows"] if r["bd"] == "TP" and r["gq"] >= thr)
             fp = sum(1 for r in d["rows"] if r["bd"] == "FP" and r["gq"] >= thr)
+            qtp_all = sum(1 for r in d["rows"] if r["bd"] == "TP")
+            ttp = sum(1 for _, b in d["truth_bd"] if b == "TP")
             truth_total = sum(1 for _, b in d["truth_bd"] if b in ("TP", "FN"))
-            cells.append(f"{f1(tp, fp, truth_total - tp):9.4f}")
+            recall = ttp * (qtp / qtp_all) / truth_total if qtp_all and truth_total else 0.0
+            precision = qtp / (qtp + fp) if qtp + fp else 0.0
+            cells.append(f"{bm.f1(recall, precision):9.4f}")
         print(f"{thr:6d} " + " ".join(cells))
     print("\nThe point is the asymmetry: a GQ filter should raise chrX and lower the autosomes.")
 
@@ -134,25 +140,27 @@ def report_balance(d: dict) -> None:
 
 
 def report_hotspots(d: dict) -> None:
-    """Note the TP here is aardvark's *truth-side* count, so the whole-chrX F1 printed below
-    (0.9364) matches aardvark's summary, while report_gq's GQ>=0 row (0.9334) uses the query-side
-    count -- it has to, since GQ is a property of the query record. The two differ by the usual
-    truth_tp/query_tp gap and neither is wrong; do not read the difference as drift."""
+    """Counted from aardvark's own truth and query VCFs, truth-side TP for recall and query-side TP
+    for precision, so the whole-chrX F1 printed below is aardvark's own."""
     print("\n== hotspot contribution ==")
     def hot(p):
         return any(lo <= p < hi for lo, hi in HOTSPOTS)
-    tp = sum(1 for p, b in d["truth_bd"] if b == "TP")
-    fn = sum(1 for p, b in d["truth_bd"] if b == "FN")
-    fp = sum(1 for r in d["rows"] if r["bd"] == "FP")
-    htp = sum(1 for p, b in d["truth_bd"] if b == "TP" and hot(p))
-    hfn = sum(1 for p, b in d["truth_bd"] if b == "FN" and hot(p))
-    hfp = sum(1 for r in d["rows"] if r["bd"] == "FP" and hot(r["pos"]))
+    def counts(keep):
+        return bm.Counts(sum(1 for p, b in d["truth_bd"] if b == "TP" and keep(p)),
+                         sum(1 for p, b in d["truth_bd"] if b == "FN" and keep(p)),
+                         sum(1 for p, b in d["query_bd"] if b == "TP" and keep(p)),
+                         sum(1 for p, b in d["query_bd"] if b == "FP" and keep(p)))
+
+    whole, hs, rest = counts(lambda p: True), counts(hot), counts(lambda p: not hot(p))
     span = sum(hi - lo for lo, hi in HOTSPOTS)
-    print(f"  whole chrX      TP {tp:6d} FP {fp:5d} FN {fn:5d}  F1 {f1(tp, fp, fn):.4f}")
-    print(f"  two hotspots    TP {htp:6d} FP {hfp:5d} FN {hfn:5d}  "
-          f"({span/1e6:.1f} Mb, {100*hfp/fp:.0f}% of all FPs)")
-    print(f"  chrX minus them TP {tp-htp:6d} FP {fp-hfp:5d} FN {fn-hfn:5d}  "
-          f"F1 {f1(tp-htp, fp-hfp, fn-hfn):.4f}")
+
+    def line(c):
+        return (f"truth TP {c.truth_tp:6d} FN {c.truth_fn:5d}  "
+                f"query TP {c.query_tp:6d} FP {c.query_fp:5d}")
+    print(f"  whole chrX      {line(whole)}  F1 {whole.f1:.4f}")
+    print(f"  two hotspots    {line(hs)}  "
+          f"({span/1e6:.1f} Mb, {100*hs.query_fp/whole.query_fp:.0f}% of all FPs)")
+    print(f"  chrX minus them {line(rest)}  F1 {rest.f1:.4f}")
 
 
 def report_kmers(work: Path, contig: str) -> None:

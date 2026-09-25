@@ -47,10 +47,6 @@ def query(vcf: Path, fmt: str) -> list[list[str]]:
     return [l.split("\t") for l in out.splitlines()]
 
 
-def f1(tp: int, fp: int, fn: int) -> float:
-    return 2 * tp / (2 * tp + fp + fn) if tp else 0.0
-
-
 def score(work: Path, tag: str, truth_vcf: Path, truth_bed: Path, ref: Path,
           sample: str, threads: int) -> dict | None:
     """aardvark for one coverage level, cached on summary.tsv."""

@@ -9,11 +9,11 @@ Two measurements over truvari's own output, autosomes only:
    filter.
 
 2. **Gate sweep.** For each threshold, how many true and false calls survive and what the SV F1
-   becomes. Recall is accounted on the *base* side, as truvari scores it: gating a comp call moves
-   its matched truth record from TP-base to FN rather than leaving the truth count untouched.
-   Counting the comp side for both halves of F1 -- the obvious shortcut -- mixes two denominators
-   and reads a percent low, because truvari matches more truth records than it has matching calls
-   (13,526 against 13,302 on this arm, under `--pick ac`).
+   becomes. Each rate is taken on its own side, as truvari scores it: precision over calls, from
+   the TP-comp and FP calls a gate keeps, and recall over truth records, where gating a comp call
+   moves its matched truth record from TP-base to FN once no surviving call matches it. The two
+   TP counts differ, because truvari matches more truth records than it has matching calls, so
+   either one used for both halves of F1 mixes denominators (scripts/bench_metrics.py).
 
    Base and comp are joined on the **second** field of INFO/MatchId, the comp-side id. The first
    field, the base-side id, looks like the natural key and is not: where one call matches several
@@ -29,7 +29,11 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import bench_metrics as bm  # noqa: E402
 
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
 
@@ -142,7 +146,8 @@ def main() -> None:
 
     score = Path(args.score)
     tp, fp = [], []
-    truth_total = truvari_tp_base = truvari_fp = 0
+    truth_total = truvari_tp_base = 0
+    truvari = bm.Counts()
     # One entry per matched truth record, holding the calls that matched it: gating them all is
     # what turns that truth record back into a false negative.
     truth_calls = []
@@ -154,7 +159,7 @@ def main() -> None:
         js = json.loads(summary.read_text())
         truth_total += int(js.get("TP-base", 0)) + int(js.get("FN", 0))
         truvari_tp_base += int(js.get("TP-base", 0))
-        truvari_fp += int(js.get("FP", 0))
+        truvari += bm.truvari_counts(js)
         by_comp = {}
         for r in records(d / "tp-comp.vcf.gz"):
             tp.append(r)
@@ -201,8 +206,7 @@ def main() -> None:
         kept_fp = sum(1 for r in fp if keeps(r))
         # Base-side recall: a truth SV stays a TP only while some call matching it survives.
         base_tp = sum(1 for calls in truth_calls if any(keeps(r) for r in calls))
-        fn = truth_total - base_tp
-        f1 = 2 * base_tp / (2 * base_tp + kept_fp + fn) if base_tp else float("nan")
+        f1 = bm.Counts(base_tp, truth_total - base_tp, kept_tp, kept_fp).f1
         rows.append((f1, label, kept_tp, kept_fp))
     anchor = next(r for r in rows if r[1] == "none")
     for f1, label, kept_tp, kept_fp in [anchor] + sorted(
@@ -259,11 +263,12 @@ def main() -> None:
               f"{u300:.1f}% of those are under 300 bp.", ""]
 
     # The ungated row must be truvari's own F1, or the accounting above is wrong somewhere else.
-    truvari_f1 = (2 * truvari_tp_base
-                  / (2 * truvari_tp_base + truvari_fp + (truth_total - truvari_tp_base)))
-    if abs(anchor[0] - truvari_f1) > 5e-5:
+    if (anchor[2], anchor[3]) != (truvari.query_tp, truvari.query_fp):
+        raise SystemExit(f"read {anchor[2]:,} matched and {anchor[3]:,} unmatched calls where "
+                         f"truvari counted {truvari.query_tp:,} TP-comp and {truvari.query_fp:,} FP")
+    if abs(anchor[0] - truvari.f1) > 5e-5:
         raise SystemExit(f"ungated F1 {anchor[0]:.4f} does not reproduce truvari's "
-                         f"{truvari_f1:.4f}")
+                         f"{truvari.f1:.4f}")
 
     best = max(r[0] for r in rows if r[1] != "none")
     L += ["", f"Best gate {best:.4f} against {anchor[0]:.4f} ungated, which reproduces truvari's "

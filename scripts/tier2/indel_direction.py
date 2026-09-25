@@ -14,8 +14,9 @@ untouched. This prints it. Usage:
 
 Each tag is an arm scored by work/ont-preset/arm.py, i.e. it has a results directory
 work/<dataset>/results/aardvark-<tag>/ holding query.vcf.gz and truth.vcf.gz with
-per-record BD. FN comes from the TRUTH file, never by subtracting query TPs from the
-truth total -- aardvark's truth_tp and query_tp differ by design.
+per-record BD. Recall comes from the TRUTH file's TP and FN and precision from the QUERY
+file's TP and FP -- aardvark's truth_tp and query_tp differ by design, so neither side's
+TP stands in for the other's.
 """
 import sys, gzip, collections
 from pathlib import Path
@@ -56,13 +57,13 @@ def report(tag):
         return None
     ref = arm.ref_seq()
     q = classify(adir / "query.vcf.gz", {"TP", "FP"}, ref)
-    t = classify(adir / "truth.vcf.gz", {"FN"}, ref)
+    t = classify(adir / "truth.vcf.gz", {"TP", "FN"}, ref)
     rows = {}
     for kind in ("INS", "DEL"):
-        tp, fp, fn = q[(kind, "TP")], q[(kind, "FP")], t[(kind, "FN")]
+        tp, fp, fn, ttp = q[(kind, "TP")], q[(kind, "FP")], t[(kind, "FN")], t[(kind, "TP")]
         rows[kind] = (tp, fp, fn,
                       tp / (tp + fp) if tp + fp else 0.0,
-                      tp / (tp + fn) if tp + fn else 0.0)
+                      ttp / (ttp + fn) if ttp + fn else 0.0)
     print(f"\n=== {tag} : 1 bp indels, reference homopolymer run >= {HPMIN} ===")
     print(f"{'':<6}{'TP':>7}{'FP':>7}{'FN':>7}{'precision':>11}{'recall':>9}")
     for kind in ("INS", "DEL"):

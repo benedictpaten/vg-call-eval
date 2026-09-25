@@ -3,9 +3,11 @@
 
 Scored contig by contig rather than genome at once. aardvark's whole-genome memory profile is
 unknown here and the point of this exercise is that it runs on a laptop, so per-contig scoring is
-bounded by construction. The cost is that a genome-wide F1 has to be recomputed from summed
-TP/FP/FN rather than read off a tool's output -- exact for counts, which is why the aggregation
-sums counts and never averages per-contig F1s.
+bounded by construction. The cost is that a genome-wide F1 has to be recomputed from summed counts
+rather than read off a tool's output -- exact for counts, which is why the aggregation sums counts
+and never averages per-contig F1s. Both tools count true positives once per side, so four counts
+are summed, not three: recall takes the truth side's TP and precision the query side's, as the
+tools' own F1s do. The definition and its check live in scripts/bench_metrics.py.
 
 Reuses the harness's own `aardvark.compare` and truvari invocation rather than reconstructing the
 command lines. Those have accumulated specifics -- `--pick ac`, matched `--sizemin/--sizefilt`,
@@ -29,6 +31,10 @@ from vgcalleval.engines import aardvark  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent / "tier2"))
 from truvari_sv import split_multiallelic  # noqa: E402
+
+sys.path.insert(0, str(HERE.parent))
+import bench_metrics as bm  # noqa: E402
+from bench_metrics import pick  # noqa: E402
 
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
 ALL_CONTIGS = AUTOSOMES + ["chrX", "chrY"]
@@ -123,21 +129,6 @@ def score_contig(work: Path, contig: str, sample: str, threads: int, truvari: st
     return out
 
 
-def pick(rows, comparison, vtype):
-    for r in rows or []:
-        if r.get("comparison", "").upper() == comparison and r.get("variant_type") == vtype:
-            return r
-    return None
-
-
-def f1(tp, fp, fn):
-    if tp + fp == 0 or tp + fn == 0:
-        return float("nan")
-    prec = tp / (tp + fp)
-    rec = tp / (tp + fn)
-    return 0.0 if prec + rec == 0 else 2 * prec * rec / (prec + rec)
-
-
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -160,20 +151,31 @@ def main() -> None:
     # Excluded by name rather than dropped by a filter, so the exclusion is visible in the output
     # instead of being a silent hole in a genome-wide number.
     p.add_argument("--unscoreable", nargs="*", default=["chrY"])
+    p.add_argument("--pangenie-score", default="work/pangenie/score",
+                   help="score dir of the PanGenie arm the prose compares against")
     p.add_argument("--baseline-score", default="work/wgs/score",
                    help="score dir of the --no-nested arm the prose compares against; the "
                         "comparison sentence is dropped if it is absent")
+    # Re-aggregating is cheap and scoring is not, and scoring re-runs a contig whose VCF is newer
+    # than its score -- so a summary-only pass must not go through score_contig at all.
+    p.add_argument("--summary-only", action="store_true",
+                   help="aggregate the per-contig.json an earlier run wrote; score nothing")
     args = p.parse_args()
 
     work = Path(args.work)
-    results = []
-    for c in args.contigs:
-        print(f"[score] {c}", flush=True)
-        r = score_contig(work, c, args.sample, args.threads, args.truvari)
-        r["scoreable"] = c not in args.unscoreable
-        results.append(r)
-
-    (work / "score" / "per-contig.json").write_text(json.dumps(results, indent=2))
+    per_contig = work / "score" / "per-contig.json"
+    if args.summary_only:
+        results = [r for r in json.loads(per_contig.read_text()) if r["contig"] in args.contigs]
+        for r in results:
+            r["scoreable"] = r["contig"] not in args.unscoreable
+    else:
+        results = []
+        for c in args.contigs:
+            print(f"[score] {c}", flush=True)
+            r = score_contig(work, c, args.sample, args.threads, args.truvari)
+            r["scoreable"] = c not in args.unscoreable
+            results.append(r)
+        per_contig.write_text(json.dumps(results, indent=2))
 
     # Genome-wide totals from summed counts. Averaging per-contig F1s would weight chr21 like
     # chr1; summing the counts is the only aggregation that means anything.
@@ -182,60 +184,31 @@ def main() -> None:
     # and went stale silently: re-scoring a new arm rewrites every table in this file while the
     # sentences above them keep quoting the arm before it, and the diff looks clean because only
     # the tables moved. Anything asserted in prose is derived here.
-    def sub(contigs, vtype):
-        tp = fp = fn = 0
-        for r in results:
-            if r["contig"] not in contigs:
-                continue
-            row = pick(r.get("aardvark"), "GT", vtype)
-            if row:
-                tp += int(row.get("truth_tp", 0) or 0)
-                fp += int(row.get("query_fp", 0) or 0)
-                fn += int(row.get("truth_fn", 0) or 0)
-        return tp, fp, fn
-
-    def sub_sv(rows, contigs):
-        tp = fp = fn = 0
-        for r in rows:
-            if r["contig"] not in contigs:
-                continue
-            t = r.get("truvari") or {}
-            tp += int(t.get("TP-base", 0) or 0)
-            fp += int(t.get("FP", 0) or 0)
-            fn += int(t.get("FN", 0) or 0)
-        return tp, fp, fn
-
     scored = [r["contig"] for r in results if r.get("scoreable", True)]
     autos = [c for c in scored if c in AUTOSOMES]
-    auto_all = f1(*sub(autos, "ALL"))
-    auto_sv = f1(*sub_sv(results, autos))
-    cur_all, cur_snv = f1(*sub(scored, "ALL")), f1(*sub(scored, "Snv"))
-    cur_sv = f1(*sub_sv(results, scored))
-    cur_snv_fn = sub(scored, "Snv")[2]
+    auto_all = bm.small(results, autos, "ALL").f1
+    auto_sv = bm.sv(results, autos).f1
+    cur_all, cur_snv = bm.small(results, scored, "ALL").f1, bm.small(results, scored, "Snv").f1
+    cur_sv = bm.sv(results, scored).f1
+    cur_snv_fn = bm.small(results, scored, "Snv").truth_fn
 
     # The --no-nested arm this run is compared against: a fixed historical call set, read from its
     # own score directory rather than re-derived. If it is not on disk the comparison sentence is
     # dropped rather than guessed at.
+    # PanGenie's figures, derived like every other one in the prose rather than typed in.
+    pg_json = Path(args.pangenie_score) / "per-contig.json"
+    pg_rows = json.loads(pg_json.read_text()) if pg_json.exists() else []
+    pg_all, pg_sv = bm.small(pg_rows, autos, "ALL").f1, bm.sv(pg_rows, autos).f1
+
     base_json = Path(args.baseline_score) / "per-contig.json"
     base_rows = json.loads(base_json.read_text()) if base_json.exists() else None
 
-    def base_small(vtype):
-        tp = fp = fn = 0
-        for r in base_rows:
-            if r["contig"] not in scored:
-                continue
-            row = pick(r.get("aardvark"), "GT", vtype)
-            if row:
-                tp += int(row.get("truth_tp", 0) or 0)
-                fp += int(row.get("query_fp", 0) or 0)
-                fn += int(row.get("truth_fn", 0) or 0)
-        return f1(tp, fp, fn), fn
-
     moved = []
     if base_rows:
-        b_snv, b_snv_fn = base_small("Snv")
-        b_all, _ = base_small("ALL")
-        b_sv = f1(*sub_sv(base_rows, scored))
+        b_snv = bm.small(base_rows, scored, "Snv").f1
+        b_snv_fn = bm.small(base_rows, scored, "Snv").truth_fn
+        b_all = bm.small(base_rows, scored, "ALL").f1
+        b_sv = bm.sv(base_rows, scored).f1
         moved = ["**Nested calling and phasing are the defaults** as of this run, which is why these",
                  f"numbers moved: SNV F1 {b_snv:.4f} -> {cur_snv:.4f}, ALL F1 {b_all:.4f} -> "
                  f"{cur_all:.4f}, SV F1 {b_sv:.4f} -> {cur_sv:.4f},",
@@ -279,8 +252,8 @@ def main() -> None:
              "",
              "**Compared against PanGenie on the same graph and reads**: see",
              "[pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on every",
-             f"small-variant class on both recall and precision (ALL F1 {auto_all:.4f} against 0.9505) and PanGenie is",
-             f"ahead on structural variants (0.5739 against {auto_sv:.4f}). What is inside that SV gap, and whether",
+             f"small-variant class on both recall and precision (ALL F1 {auto_all:.4f} against {pg_all:.4f}) and PanGenie is",
+             f"ahead on structural variants ({pg_sv:.4f} against {auto_sv:.4f}). What is inside that SV gap, and whether",
              "nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).",
              "",
              ] + mosaic + moved + [
@@ -299,41 +272,41 @@ def main() -> None:
     # JointIndel, not Indel: aardvark's plain Indel row is query-only (truth_total 0), so summing
     # it reports FPs against no truth at all and an F1 of nan. The tier-2 pages use the joint row
     # for the same reason.
+    # Recall is over truth records and precision over query records, so each side's TP is shown
+    # beside the count it is a rate against.
     for vtype, label in (("ALL", "ALL"), ("Snv", "SNV"), ("JointIndel", "Indel")):
-        tp = fp = fn = 0
-        for r in results:
-            if not r.get("scoreable", True):
-                continue
-            row = pick(r.get("aardvark"), "GT", vtype)
-            if row:
-                tp += int(row.get("truth_tp", 0) or 0)
-                fp += int(row.get("query_fp", 0) or 0)
-                fn += int(row.get("truth_fn", 0) or 0)
-        lines.append(f"- **{label}**: TP {tp:,}  FP {fp:,}  FN {fn:,}  "
-                     f"recall {tp/(tp+fn) if tp+fn else float('nan'):.4f}  "
-                     f"precision {tp/(tp+fp) if tp+fp else float('nan'):.4f}  "
-                     f"**F1 {f1(tp, fp, fn):.4f}**")
+        c = bm.small(results, scored, vtype)
+        lines.append(f"- **{label}**: truth TP {c.truth_tp:,}  FN {c.truth_fn:,}  "
+                     f"query TP {c.query_tp:,}  FP {c.query_fp:,}  "
+                     f"recall {c.recall:.4f}  precision {c.precision:.4f}  **F1 {c.f1:.4f}**")
 
     lines += ["", "## Structural variants (truvari, >=50 bp)", ""]
-    tp = fp = fn = 0
+    c = bm.sv(results, scored)
+    lines.append(f"- TP-base {c.truth_tp:,}  FN {c.truth_fn:,}  TP-comp {c.query_tp:,}  "
+                 f"FP {c.query_fp:,}  recall {c.recall:.4f}  precision {c.precision:.4f}  "
+                 f"**F1 {c.f1:.4f}**")
+
+    # Every per-contig figure must be the tool's own, or the sums above are summing something the
+    # tools did not count. Checked rather than read off, so a definition that drifts fails here.
     for r in results:
-        if not r.get("scoreable", True):
-            continue
-        s = r.get("truvari") or {}
-        tp += int(s.get("TP-base", 0) or 0)
-        fp += int(s.get("FP", 0) or 0)
-        fn += int(s.get("FN", 0) or 0)
-    lines.append(f"- TP {tp:,}  FP {fp:,}  FN {fn:,}  **F1 {f1(tp, fp, fn):.4f}**")
+        a = pick(r.get("aardvark"), "GT", "ALL")
+        checks = [("aardvark", bm.aardvark_counts(a).f1, float(a.get("metric_f1") or "nan"))] \
+            if a else []
+        t = r.get("truvari")
+        if t and isinstance(t.get("f1"), (int, float)):
+            checks.append(("truvari", bm.truvari_counts(t).f1, float(t["f1"])))
+        for tool, ours, theirs in checks:
+            if ours != theirs and not (ours != ours and theirs != theirs):
+                raise SystemExit(f"{r['contig']}: {tool} F1 {theirs!r} but its counts give "
+                                 f"{ours!r}; bench_metrics no longer matches the tool")
 
     lines += ["", "## Per contig", "",
               "| contig | small F1 | SV F1 | notes |", "|---|---|---|---|"]
     for r in results:
         a = pick(r.get("aardvark"), "GT", "ALL")
-        sm = "-"
-        if a:
-            sm = f"{f1(int(a.get('truth_tp',0) or 0), int(a.get('query_fp',0) or 0), int(a.get('truth_fn',0) or 0)):.4f}"
-        t = r.get("truvari") or {}
-        sv = f"{t['f1']:.4f}" if isinstance(t.get("f1"), (int, float)) else "-"
+        sm = f"{bm.aardvark_counts(a).f1:.4f}" if a else "-"
+        t = r.get("truvari")
+        sv = f"{bm.truvari_counts(t).f1:.4f}" if t else "-"
         notes = "; ".join(k for k in ("error", "aardvark_error", "truvari_error") if k in r)
         if not r.get("scoreable", True):
             notes = ("excluded: reference mismatch with truth" + ("; " + notes if notes else ""))

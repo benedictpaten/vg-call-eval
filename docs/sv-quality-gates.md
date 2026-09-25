@@ -2,7 +2,7 @@
 
 > **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
 > before genotypes were settled ahead of record construction. That change moved the whole-genome
-> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
+> autosomal numbers by ALL F1 +0.0026, Indel +0.0077, SV >=50 bp +0.011,
 > with both precision and recall improving in every class -- so the figures here understate the
 > current caller by roughly that much, and any *analysis* built on which calls were wrong may have
 > picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
@@ -30,14 +30,14 @@ Matched calls (TP-comp) **13,291**, unmatched (FP) **12,116**, truth SVs **23,62
 
 | gate | TP kept | FP kept | SV F1 |
 |---|---|---|---|
-| none | 13,291 | 12,116 | **0.5488** |
-| DR >= 0.3 | 11,869 | 8,457 | 0.5454 |
-| GQ >= 3 | 11,349 | 7,594 | 0.5387 |
-| DR >= 0.5 | 10,009 | 4,916 | 0.5235 |
-| GQ >= 10 | 9,650 | 4,845 | 0.5104 |
-| GQN >= 0.02 | 9,788 | 5,962 | 0.5026 |
-| GQN >= 0.05 | 8,806 | 4,688 | 0.4801 |
-| GQ >= 20 | 8,207 | 3,385 | 0.4695 |
+| none | 13,291 | 12,116 | **0.5466** |
+| DR >= 0.3 | 11,869 | 8,457 | 0.5440 |
+| GQ >= 3 | 11,349 | 7,594 | 0.5373 |
+| DR >= 0.5 | 10,009 | 4,916 | 0.5228 |
+| GQ >= 10 | 9,650 | 4,845 | 0.5097 |
+| GQN >= 0.02 | 9,788 | 5,962 | 0.5015 |
+| GQN >= 0.05 | 8,806 | 4,688 | 0.4792 |
+| GQ >= 20 | 8,207 | 3,385 | 0.4691 |
 
 ## The two false-positive populations
 
@@ -66,5 +66,5 @@ Excess 1,572 false positives, of which 1,028 (65%) are calls with no truth SV in
 80.1% of those are under 300 bp.
 
 
-Best gate 0.5454 against 0.5488 ungated, which reproduces truvari's own SV F1: no gate helps.
+Best gate 0.5440 against 0.5466 ungated, which reproduces truvari's own SV F1: no gate helps.
 

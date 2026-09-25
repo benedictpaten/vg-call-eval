@@ -35,10 +35,6 @@ ARMS = {
 }
 
 
-def f1(tp: int, fp: int, fn: int) -> float:
-    return 2 * tp / (2 * tp + fp + fn) if tp else 0.0
-
-
 def score(vcf: Path, truth_dir: Path, contig: str, out_dir: Path, sample: str,
           threads: int) -> dict | None:
     if not vcf.exists():
