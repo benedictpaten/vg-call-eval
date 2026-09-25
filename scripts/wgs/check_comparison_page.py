@@ -16,45 +16,26 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import bench_metrics as bm  # noqa: E402
+
 AUTOSOMES = {f"chr{i}" for i in range(1, 23)}
-
-
-def small(rows, vtype: str) -> float:
-    tp = fp = fn = 0
-    for r in rows:
-        if r["contig"] not in AUTOSOMES:
-            continue
-        for x in r.get("aardvark") or []:
-            if (x.get("comparison") == "GT" and x.get("region_label") == "ALL"
-                    and x.get("filter") == "ALL" and x.get("variant_type") == vtype):
-                tp += int(x.get("truth_tp", 0) or 0)
-                fp += int(x.get("query_fp", 0) or 0)
-                fn += int(x.get("truth_fn", 0) or 0)
-    return 2 * tp / (2 * tp + fp + fn) if tp else float("nan")
-
-
-def sv(rows) -> float:
-    tp = fp = fn = 0
-    for r in rows:
-        if r["contig"] not in AUTOSOMES:
-            continue
-        t = r.get("truvari") or {}
-        tp += int(t.get("TP-base", 0) or 0)
-        fp += int(t.get("FP", 0) or 0)
-        fn += int(t.get("FN", 0) or 0)
-    return 2 * tp / (2 * tp + fp + fn) if tp else float("nan")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--score", default="work/wgs-current/score/per-contig.json")
+    # The arm the page's headline tables are drawn from. The page also quotes older arms as
+    # history, so pointing this at one of those passes on a sentence rather than a table.
+    ap.add_argument("--score", default="work/wgs-mm095/score/per-contig.json")
     ap.add_argument("--page", default="docs/pangenie-comparison.md")
     args = ap.parse_args()
 
     rows = json.loads(Path(args.score).read_text())
     doc = Path(args.page).read_text()
-    want = (("ALL", small(rows, "ALL")), ("SNV", small(rows, "Snv")),
-            ("Indel", small(rows, "JointIndel")), ("SV >=50 bp", sv(rows)))
+    want = (("ALL", bm.small(rows, AUTOSOMES, "ALL").f1),
+            ("SNV", bm.small(rows, AUTOSOMES, "Snv").f1),
+            ("Indel", bm.small(rows, AUTOSOMES, "JointIndel").f1),
+            ("SV >=50 bp", bm.sv(rows, AUTOSOMES).f1))
     missing = [f"{name} {value:.4f}" for name, value in want if f"{value:.4f}" not in doc]
     for m in missing:
         print(f"  {args.page} does not quote {m}")

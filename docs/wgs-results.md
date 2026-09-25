@@ -1,31 +1,19 @@
 # Whole-genome results: HG002 against T2T-Q100
 
-> **Re-measured 2026-09-13** against `28f5b88e2`, the anchor-walk fix, 24 contigs in 80 min.
-> **Short reads are unchanged again, to four decimals in every class**: ALL 0.9726, SNV 0.9846,
-> Indel 0.9273, SV 0.5625 -> 0.5624. The counts move by tens out of 4.1M true positives
-> (indel FP -36, SNV FP +26, ALL FP -10). That is the expected reading: the bug mis-scored a
-> read that visits a node its allele lacks, and 150 bp reads rarely do. On ONT the same fix is
-> worth +0.0173 indel F1 on chr20 and +0.0146 on chr6. See
-> [indel-uncertainty.md](indel-uncertainty.md).
+> **Measured 2026-09-23** on vg `0cab3fbd4`: 24 contigs in 86.5 min, packed about two at a time.
+> Short reads, chr1-22+X: **ALL 0.9726, SNV 0.9844, Indel 0.9313, SV 0.5627**. Autosomes: ALL
+> 0.9729, SNV 0.9847, Indel 0.9315, SV 0.5643. `0cab3fbd4` changes one default, `--mismap-max`
+> 0.7 -> 0.95; the run passed `--mismap-max 0.95` to the build before it, and the two write a
+> byte-identical chr20 VCF. That step buys SV F1 +0.0021 on chr1-22+X (+0.0020 on the autosomes)
+> and leaves small variants unchanged within noise -- see *The mismap ceiling* below.
 >
-> ⚠️ **The long-read figures below predate that fix and are superseded.** They were produced by
-> the pre-fix caller, and the genome-wide long-read arm was not re-run. From chr20 and chr6,
-> expect ONT indel F1 about +0.015 to +0.017 higher than stated here, and higher again with
-> `--preset ont`, which now also sets `--insertion-nats 0.9` (a further +0.008 on chr20 and
-> +0.005 on chr6). Do not quote the long-read numbers below as current.
->
-> **Re-measured 2026-09-12** against `ae68ffd08` — 24 contigs in 61.4 min under the scheduler, then
-> scored per contig. **The short-read whole-genome result is unchanged**: ALL F1 0.9726 and SNV
-> 0.9846 to four decimals, Indel 0.9272 -> 0.9273, SV 0.5620 -> 0.5625. That is the intended
-> reading, not a null result — a long-read preset, read-backed phasing and phase-driven
-> re-genotyping all landed since the previous measurement, and every one of them is **off by default**
-> on short reads. This run is the check that they are.
->
-> **Whole-genome long reads are now measured too** — see below. Headline: ONT takes SV F1 from
-> 0.5643 to **0.5845**, past PanGenie's 0.5739, and loses 0.0939 of indel F1 doing it.
+> Earlier short-read measurements: 2026-09-13 (`28f5b88e2`, the anchor-walk fix), within 0.0002 of
+> the 2026-09-12 build in every class; 2026-09-12 (`ae68ffd08`), run to check that the long-read
+> preset, read phasing and phase-driven re-genotyping stay off by default on short reads.
 
-Called per contig on the 34-haplotype HPRC graph, `--read-likelihood` with panel
-enumeration, phasing and mosaic on. chrY haploid; chrX haploid outside the
+Called per contig on the 32-haplotype hap32 graph (34 panel haplotypes with the CHM13 and GRCh38
+paths), `--read-likelihood` with panel enumeration, phasing and mosaic on, at vg's defaults. Scored
+against T2T-Q100 v1.1 (GIAB defrabb V0.019 draft benchmark). chrY haploid; chrX haploid outside the
 pseudoautosomal regions and diploid inside them, in one run via --ploidy-bed.
 
 **chrY is called but excluded from every total below.** The graph's CHM13 chrY path
@@ -38,25 +26,26 @@ coordinate mismatch and not the caller. The calls remain in the VCF and the mosa
 
 **How to run this, and how long it takes**: [wgs-performance.md](wgs-performance.md).
 **Behaviour across coverage and ploidy**: [coverage.md](coverage.md).
+**The same 24 contigs on ONT**: *Whole-genome long reads*, at the end of this page.
 
 **Compared against PanGenie on the same graph and reads**: see
 [pangenie-comparison.md](pangenie-comparison.md). Briefly, on the autosomes vg is ahead on every
 small-variant class on both recall and precision (ALL F1 0.9729 against 0.9505) and PanGenie is
-ahead on structural variants (0.5739 against 0.5643). What is inside that SV gap, and whether
-nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).
+ahead on structural variants (0.5722 against 0.5643, a gap of 0.0079). What is inside that SV gap,
+and whether nested calling reached it: [sv-residual-errors.md](sv-residual-errors.md).
 
-**The mosaic** this run also emits: 180,858 segments over 5,037,872 sites, 14 MB.
-See wgs-performance.md for why assembling it is not `cat`.
+**The mosaic** is written per contig (`chr*.mosaic.tsv`). No genome-wide file has been assembled
+since the format moved to mosaic-version 5, which `concat_mosaic.sh` rejects; wgs-performance.md
+explains why assembling it is not `cat`.
 
 **Nested calling and phasing are the defaults**, and **decide-then-render** is how records are now
 built: a site's genotype is settled by the linkage barrier before its record exists, so nothing is
-patched after the fact. Cumulatively over the two changes: SNV F1 0.9752 -> 0.9846, ALL F1
-0.9626 -> 0.9725, SV F1 0.5134 -> 0.5577. `--no-nested` and `--no-phased` restore the older
-behaviour -- note `--no-phased` also disables nested calling, since a nested site's ploidy comes from
-its parent's phased genotype, so it is not a control for phasing alone. See
-[nested-calling-design.md](nested-calling-design.md).
+patched after the fact. `--no-nested` and `--no-phased` restore the older behaviour -- note
+`--no-phased` also disables nested calling, since a nested site's ploidy comes from its parent's
+phased genotype, so it is not a control for phasing alone. What each change bought when it landed is
+under *How we got here*. See [nested-calling-design.md](nested-calling-design.md).
 
-**One caveat that belongs with these numbers.** The gain is a rich-panel effect: on the
+**One caveat that belongs with these numbers.** Nested calling's gain is a rich-panel effect: on the
 4-haplotype tier-2 graphs nested calling is flat to 0.0005 *down* on ALL F1, because a
 small panel enumerates few of the long collapsing ALTs it exists to break up while the
 extra-records cost still applies. Parent/child ploidy incoherence, which cost 0.15% of
@@ -67,162 +56,224 @@ cannot, the chain is dropped rather than emitted at a ploidy its parent contradi
 coherence FILTERs this paragraph used to describe are gone: a record is built from the settled
 genotype, so a genotype naming an allele the record has no ALT for, and a record carrying a hom-ref
 genotype, are both impossible by construction rather than flagged. Both counts are zero on all 24
-contigs of this run, and they are asserted rather than reported.
+contigs of the 2026-09-23 run, and they are asserted rather than reported.
 
 ## Small variants (aardvark, GT)
 
-Current arm is **decide-then-render**: every site's genotype is settled before its record is built,
-so no record is patched after the fact. The arm it replaced is kept alongside because the whole
-comparison rests on it being the same binary, reads and scoring path.
+Records are built by **decide-then-render**, every site's genotype settled before its record is
+built, with block emission on by default. Totals are over chr1-22+X, with the autosomes alongside
+because the PanGenie and long-read comparisons are autosomal.
 
-| | block emission (current) | decide-then-render | previous (inline) |
-|---|---|---|---|
-| **ALL** | TP 4,127,291  FP 92,779  FN 139,528  recall 0.9673  precision 0.9780  **F1 0.9726** | F1 0.9726 | F1 0.9699 |
-| **SNV** | TP 3,305,130  FP 22,351  FN 81,057  recall 0.9761  precision 0.9933  **F1 0.9846** | F1 0.9846 | F1 0.9833 |
-| **Indel** | TP 822,161  FP 70,428  FN 58,471  recall 0.9336  precision 0.9211  **F1 0.9273** | F1 0.9272 | F1 0.9191 |
-| Insertion | recall 0.9228  precision 0.9122  **F1 0.9174** | F1 0.9179 | F1 0.9102 |
-| Deletion | recall 0.9443  precision 0.9370  **F1 0.9406** | F1 0.9409 | F1 0.9333 |
+**How these are scored.** Recall is over truth records and precision over calls, each with its own
+side's true-positive count, which is how aardvark computes its own F1. The two counts differ because
+one truth record can be matched by several calls and the reverse, so both are shown. A genome figure
+sums the four counts over contigs and then takes the rates; every per-contig rate is checked against
+aardvark's and truvari's own (`scripts/bench_metrics.py`, `tests/test_bench_metrics.py`).
 
-**Small variants are unmoved by block emission**: ALL +0.0001, SNV flat, Indel +0.0003, with
-insertions and deletions marginally down. The gain over inline is the earlier work's, not this one's.
-Against decide-then-render, the current arm recovers 1,064 more true small variants and adds 592
-false ones.
-
-The current arm carries two changes over decide-then-render: block emission became the default, and
-`resolve_site` stopped rejecting reversed snarls. The second is measured separately at 10 false
-positives removed on chr20 and essentially nothing on chr6, so it is a small part of the FP movement
-and none of the SV movement.
+| | chr1-22+X | autosomes |
+|---|---|---|
+| **ALL** | truth TP 4,125,379  FN 141,440  query TP 4,139,226  FP 91,106  recall 0.9669  precision 0.9785  **F1 0.9726** | F1 0.9729 |
+| **SNV** | truth TP 3,303,445  FN 82,742  query TP 3,218,808  FP 21,066  recall 0.9756  precision 0.9935  **F1 0.9844** | F1 0.9847 |
+| **Indel** | truth TP 821,934  FN 58,698  query TP 920,418  FP 70,040  recall 0.9333  precision 0.9293  **F1 0.9313** | F1 0.9315 |
+| Insertion | recall 0.9223  precision 0.9183  **F1 0.9203** | F1 0.9204 |
+| Deletion | recall 0.9442  precision 0.9411  **F1 0.9427** | F1 0.9427 |
 
 ## Structural variants (truvari, >=50 bp)
 
-| | block emission (current) | decide-then-render | previous (inline) |
-|---|---|---|---|
-| SV >= 50 bp | TP 14,452  FP 12,814  FN 9,665  **F1 0.5625** | F1 0.5620 | F1 0.5470 |
+| | chr1-22+X | autosomes |
+|---|---|---|
+| SV >= 50 bp | TP-base 14,406  FN 9,711  TP-comp 14,258  FP 12,553  recall 0.5973  precision 0.5318  **F1 0.5627** | TP-base 14,163  FN 9,458  TP-comp 14,015  FP 12,287  recall 0.5996  precision 0.5328  **F1 0.5643** |
 
-**This is where block emission pays, and it is the only place it does.** F1 0.5577 -> 0.5620,
-**+0.0043**, from 48 more true SVs and 266 fewer false ones -- so unlike the previous step's
-recall-only gain, this one improves both sides. Autosomes alone give 0.5596 -> 0.5642. The PanGenie
-gap quoted above narrows from 0.0143 to 0.0097.
+Against PanGenie the SV deficit is precision, not recall: on the autosomes vg matches more true SVs
+(TP-base 14,163 against 13,749) and makes more false ones (FP 12,287 against 10,544). Reported
+unrefined, because every other SV figure in this repository is unrefined and a refined number would
+compare to none of them.
 
-The per-contig spread is wide and worth knowing before quoting a single figure. Measured arm against
-arm on one binary, chr20 gives **+0.0099** and chr6 **+0.0017** -- a 6x range, and with opposite
-mechanisms: chr20 gained 11 true SVs at unchanged FP, chr6 removed 14 false ones and lost 2 true.
-The genome-wide +0.0043 is the aggregate over 22 autosomes and is the number to use; chr20's figure
-is the favourable tail, not the typical case.
+## The mismap ceiling: 0.7 to 0.95
 
-`truvari refine` puts the same two comparisons at +0.0233 and +0.0121, so the record-matching metric
-understates this change -- expected, since it penalises splitting one record into several and drops
-any resulting block under the 50 bp size floor. Reported unrefined regardless, because every other SV
-figure in this repository is unrefined and a refined number would compare to none of them.
+`--mismap-max` caps the mismapping probability a read's MAPQ implies. At 0.95 it binds only at
+MAPQ 0, 4.97% of chr20's short-read alignments (a 5x sample); at 0.7 it bound MAPQ 0 and 1, 7.11%.
+The two arms below are the same binary, reads and scoring, differing only in the ceiling.
+
+| 0.7 -> 0.95 | chr1-22+X: F1 change | net FN+FP | autosomes: F1 change | net FN+FP |
+|---|---|---|---|---|
+| ALL | +0.000015 | −205 | −0.000042 | +282 |
+| SNV | +0.000006 | −43 | −0.000055 | +349 |
+| Indel | +0.000057 | −162 | +0.000012 | −67 |
+| SV >= 50 bp | **+0.002073** | −239 | **+0.001951** | −222 |
+
+**Structural variants gain, in both scopes.** SV F1 +0.0021 on chr1-22+X (95% CI +0.0008 to
++0.0033, paired bootstrap over 1 Mb blocks) and +0.0020 on the autosomes; held out of chr20, the
+contig the ceiling was fitted on, it is +0.0020 again. The gain is precision: 274 fewer false SVs for
+35 fewer true ones on chr1-22+X. It is broad rather than one contig's: SV F1 rises on 17 of 23
+contigs and falls on chr1, chr8, chr9, chr13, chr15 and chr18.
+
+**Small variants are unchanged within noise.** ALL, SNV and Indel F1 each move by less than 0.0001,
+inside their bootstrap intervals (ALL −0.00023 to +0.00024 on chr1-22+X); deletions move by less
+than 0.0001 too, and insertions by +0.00013 on chr1-22+X. The sign depends on scope:
+on chr1-22+X net errors fall by 205, on the autosomes they rise by 282 (SNV +349). chrX is the
+difference -- its ALL F1 rises 0.0026 with the ceiling, the largest move of any contig.
+
+**Why 0.95 and not higher.** 0.99 was run on the same binary. Against 0.95 it costs small variants
+significantly (ALL −0.00009, 95% CI −0.00019 to −0.00001, chr1-22+X) and does not move SVs
+(−0.00016, n.s.).
 
 ## Per contig
 
-| contig | small F1 | SV F1 | small, previous | notes |
-|---|---|---|---|---|
-| chr1 | 0.9722 | 0.5871 | 0.9700 |  |
-| chr2 | 0.9705 | 0.5594 | 0.9665 |  |
-| chr3 | 0.9765 | 0.5994 | 0.9744 |  |
-| chr4 | 0.9763 | 0.5841 | 0.9745 |  |
-| chr5 | 0.9758 | 0.5528 | 0.9739 |  |
-| chr6 | 0.9773 | 0.5820 | 0.9750 |  |
-| chr7 | 0.9734 | 0.5235 | 0.9707 |  |
-| chr8 | 0.9761 | 0.5789 | 0.9742 |  |
-| chr9 | 0.9750 | 0.5748 | 0.9725 |  |
-| chr10 | 0.9647 | 0.5174 | 0.9624 |  |
-| chr11 | 0.9736 | 0.5756 | 0.9713 |  |
-| chr12 | 0.9745 | 0.5785 | 0.9724 |  |
-| chr13 | 0.9777 | 0.5571 | 0.9761 |  |
-| chr14 | 0.9745 | 0.5897 | 0.9726 |  |
-| chr15 | 0.9648 | 0.5580 | 0.9598 |  |
-| chr16 | 0.9635 | 0.5119 | 0.9581 |  |
-| chr17 | 0.9694 | 0.5364 | 0.9667 |  |
-| chr18 | 0.9757 | 0.5413 | 0.9737 |  |
-| chr19 | 0.9563 | 0.5472 | 0.9524 |  |
-| chr20 | 0.9722 | 0.5258 | 0.9700 |  |
-| chr21 | 0.9762 | 0.5561 | 0.9734 |  |
-| chr22 | 0.9710 | 0.5260 | 0.9676 |  |
-| chrX | 0.9567 | 0.4699 | 0.9494 | haploid outside PAR |
+chr1-22+X. Small F1 is aardvark ALL and SV F1 truvari >=50 bp, both four-count; the 0.7 columns are
+the same binary at the old ceiling.
 
+| contig | small F1 | SV F1 | small, 0.7 | SV, 0.7 | notes |
+|---|---|---|---|---|---|
+| chr1 | 0.9722 | 0.5869 | 0.9724 | 0.5871 |  |
+| chr2 | 0.9716 | 0.5671 | 0.9706 | 0.5647 |  |
+| chr3 | 0.9765 | 0.6004 | 0.9765 | 0.5985 |  |
+| chr4 | 0.9766 | 0.5923 | 0.9765 | 0.5922 |  |
+| chr5 | 0.9758 | 0.5557 | 0.9758 | 0.5556 |  |
+| chr6 | 0.9774 | 0.5860 | 0.9775 | 0.5834 | same records as the tier-2 short-read arm |
+| chr7 | 0.9733 | 0.5186 | 0.9733 | 0.5170 |  |
+| chr8 | 0.9761 | 0.5837 | 0.9762 | 0.5839 |  |
+| chr9 | 0.9750 | 0.5753 | 0.9750 | 0.5778 |  |
+| chr10 | 0.9647 | 0.5326 | 0.9644 | 0.5287 |  |
+| chr11 | 0.9717 | 0.5758 | 0.9734 | 0.5718 | largest small-variant drop with the ceiling |
+| chr12 | 0.9745 | 0.5881 | 0.9745 | 0.5823 |  |
+| chr13 | 0.9779 | 0.5686 | 0.9780 | 0.5689 |  |
+| chr14 | 0.9747 | 0.5941 | 0.9748 | 0.5932 |  |
+| chr15 | 0.9636 | 0.5638 | 0.9641 | 0.5666 |  |
+| chr16 | 0.9640 | 0.5139 | 0.9636 | 0.5083 |  |
+| chr17 | 0.9690 | 0.5390 | 0.9694 | 0.5339 |  |
+| chr18 | 0.9758 | 0.5420 | 0.9758 | 0.5430 |  |
+| chr19 | 0.9560 | 0.5501 | 0.9563 | 0.5469 |  |
+| chr20 | 0.9725 | 0.5365 | 0.9724 | 0.5321 | same records as the tier-2 short-read arm (112,207); the ceiling was fitted here |
+| chr21 | 0.9761 | 0.5638 | 0.9761 | 0.5612 |  |
+| chr22 | 0.9704 | 0.5375 | 0.9711 | 0.5317 |  |
+| chrX | 0.9609 | 0.4836 | 0.9583 | 0.4766 | haploid outside PAR; largest small-variant gain with the ceiling |
 
-## Whole-genome long reads — measured 2026-09-12
+## How we got here
 
-24 contigs of ONT against the same T2T-Q100 truth and the same confident regions as the short-read
-run above, on the **16-haplotype** `E821-16-sampled` graph (the short-read arm uses 34), with
-`--preset ont`. chrY called, excluded from the totals for the same coordinate reason.
+Dated records of the steps before the ceiling, each measured when it landed. Their deltas use the
+older single-TP F1 (one true-positive count for both rates), so they do not add to the four-count
+figures above; recomputed that way, a difference between any two short-read arms still on disk moves
+by at most 0.0004 for ALL, SNV and Indel and 0.0008 for insertions, deletions and SVs. The
+block-emission and decide-then-render arms are no longer on disk, and nothing here is recomputed
+against the current run. The inline arm that decide-then-render replaced (2026-08-20) scores,
+four-count on chr1-22+X: ALL 0.9699, SNV 0.9832, Indel 0.9231, insertions 0.9127, deletions 0.9352,
+SV 0.5448.
 
-| autosomes | short reads | ONT | delta |
+**Nested calling and decide-then-render (to 2026-08-23).** Cumulatively over the two changes,
+against the `--no-nested` arm: SNV F1 +0.0094, ALL F1 +0.0099, SV F1 +0.044.
+
+**Block emission (2026-08-24).** Small variants were unmoved: ALL +0.0001, SNV flat, Indel +0.0003,
+with insertions and deletions marginally down. The gain over inline is the earlier work's, not this
+one's. Against decide-then-render, block emission recovered 1,064 more true small variants and added
+592 false ones.
+
+The block-emission arm carried two changes over decide-then-render: block emission became the
+default, and `resolve_site` stopped rejecting reversed snarls. The second is measured separately at
+10 false positives removed on chr20 and essentially nothing on chr6, so it is a small part of the FP
+movement and none of the SV movement.
+
+SVs were where block emission paid, and the only place it did. F1 **+0.0043**, from 48 more true SVs
+and 266 fewer false ones -- so unlike the previous step's recall-only gain, it improved both sides.
+Autosomes alone gave +0.0046, and the PanGenie gap narrowed by the same amount.
+
+The per-contig spread was wide. Measured arm against arm on one binary, chr20 gave **+0.0099** and
+chr6 **+0.0017** -- a 6x range, and with opposite mechanisms: chr20 gained 11 true SVs at unchanged
+FP, chr6 removed 14 false ones and lost 2 true. The genome-wide +0.0043 is the number to use; chr20's
+figure is the favourable tail, not the typical case.
+
+`truvari refine` puts the same two comparisons at +0.0233 and +0.0121, so the record-matching metric
+understates this change -- expected, since it penalises splitting one record into several and drops
+any resulting block under the 50 bp size floor.
+
+## Whole-genome long reads
+
+> **Measured 2026-09-24** on the same build as the short-read run above (vg `0cab3fbd4`), with
+> `--preset ont`: 24 contigs, `work/wgs-ont`.
+>
+> **Superseded for indels by `--hp-prior`** (a stronger panel prior at homopolymer-run indels, which
+> `--preset ont` now sets; [ont-hp-prior.md](ont-hp-prior.md)). Genome-wide on chr1-22+X it takes ONT
+> indel F1 from 0.8684 to 0.8918 and ALL from 0.9591 to 0.9648, every autosome up, with SNVs and SVs
+> unchanged and no added cost. The indel gap to short reads narrows from 0.063 to 0.040.
+
+24 contigs of ONT (about 44x, from chr20's 43.1x and chr6's 45.4x) against the same T2T-Q100 truth and the same confident regions as the
+short-read run, on the **16-haplotype E821 graph** (18 panel haplotypes, `E821-16-sampled`) where
+the short-read arm uses the 32-haplotype hap32 graph (34 panel). chrY called, excluded from the
+totals for the same coordinate reason.
+
+| chr1-22+X | short reads | ONT | ONT − short, 95% CI |
 |---|---|---|---|
-| ALL F1 | **0.9729** | 0.9529 | −0.0201 |
-| SNV F1 | 0.9849 | **0.9852** | **+0.0003** |
-| Indel F1 | **0.9275** | 0.8337 | **−0.0939** |
-| SV ≥50 bp F1 | 0.5643 | **0.5845** | **+0.0203** |
+| ALL F1 | **0.9726** | 0.9591 | −0.0135 [−0.0142, −0.0127] |
+| SNV F1 | 0.9844 | **0.9853** | **+0.0009** [+0.0002, +0.0016] |
+| Indel F1 | **0.9313** | 0.8684 | **−0.0629** [−0.0641, −0.0617] |
+| SV ≥50 bp F1 | 0.5627 | **0.5820** | **+0.0193** [+0.0136, +0.0252] |
 
-Including chrX: ALL 0.9527, SNV 0.9851, Indel 0.8335, SV 0.5831.
+Paired 1 Mb block bootstrap, 10,000 replicates (`work/wgs-run/wgs_compare.py`). Autosomes alone:
+ONT ALL 0.9593, SNV 0.9854, Indel 0.8686, SV 0.5834, against 0.9729, 0.9847, 0.9315 and 0.5643. All
+four differences hold with chr20 and chr6, the contigs the preset was fitted and checked on, both
+left out: SNV +0.0009 [+0.0002, +0.0017], SV +0.0193 [+0.0132, +0.0255].
 
-**Two results and they point opposite ways, which is the whole finding.**
+**ONT wins SNVs and structural variants, and loses indels by enough to lose overall.**
 
-*Long reads win structural variants.* 0.5845 against 0.5643 — and against **PanGenie's 0.5739**,
-so the SV gap that PanGenie has led on since this comparison began is closed and reversed by
-changing the reads rather than the caller. On the autosomes it is **TP 14,930 against 14,209 and
-FN 8,691 against 9,412** — the gain is recall, 721 structural variants the short-read arm misses.
+*Structural variants*, +0.0193, are mostly recall. truvari matches 15,327 truth SVs against the
+short-read arm's 14,406, recall 0.6355 against 0.5973, at precision 0.5368 against 0.5318. ONT is
+ahead on 20 of the 23 scored contigs and significantly so on five alone (chr7, chr8, chr10, chr13,
+chr17); it trails on chr1, chr19 and chr21, none significantly. It is also ahead of **PanGenie**,
+0.5820 against 0.5701 (+0.0119 [+0.0058, +0.0181]), in the one class where PanGenie leads short-read
+vg; see [pangenie-comparison.md](pangenie-comparison.md).
 
-The autosomal false-positive counts are **both 12,533**, which looks like an aggregation bug and is
-not one: 21 of the 22 contigs differ (chr1 813 against 839, chr8 615 against 551) and the
-differences happen to cancel to exactly zero. Checked per contig before it was written down.
+*SNVs*, +0.0009, are a narrow but significant win: ONT at about 44x edges out Illumina at about 30x
+(both measured on chr20 and chr6) on the class Illumina is supposed to own, on a graph with about half
+the panel.
 
-*Long reads lose indels, badly.* −0.0939, driven by precision **0.8057 against 0.9215** on the
-autosomes the table above covers (0.8055 against 0.9211 once chrX is folded in). This is the
-same homopolymer weakness the tier-2 pages show at −0.09 on chr20 and chr6, and it does not wash
-out at genome scale.
+*Indels*, −0.0629, are ONT's loss: precision 0.8598 against 0.9293 and recall 0.8772 against 0.9333.
+This is the homopolymer weakness the tier-2 pages measure on chr20 and chr6, where the preset trails
+short reads by 0.066 and 0.059, holding at genome scale. Against the 2026-09-12 ONT build, indel F1
+is up 0.024 on the autosomes (0.8445 to 0.8686), most of it precision (0.8261 to 0.8600), so the gap
+to short reads has narrowed from 0.087 to 0.063. The other classes moved less: ALL 0.9531 to 0.9593,
+SNV 0.9851 to 0.9854, SV 0.5826 to 0.5834.
 
-*SNVs are a dead heat*, +0.0003, which is itself notable: 44x ONT matches 28.6x Illumina on the
-class Illumina is supposed to own, on a graph with half the panel.
+**The caveat.** The two arms use different graphs, because alignments are graph-specific and the ONT
+reads are aligned to E821. Panel size is what the linkage layer and the frequency prior feed on, so
+the ONT figures are a floor on what ONT does with this caller, not a like-for-like.
 
 ### What it cost
 
 | | short reads | ONT |
 |---|---|---|
-| CPU, 24 contigs | 8.80 h | **30.59 h** |
-| peak RSS, worst contig | 7.9 GB | 10.0 GB |
-| wall clock | 61.4 min (3 jobs, `-t 5`) | 3.55 h (2 jobs, `-t 5`) |
+| CPU, 24 contigs | 8.58 h | **14.31 h** |
+| peak RSS, worst contig | 10.0 GiB | 12.9 GiB (chrY); 9.0 GiB over the scored contigs (chr1) |
+| wall clock, calls | 86.5 min (packed about two at a time, `-t 5`) | 2.18 h (two at a time, `-t 5`) |
 
-**3.48x the CPU** for the same 24 contigs. Wall clock is not comparable between the two — different
-concurrency — which is why the table gives CPU seconds; `scripts/wgs/runtimes.py` recomputes both
-from the runs' own `/usr/bin/time -l` blocks.
+**1.67x the CPU** for the same 24 contigs, down from 3.48x at the 2026-09-12 build: ONT's own CPU
+fell from 30.59 h to 14.31 h while the short-read run's barely moved. chrY, which is not scored, is
+the outlier: 6.7x the short-read CPU and the run's peak memory. Wall clock is not comparable between
+the two runs, which is why the table leads with CPU; `scripts/wgs/runtimes.py` recomputes both from
+the runs' own `/usr/bin/time -l` blocks.
 
 ### How it was built, and the constraint that shaped it
 
-`gaf-base sort` is an external merge sort, and the whole 68.5 GB genome-wide GAF is roughly 480 GB
-sorted against 169 GB free — so it cannot be built in one pass. It was built **per contig**:
+`gaf-base sort` is an external merge sort, and the whole 63.8 GiB genome-wide GAF is far too large
+to sort in one pass on this laptop. It is built **per contig** (`work/run-ontg/ontg.py`):
 
-1. one pass over the 68.5 GB GAF splitting it 24 ways on the first node of each alignment's path,
-   compressed on the fly (writing plain text first would have filled the disk);
-2. `vg chunk --gbz` per contig off `E821-16-sampled.gbz`;
-3. 24 × `gaf-base sort --preset long | gaf-base construct`, 48 GB of databases, each contig's split
-   GAF deleted once its database landed;
-4. 24 calls, two at a time.
+1. one pass over the GAF (4,017,467 reads) splitting it on the first node of each alignment's path,
+   compressed on the fly with `gzip -1`. The 22 contigs not already built take 64.6 GiB, a little more
+   than the source because the split compresses less hard; chr20 and chr6 reuse their tier-2
+   databases;
+2. per contig, `gaf-base sort --preset long | gaf-base construct -r <the whole graph>`, deleting each
+   split once its database lands. The sort spills to anonymous files in `$TMPDIR`, on the same disk,
+   at about 2.4x the compressed split, and a database is about 0.7x its split. With ~21 GiB free after
+   the split, the builds run **one at a time, smallest first**, so each landed database frees space
+   before chr1 and chr2 (about 24 GiB each) come up. 22 builds took 50 minutes;
+3. 24 calls, two at a time.
 
-Node ranges come from each reference path's **first** node: a Minigraph-Cactus graph numbers each
-component contiguously, so that is the component minimum — checked against chr20's independently
-known range, 96,334,786 both ways.
+Node ranges are each graph chunk's minimum and maximum node ID, merged within a contig: chr13's small
+component chunks fall inside its main chunk's span, which is harmless because both name chr13. An
+overlap between two contigs would stop the build. 20,363 reads (0.5%) start on a node in no contig's
+range and are not used.
 
-**Two checks that the partition is right.** chr20 got 85,373 reads, exactly the count the
-hand-built chr20 database reported when it was made separately; and the chr20 call emitted 114,355
-records, exactly the tier-2 ONT figure. The genome-wide build reproduces the standalone contig
-results rather than approximating them.
-
-## Appendix: what a single-pass build would have taken
-
-Not measured, and the reason is disk rather than time. ONT alignments exist genome-wide —
-`data/alignments-combined.processed.gaf.gz`, 68.5 GB, 4,017,467 reads against the 16-haplotype
-`E821-16-sampled.gbz` — but `gaf-base sort` is an external merge sort and the whole file is roughly
-**480 GB sorted, against 169 GB free**. That is why chr20 and chr6 were each filtered to their own
-component first and built separately, and it is the only way this machine can do it.
-
-So a whole-genome long-read run needs a **per-contig build**: one pass over the 68.5 GB GAF
-splitting it 24 ways on the first node of each alignment's path (exact here — a Minigraph-Cactus
-graph numbers each component contiguously), then 24 `gaf-base sort | construct` pairs, then the
-calls. Rough cost: a few hours for the split, and the final databases total roughly 47 GB by
-extrapolation from chr20's 1.0 GB for 85,373 reads.
-
-Until then the long-read evidence is two contigs, chr20 and chr6, and both are in the tier-2 pages.
+**The partition check is the read count.** chr20 got 85,373 reads from the split, the same count as
+its separately built tier-2 database, and each of the 22 rebuilt databases holds exactly the reads
+its split was given. The genome run's chr20 VCF is also byte-identical to the tier-2 ONT arm
+(`o20base`, 114,861 records), but chr20 reuses the tier-2 database, so that confirms the binary and
+settings rather than the partition.

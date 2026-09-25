@@ -1,5 +1,15 @@
 # The depth term: predicted offline, built, and now the default
 
+> **A record of the 2026-08-09..10 builds.** Stage 0, Stage 1 and the refresh that made
+> `--depth-term 0.1` the default all ran on the capped caller of those dates, at `--mismap-min 0.02`
+> (the refresh at `--mismap-max 0.7`), before decide-then-render, the read-walk fix, the snarl cap
+> coming off under `--read-likelihood` and `--mismap-max` 0.95. The formulation below is still the
+> model and `--depth-term 0.1` is still the default; the numbers are the evidence for it, not
+> today's accuracy. `readlik` SV F1 on the 32-haplotype hap32 graph (34 panel haplotypes with the
+> CHM13 and GRCh38 paths) is now 0.5365 on chr20 (`work/tier2-chr20-hap32/results/truvari-c20mm095s`)
+> and 0.5860 on chr6 (`work/tier2-chr6-hap32/results/truvari-c6mm095s`); whole genome in
+> [wgs-results.md](wgs-results.md), depth titrations in [coverage.md](coverage.md).
+
 *This page grew from a Stage 0 prediction into the record of a shipped default. The
 prediction is kept below, unedited, because it is worth knowing which parts of it held —
 it called the size of the gain and split the problem correctly, and it was wrong about
@@ -287,21 +297,24 @@ wrong formula, which is exactly what happened.
 
 Stage 0 ruled out a within-site control and recommended a coarse pre-pass. The
 implementation does something cheaper that was available all along: `WindowedSiteReadSource`
-already fetches and caches a **4096-node window** around each site to answer the site's own
-query, which is thousands of times wider than a snarl. Asking it for the window is a cache
-hit. The per-window rate is memoised, so counting a window's reads happens once per window
+already fetches and caches a node window around each site to answer the site's own query
+(4096 nodes when this was built), which is thousands of times wider than a snarl. Asking it
+for the window is a cache hit. The per-window rate is memoised, so counting a window's reads happens once per window
 rather than once per site — without that the diagnostic would cost more than the
 genotyping. Measured cost: **111 s against a 120–170 s baseline**, i.e. inside the noise.
 
 No pre-pass, no pack, no extra I/O.
 
-The window width is **saturated at the 4096 default**. Varying it (through `--read-window`,
+The window width was **saturated at the then-default 4096**. Varying it (through `--read-window`,
 because the width comes from the read source's own fetch window and every tier-2 run has one)
 gives SV F1 0.4961 / 0.4998 / 0.5008 at 1024 / 4096 / 16384 on
 chr20-4hap. A 1024-node window is roughly 30 kb, narrow enough that the rate's variance
 shows; by 4096 the estimate has converged and widening buys one record. The measurement is
 confounded — `--read-window` also sets fetch and cache granularity — but the confound runs
 against the conclusion, since the wider window costs more per fetch and scored no better.
+
+The current GAF-Base default is **16384** (`DEFAULT_GAF_BASE_WINDOW` in `call_main.cpp`), the top
+of the range above. It is set by long-read fetch cost; short reads sit on the same plateau.
 
 ## λ counts the interior of a traversal, not the whole of it
 
@@ -422,6 +435,10 @@ width saturates, no indexed source ever reaches the fallback, and a knob nobody 
 worse than no knob.
 
 ## Still open
+
+The last two items were resolved the same day: [tier2-parameters.md](tier2-parameters.md)
+(*Re-searching again, after λ was corrected*, `depth_grid.py`, 2026-08-10) searched `w_d` and the
+floor together, chose `w_d` 0.1 and kept the floor at 0.02.
 
 - **On by default at `w_d = 0.1`.** The full five-arm refresh is what settled it: structural
   variant F1 rises on 4 of 4 datasets for `readlik` (+0.0067 to +0.0108) and 3 of 4 for

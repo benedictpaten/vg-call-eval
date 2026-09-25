@@ -1,5 +1,24 @@
 # Tier 2 results: HG002 chr6 on HPRC v2.1 MC CHM13, 4-haplotype graph
 
+> **A record of the 2026-08-24 build, not the current caller.** Every vg figure below is vg
+> `v1.4.0-18654-g648296d56` (2026-08-24; CPU column added 2026-08-25), with the read arms at
+> `--mismap-max 0.7` and the 10,000-edge snarl cap on every caller; "current defaults" in the tables
+> means the defaults of that day. Since then: the nested-calling fixes and read-fetch performance
+> work, the read-walk fix (vg `28f5b88e2`, 2026-09-13), the snarl cap coming off under
+> `--read-likelihood` (`f33b20367`, 2026-09-22) and `--mismap-max` 0.95 (`0cab3fbd4`, 2026-09-23).
+> The chr20 table under *Known bad output* predates `readlik` genotyping large snarls, and the
+> pile-ups have not gone: on the current binary, on the 32-haplotype hap32 graph (34 panel
+> haplotypes with the CHM13 and GRCh38 paths), `readlik` calls 15 insertion alleles of 10 kb or more
+> on chr6, with median DP 2,935 against a chromosome median of 29, and 8 of the 9 inside the SV
+> confident region are false positives (`work/run-docs/analysis/tier2-extras/giant_ins_c6mm095.tsv`);
+> on chr20 they reach 165,108 bp. The 4-haplotype read and graph databases (`work/reads.gaf.db`,
+> `work/graph.gbz.db`) are gone, so a refresh starts with a rebuild. Do not regenerate the page from the cached `work/tier2-chr6/results`:
+> `report.py` reads the clamp defaults off today's binary and would label these 0.7 arms 0.95. The
+> unheaded "Kept for continuity" paragraph after the truvari table is a generator leftover; no
+> aardvark-SV arms exist for chr6. Current numbers: [tier2-chr6-results.md](tier2-chr6-results.md)
+> (34-haplotype), [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md),
+> [coverage.md](coverage.md).
+
 Real reads, real benchmark, run on a 32 GB laptop.
 
 This is the **4-haplotype** graph: CHM13, GRCh38 and 2 recombinants. It is kept as a thin-panel reference rather than the headline configuration -- the caller is tuned on the 34-haplotype graph, whose page is [tier2-chr6-results.md](tier2-chr6-results.md). The two are compared directly in [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md).
@@ -13,7 +32,7 @@ This is the **4-haplotype** graph: CHM13, GRCh38 and 2 recombinants. It is kept 
 | regions | small variants 167.2 Mb; SVs 168.4 Mb |
 | engine | `aardvark compare` for small variants; `truvari bench --sizemin 50` for SVs |
 
-**All read-likelihood arms below run at the current clamp defaults, `--mismap-min 0.02` and `--mismap-max 0.7`.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap down from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
+**All read-likelihood arms below ran at the clamp defaults of 2026-08-24, `--mismap-min 0.02` and `--mismap-max 0.7`; the cap default is now 0.95.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap raised from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
 
 **Read the caveats before the numbers.** The benchmark is a *draft*: its own README reports known errors in highly homozygous regions, homopolymers and tandem repeats, and excludes VDJ and TSPY2. Absolute values are benchmark-relative; the arm-to-arm comparison is what this table is for.
 
@@ -156,7 +175,7 @@ Kept for continuity. These categories are scored against the small-variant truth
 
 MAPQ measures confidence that a read is in the right *place*, not that its path through a given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats from one read** at the old floor of 1e-8. The floor caps that veto; the current default is **0.02**.
 
-The *upper* clamp (`--mismap-max`) looks inert on this graph, because it binds only where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. **That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising it removed 94% of the excess false-positive SNVs, and the default is now **0.7**. A clamp that is inert on a sparse graph is not thereby harmless.
+The *upper* clamp (`--mismap-max`) looks inert on this graph, because it binds only where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. **That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% of reads at those sites sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising it to 0.5 removed 94% of the excess false-positive SNVs; the default was **0.7** when these arms ran and is **0.95** now. A clamp that is inert on a sparse graph is not thereby harmless.
 
 The two graphs are put side by side in [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md); the grids are in plan §9.20.
 
@@ -164,7 +183,7 @@ The two graphs are put side by side in [tier2-chr6-graph-comparison.md](tier2-ch
 |---|---|---|---|---|---|
 | **floor 0.02, cap 0.7 (current defaults)** | 0.9575 | 0.9809 | 0.8482 | 0.8904 | 0.9442 |
 
-Only the current row is available here: the preserved old-default arms (`arms.floor-1e-8.json`, `arms.readlik.json`) exist for the 4-haplotype runs alone, so the before-and-after is on [tier2-chr6-4hap-results.md](tier2-chr6-4hap-results.md). Mixing rows from two graphs into one table is exactly what the one-build-per-matrix rule forbids. The full grids are in plan §9.20-§9.21.
+Only the current row is available here: the preserved old-default arms (`arms.floor-1e-8.json`, `arms.readlik.json`) exist for the chr20 4-haplotype run alone, so the before-and-after is on [tier2-chr20-4hap-results.md](tier2-chr20-4hap-results.md). Mixing rows from two datasets into one table is exactly what the one-build-per-matrix rule forbids. The full grids are in plan §9.20-§9.21.
 
 The floor was later re-swept at the corrected cap, on both graphs and both benchmarks, and settled at **0.02**. 0.05 wins on small-variant `GT` but costs about 0.01 of SV F1 — which the first sweep never saw, because it was scored on one benchmark only. Plan §9.21 records that as a process rule: a sweep that sets a default has to be scored on every benchmark the project runs.
 

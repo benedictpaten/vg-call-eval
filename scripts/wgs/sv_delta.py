@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Localise the structural-variant gap between vg call and PanGenie.
 
-PanGenie leads SV F1 on the autosomes with both more true calls and fewer false ones. That is a
-summary, not a diagnosis, and a difference spread evenly over 24k variants would call for different
+PanGenie leads SV F1 on the autosomes. That is a summary, not a diagnosis, and a difference spread evenly over 24k variants would call for different
 work than one concentrated in a size band or a repeat class.
 
 Both call sets were scored by the same truvari invocations against byte-identical truth, so the
@@ -33,8 +32,12 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import bench_metrics as bm  # noqa: E402
 
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
 
@@ -51,10 +54,6 @@ def band(n: int) -> str:
     return "?"
 
 
-def f1(tp: int, fp: int, fn: int) -> float:
-    return 2 * tp / (2 * tp + fp + fn) if tp else float("nan")
-
-
 def query(path: Path, fmt: str) -> list[list[str]]:
     """bcftools query, or an empty list if the file is missing or empty."""
     if not path.exists():
@@ -68,7 +67,7 @@ def query(path: Path, fmt: str) -> list[list[str]]:
 
 # Truth-side records carry the annotations we profile on; the call side carries only what the caller
 # emitted, so FP profiling uses size and type alone.
-TRUTH_FMT = ("%CHROM\t%POS\t%INFO/SVTYPE\t%INFO/SVLEN\t[%GT]\t%INFO/GTMatch"
+TRUTH_FMT = ("%CHROM\t%POS\t%REF\t%ALT\t%INFO/SVTYPE\t%INFO/SVLEN\t[%GT]\t%INFO/GTMatch"
              "\t%INFO/TRF\t%INFO/LCR\n")
 # Neither call set annotates SVTYPE/SVLEN -- both are sequence-resolved -- so the call side is
 # classified from allele lengths, the same way truvari infers them.
@@ -78,14 +77,14 @@ CALL_FMT = "%CHROM\t%POS\t%REF\t%ALT\n"
 def load_truth(score_dir: Path, contig: str, which: str) -> tuple[dict, int]:
     """(key -> record, raw row count) for one of fn / tp-base.
 
-    The row count is returned separately because a truth variant can appear on more than one row --
-    truvari emits a row per match, so a multi-matched variant is repeated -- and the dict collapses
-    those. Set arithmetic needs the dict; the headline totals need the rows, and reporting the dict
-    size as a TP count would silently undercount against the published figures.
+    A truth variant is keyed on (CHROM, POS, REF, ALT). POS, type and length are not an identity: the
+    two alleles of a compound het can share all three, and keying on them merged 146 of vg's TP rows
+    and 28 of its FN rows into their neighbours. The row count is still returned separately, so a
+    genuinely repeated record would show up as rows exceeding the dict rather than vanish.
     """
     rows = query(score_dir / f"{contig}.truvari" / f"{which}.vcf.gz", TRUTH_FMT)
     recs = {}
-    for chrom, pos, svtype, svlen, gt, gtmatch, trf, lcr in rows:
+    for chrom, pos, ref, alt, svtype, svlen, gt, gtmatch, trf, lcr in rows:
         try:
             n = abs(int(svlen))
         except ValueError:
@@ -94,7 +93,7 @@ def load_truth(score_dir: Path, contig: str, which: str) -> tuple[dict, int]:
             lcr_hi = float(lcr) >= 0.9
         except ValueError:
             lcr_hi = False
-        recs[f"{chrom}:{pos}:{svtype}:{svlen}"] = {
+        recs[(chrom, pos, ref, alt)] = {
             "chrom": chrom, "type": svtype, "len": n, "band": band(n),
             # A truth genotype with two distinct alleles is heterozygous. The separator varies.
             "het": len({a for a in gt.replace("|", "/").split("/") if a != "."}) > 1,
@@ -104,6 +103,13 @@ def load_truth(score_dir: Path, contig: str, which: str) -> tuple[dict, int]:
             "lcr": lcr_hi,
         }
     return recs, len(rows)
+
+
+def load_comp(score_dir: Path, contig: str) -> tuple[int, int]:
+    """(tp-comp rows, of which genotype-matched). Precision is over calls, so it needs the call
+    side's own TP count; the truth side's tp-base count is a different number."""
+    rows = query(score_dir / f"{contig}.truvari" / "tp-comp.vcf.gz", "%INFO/GTMatch\n")
+    return len(rows), sum(1 for (g,) in rows if g == "0")
 
 
 def classify(ref: str, alt: str) -> tuple[str, int]:
@@ -140,7 +146,7 @@ def pct(a: int, b: int) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--vg", default="work/wgs-current/score")
+    ap.add_argument("--vg", default="work/wgs-mm095/score")
     ap.add_argument("--pg", default="work/pangenie/score")
     ap.add_argument("--out", default="docs/sv-delta.md")
     args = ap.parse_args()
@@ -154,6 +160,12 @@ def main() -> None:
             r, n = load_truth(d, c, "fn"); dest.update(r); rows[tag] += n
         for tag, dest, d in (("vg_tp", vg_tp, vgd), ("pg_tp", pg_tp, pgd)):
             r, n = load_truth(d, c, "tp-base"); dest.update(r); rows[tag] += n
+        for tag, d in (("vg", vgd), ("pg", pgd)):
+            n, ok = load_comp(d, c)
+            rows[f"{tag}_tpc"] += n
+            rows[f"{tag}_tpc_gt"] += ok
+            rows[f"{tag}_tp_gt"] += sum(1 for r in query(d / f"{c}.truvari" / "tp-base.vcf.gz",
+                                                         "%INFO/GTMatch\n") if r == ["0"])
         vg_fp += load_calls(vgd, c)
         pg_fp += load_calls(pgd, c)
 
@@ -165,24 +177,35 @@ def main() -> None:
     add = L.append
     add("# Where the structural-variant gap against PanGenie actually is")
     add("")
-    add("Generated by `scripts/wgs/sv_delta.py`. Autosomes only, SVs >=50 bp, truth T2T-Q100.")
+    add(f"Generated by `scripts/wgs/sv_delta.py` from `{args.vg}` and `{args.pg}`. Autosomes only, SVs")
+    add("of 50 bp up to truvari's default 50 kb size cap, truth T2T-Q100 v1.1 (GIAB defrabb V0.019")
+    add("draft benchmark). The `10000+` size band therefore ends below 50 kb.")
     add("")
     add("## The gap as truvari scores it")
     add("")
-    add("| | TP | FP | FN | F1 |")
-    add("|---|---|---|---|---|")
-    for name, tp, fp, fn in (("vg call", rows["vg_tp"], len(vg_fp), rows["vg_fn"]),
-                             ("PanGenie", rows["pg_tp"], len(pg_fp), rows["pg_fn"])):
-        add(f"| {name} | {tp:,} | {fp:,} | {fn:,} | **{f1(tp, fp, fn):.4f}** |")
+    add("| | TP-base | FN | TP-comp | FP | F1 |")
+    add("|---|---|---|---|---|---|")
+    for name, t in (("vg call", "vg"), ("PanGenie", "pg")):
+        fp = len(vg_fp if t == "vg" else pg_fp)
+        c = bm.Counts(rows[f"{t}_tp"], rows[f"{t}_fn"], rows[f"{t}_tpc"], fp)
+        add(f"| {name} | {c.truth_tp:,} | {c.truth_fn:,} | {c.query_tp:,} | {fp:,} | "
+            f"**{c.f1:.4f}** |")
     add("")
-    add(f"Distinct truth variants behind those TP rows: {len(vg_tp):,} for vg and {len(pg_tp):,} for")
-    add("PanGenie -- truvari emits a row per match, so a multi-matched variant repeats. The set")
-    add("arithmetic below is over distinct variants; the totals above are rows, to stay comparable")
-    add("with the published figures.")
+    add("Recall is over truth records (TP-base, FN) and precision over calls (TP-comp, FP), as")
+    add("truvari's own F1 is; one call can match several truth records and the reverse.")
+    add("")
+    if len(vg_tp) == rows["vg_tp"] and len(pg_tp) == rows["pg_tp"] and \
+            len(vg_fn) == rows["vg_fn"] and len(pg_fn) == rows["pg_fn"]:
+        add("Every truth row is a distinct variant keyed on (CHROM, POS, REF, ALT), so the set")
+        add("arithmetic below counts the same things as the totals above.")
+    else:
+        add(f"Distinct truth variants behind those TP rows: {len(vg_tp):,} for vg and {len(pg_tp):,} for")
+        add("PanGenie, keyed on (CHROM, POS, REF, ALT). The set arithmetic below is over distinct")
+        add("variants; the totals above are rows, to stay comparable with the published figures.")
     add("")
 
     # --- 1. where the recall gap lives -------------------------------------------------------
-    add("## 1. The recall gap, and the part of it that is actionable")
+    add("## 1. The misses, and the part of them that is actionable")
     add("")
     add(f"- missed by **both**: {len(both):,} ({pct(len(both), len(set(vg_fn) | set(pg_fn)))} of all missed)")
     add(f"- **vg only** (PanGenie found it, so the panel carried the allele): {len(vg_only):,}")
@@ -193,7 +216,7 @@ def main() -> None:
     add("")
     add("### vg-only misses by type, size and zygosity")
     add("")
-    add("| type | size | truth zygosity | vg-only FN | PanGenie-only FN | net to vg |")
+    add("| type | size | truth zygosity | vg-only FN | PanGenie-only FN | vg behind by |")
     add("|---|---|---|---|---|---|")
     keys = defaultdict(lambda: [0, 0])
     for k in vg_only:
@@ -205,10 +228,11 @@ def main() -> None:
     for (t, b, z), (v, p) in sorted(keys.items(), key=lambda kv: kv[1][0] - kv[1][1], reverse=True):
         if v + p < 20:
             continue
-        add(f"| {t} | {b} | {z} | {v:,} | {p:,} | {p - v:+,} |")
+        add(f"| {t} | {b} | {z} | {v:,} | {p:,} | {v - p:+,} |")
     add("")
-    add("Rows with fewer than 20 variants on both sides are omitted; `net to vg` is what vg would")
-    add("gain by matching PanGenie in that cell, so negative means vg is already ahead there.")
+    add("Rows whose two sides sum to fewer than 20 are omitted. `vg behind by` is vg-only minus")
+    add("PanGenie-only misses: the net truth variants vg would gain by matching PanGenie in that cell.")
+    add("Negative means vg is already ahead there. Rows run from where vg is furthest behind.")
     add("")
 
     # --- 2. genotype-aware -------------------------------------------------------------------
@@ -221,12 +245,15 @@ def main() -> None:
     add("")
     add("| | TP (locus match) | of those, GT correct | TP (GT required) | F1 (GT required) |")
     add("|---|---|---|---|---|")
-    for name, tp, fp, fn in (("vg call", vg_tp, len(vg_fp), rows["vg_fn"]),
-                             ("PanGenie", pg_tp, len(pg_fp), rows["pg_fn"])):
+    for name, t, tp, fp in (("vg call", "vg", vg_tp, len(vg_fp)),
+                            ("PanGenie", "pg", pg_tp, len(pg_fp))):
         ok = sum(1 for r in tp.values() if r["gt_ok"])
-        wrong = len(tp) - ok
-        add(f"| {name} | {len(tp):,} | {ok:,} ({pct(ok, len(tp))}) | {ok:,} | "
-            f"**{f1(ok, fp + wrong, fn + wrong):.4f}** |")
+        # Rows, not distinct variants, so the ungated rates are the table's above. A matched pair
+        # whose genotypes disagree moves to FN on the truth side and to FP on the call side.
+        tb, tc = rows[f"{t}_tp"], rows[f"{t}_tpc"]
+        tb_ok, tc_ok = rows[f"{t}_tp_gt"], rows[f"{t}_tpc_gt"]
+        c = bm.Counts(tb_ok, rows[f"{t}_fn"] + tb - tb_ok, tc_ok, fp + tc - tc_ok)
+        add(f"| {name} | {len(tp):,} | {ok:,} ({pct(ok, len(tp))}) | {ok:,} | **{c.f1:.4f}** |")
     add("")
     add("A locus-matched call with the wrong genotype is counted as both a false positive and a")
     add("false negative under the stricter rule, which is what a genotyper getting the copy number")
@@ -269,6 +296,8 @@ def main() -> None:
             continue
         add(f"| {t} | {b} | {v:,} | {p:,} | {v - p:+,} |")
     add("")
+    add("Rows whose two sides sum to fewer than 20 are omitted, so the rows do not add up to the totals.")
+    add("")
 
     # The excess is dominated by one type, so split it out and rescore without it. This is the
     # single most load-bearing number in the comparison, because it decides whether vg's
@@ -289,8 +318,7 @@ def main() -> None:
     # round is how a stale conclusion survives a rerun.
     add("Same-length substitutions -- REF and ALT of equal length -- are a representation artefact "
         "rather than an evidence one: truvari sizes such a record by its allele length and so scores "
-        "it as structural. vg's output is multiallelic and carries them; PanGenie's biallelic-split "
-        "output essentially does not.")
+        "it as structural. vg's output carries them and PanGenie's essentially does not.")
     add("")
     if vind <= pind:
         add(f"**On genuine insertions and deletions vg emits {pind - vind:,} fewer false positives "
@@ -304,16 +332,28 @@ def main() -> None:
     add("")
     add("Rescoring with substitutions excluded from both sides:")
     add("")
-    add("| | TP | FP | FN | F1 |")
-    add("|---|---|---|---|---|")
-    vgf = f1(rows["vg_tp"], vind, rows["vg_fn"])
-    pgf = f1(rows["pg_tp"], pind, rows["pg_fn"])
-    add(f"| vg call | {rows['vg_tp']:,} | {vind:,} | {rows['vg_fn']:,} | **{vgf:.4f}** |")
-    add(f"| PanGenie | {rows['pg_tp']:,} | {pind:,} | {rows['pg_fn']:,} | **{pgf:.4f}** |")
+    add("| | TP-base | FN | TP-comp | FP | F1 |")
+    add("|---|---|---|---|---|---|")
+
+    def score(t, fp):
+        return bm.Counts(rows[f"{t}_tp"], rows[f"{t}_fn"], rows[f"{t}_tpc"], fp).f1
+
+    vgf, pgf = score("vg", vind), score("pg", pind)
+    for name, t, fp, f in (("vg call", "vg", vind, vgf), ("PanGenie", "pg", pind, pgf)):
+        add(f"| {name} | {rows[t + '_tp']:,} | {rows[t + '_fn']:,} | {rows[t + '_tpc']:,} | "
+            f"{fp:,} | **{f:.4f}** |")
     add("")
-    full_gap = f1(rows["pg_tp"], len(pg_fp), rows["pg_fn"]) - f1(rows["vg_tp"], len(vg_fp), rows["vg_fn"])
+    full_gap = score("pg", len(pg_fp)) - score("vg", len(vg_fp))
     add(f"The gap falls from {full_gap:.4f} to {pgf - vgf:.4f}, so **{100 * (1 - (pgf - vgf) / full_gap):.0f}% "
-        "of the headline SV F1 gap is this one representation artefact** and the rest is recall.")
+        "of the headline SV F1 gap is this one representation artefact**.")
+    add("")
+    # Which side the remainder is on has to be derived: it was recall once, and it is not now.
+    rec = {t: rows[f"{t}_tp"] / (rows[f"{t}_tp"] + rows[f"{t}_fn"]) for t in ("vg", "pg")}
+    prec = {"vg": rows["vg_tpc"] / (rows["vg_tpc"] + vind), "pg": rows["pg_tpc"] / (rows["pg_tpc"] + pind)}
+    behind = [m for m, d in (("recall", rec), ("precision", prec)) if d["vg"] < d["pg"]]
+    what = {0: "vg is ahead on both", 1: f"the rest is {behind[0]}", 2: "vg is behind on both"}[len(behind)]
+    add(f"With the substitutions excluded, {what}: vg's recall is {rec['vg']:.4f} against PanGenie's "
+        f"{rec['pg']:.4f}, and its precision {prec['vg']:.4f} against {prec['pg']:.4f}.")
     add("")
 
     Path(args.out).write_text("\n".join(L) + "\n")

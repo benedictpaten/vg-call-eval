@@ -3,14 +3,23 @@
 Tier-0 only. Simulated reads mapped back to the graph they were simulated from, so absolute numbers
 are optimistic; these are caller-vs-caller comparisons. See [simulation.md](simulation.md).
 
-> **Superseded for anything but method.** Tier 2 runs real HG002 reads against the GIAB draft
-> benchmark on two chromosomes and two graphs, and reverses this page's headline conclusion. Go to
+> **Superseded for anything but method.** This is the 2026-08-02 tier-0 caller: mismap cap
+> hardcoded at 0.1, flat mixture, no depth term, linkage or phasing. Tier 2 runs real HG002 reads
+> against the GIAB draft benchmark on two chromosomes and two graphs, and reverses this page's
+> headline conclusion. Go to [wgs-results.md](wgs-results.md) for whole-genome accuracy,
+> [pangenie-comparison.md](pangenie-comparison.md) for the comparison against PanGenie,
 > [tier2-chr20-results.md](tier2-chr20-results.md) and [tier2-chr6-results.md](tier2-chr6-results.md)
-> for the accuracy numbers, [tier2-chr20-graph-comparison.md](tier2-chr20-graph-comparison.md) and
+> for the per-chromosome numbers, [coverage.md](coverage.md) for accuracy against depth,
+> [tier2-chr20-graph-comparison.md](tier2-chr20-graph-comparison.md) and
 > [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md) for the graph comparison, and
 > [tier2-quality-signals.md](tier2-quality-signals.md) for how calls are ranked. This page is kept
 > because the *method* lessons below still hold — the saturation table, the five-seed rule, and the
 > two retracted claims.
+>
+> The read model has been depth-aware since 2026-08-10 (`--depth-term 0.1`), so "depth-agnostic"
+> below describes the 2026-08-02 caller. Arm names follow the 2026-08-13 rename:
+> `readlik-support` here is [results.md](results.md)'s `readlik`, and "the fourth arm" below is its
+> `readlik-gbwt-nopack`, today's `readlik`.
 
 ## Only low depth discriminates
 
@@ -47,7 +56,7 @@ strength so far.
 Three things to hold alongside that:
 
 - ~~The Poisson baseline is winning while carrying a known bug.~~ **Tested, and this was wrong.**
-  `depth_err` at `snarl_caller.cpp:602` really is malformed, but it is *inert*: its only consumer
+  `depth_err` in `snarl_caller.cpp` really is malformed, but it is *inert*: its only consumer
   inside `genotype_likelihood` is commented out deliberately, and it never reaches the VCF.
   Patching it gives byte-identical calls across three 400 kb replicates. The Poisson baseline is
   therefore a fair comparison exactly as shipped, and the read-likelihood deficit above is **not**

@@ -2,7 +2,7 @@
 
 > **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
 > before genotypes were settled ahead of record construction. That change moved the whole-genome
-> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
+> autosomal numbers by ALL F1 +0.0026, Indel +0.0077, SV >=50 bp +0.011,
 > with both precision and recall improving in every class -- so the figures here understate the
 > current caller by roughly that much, and any *analysis* built on which calls were wrong may have
 > picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
@@ -11,7 +11,7 @@
 > What changed and what is still open: `planning/decide-then-render.md`.
 
 
-PanGenie leads SV F1 on the autosomes 0.5739 to 0.5488 ([pangenie-comparison.md](pangenie-comparison.md)),
+PanGenie leads SV F1 on the autosomes 0.5722 to 0.5466 ([pangenie-comparison.md](pangenie-comparison.md)),
 with both slightly more true calls (13,749 against 13,516) and fewer false ones (10,544 against
 12,116). This is what is actually inside that gap, and whether the nested-calling work reached it.
 
@@ -284,17 +284,18 @@ no threshold on GQ, on the depth- and ploidy-invariant GQN, or on DR raises SV F
 
 | gate | TP kept | FP kept | SV F1 |
 |---|---|---|---|
-| none | 13,291 | 12,116 | **0.5488** |
-| DR >= 0.3 | 11,869 | 8,457 | 0.5454 |
-| GQ >= 3 | 11,349 | 7,594 | 0.5387 |
-| DR >= 0.5 | 10,009 | 4,916 | 0.5235 |
-| GQ >= 10 | 9,650 | 4,845 | 0.5104 |
-| GQN >= 0.02 | 9,788 | 5,962 | 0.5026 |
-| GQN >= 0.05 | 8,806 | 4,688 | 0.4801 |
-| GQ >= 20 | 8,207 | 3,385 | 0.4695 |
+| none | 13,291 | 12,116 | **0.5466** |
+| DR >= 0.3 | 11,869 | 8,457 | 0.5440 |
+| GQ >= 3 | 11,349 | 7,594 | 0.5373 |
+| DR >= 0.5 | 10,009 | 4,916 | 0.5228 |
+| GQ >= 10 | 9,650 | 4,845 | 0.5097 |
+| GQN >= 0.02 | 9,788 | 5,962 | 0.5015 |
+| GQN >= 0.05 | 8,806 | 4,688 | 0.4792 |
+| GQ >= 20 | 8,207 | 3,385 | 0.4691 |
 
-Recall in that table is accounted on the truth side, as truvari scores it, so the ungated row
-reproduces truvari's own SV F1 exactly; the generator asserts that it does. Full working:
+Recall in that table is over truth records and precision over the calls a gate keeps, each with its
+own side's TP count as truvari scores them, so the ungated row reproduces truvari's own SV F1
+exactly; the generator asserts that it does. Full working:
 [sv-quality-gates.md](sv-quality-gates.md).
 
 The reason is arithmetic, and it can be stated exactly. Removing a true call costs twice -- once in
@@ -340,7 +341,7 @@ nested calling a nested chain is genotyped at the ploidy its parent's settled ge
 parent and child cannot disagree; all 5,037,820 records genome-wide are `PASS`. The earlier arm
 flagged 198 of its structural false positives this way, which was already too few to be the
 explanation -- so closing the coherence defect was never going to move this gap, and it did not:
-SV F1 went 0.54854 inline to 0.54861 here. See
+SV F1 moved +0.00007 from inline to here. See
 [nested-calling-design.md](nested-calling-design.md).
 
 ### The false negatives are 50-300 bp, heterozygous, and in tandem repeats
@@ -364,8 +365,8 @@ those missed by both -- while only 56.0% of vg's true calls are. Being in a tand
 that an SV is hard; it does not predict which tool will miss it.
 
 Genotyping is a real but second-order loss: among locus-matched SVs vg gets the genotype right 88.0%
-of the time against PanGenie's 91.2%, and requiring a correct genotype widens the F1 gap from 0.0254
-to 0.0408.
+of the time against PanGenie's 91.2%, and requiring a correct genotype widens the F1 gap from 0.0256
+to 0.0396.
 
 ## Where this leaves the work
 
@@ -392,8 +393,10 @@ to 0.0408.
   effort on decomposition would be spent on the 307 records that still bundle, two thirds of them
   same-length substitutions, against a 12,116-record false-positive count.
 
-Full working: [sv-delta.md](sv-delta.md), [sv-fn-mechanism.md](sv-fn-mechanism.md),
-[sv-unmatched.md](sv-unmatched.md), [sv-fp-anatomy.md](sv-fp-anatomy.md).
-Regenerate with `scripts/wgs/sv_delta.py`, `scripts/wgs/sv_fp_anatomy.py`,
-`scripts/wgs/sv_fn_mechanism.py`, `scripts/wgs/sv_unmatched_why.py` and
-`scripts/wgs/sv_quality_gates.py`, all against `--score work/wgs-current/score`.
+Full working: [sv-fn-mechanism.md](sv-fn-mechanism.md), [sv-unmatched.md](sv-unmatched.md),
+[sv-fp-anatomy.md](sv-fp-anatomy.md). Regenerate with `scripts/wgs/sv_delta.py --vg
+work/wgs-current/score --out <file>` (its default output is sv-delta.md),
+`scripts/wgs/sv_fp_anatomy.py`, `scripts/wgs/sv_fn_mechanism.py`, `scripts/wgs/sv_unmatched_why.py`
+and `scripts/wgs/sv_quality_gates.py`, all against `work/wgs-current/score`. [sv-delta.md](sv-delta.md) now holds `sv_delta.py`'s output on the current
+arm (vg `0cab3fbd4`), keyed on (CHROM, POS, REF, ALT); the vg-only and PanGenie-only counts on this
+page come from its earlier key on position, type and length.

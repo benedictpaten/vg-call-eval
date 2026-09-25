@@ -1,5 +1,14 @@
 # Re-sweeping the caller's parameters after the mixture change
 
+> **Current defaults** (vg `0cab3fbd4`, 2026-09-23). Short reads: `--mismap-max 0.95`,
+> `--mismap-min 0.02`, `--depth-term 0.1`, `--read-min-mapq 0`, and a GAF-Base `--read-window` of
+> 16384. `--preset ont`: `--mismap-min 0.05`, `--read-min-mapq 5`, the greedy walk (no `--realign`),
+> `--insertion-nats 0.9`, `--gap-open 1` and `--read-phasing`. Each section below is dated and was
+> measured on the binary of its day; its tables record how a default was chosen, not today's
+> accuracy. The current cap is justified in the last section, *`--mismap-max`: 0.7 → 0.95*. Current
+> accuracy: [tier2-chr20-results.md](tier2-chr20-results.md),
+> [tier2-chr6-results.md](tier2-chr6-results.md), [wgs-results.md](wgs-results.md).
+
 `--mismap-max` and `--mismap-min` were tuned against a model whose mixture weights were
 flat. That model has been replaced, and `--mismap-min` was *directly* implicated in the
 failure the new mixture fixes — lowering it recovered a third of the lost heterozygous
@@ -275,6 +284,8 @@ with a caller-side fallback only for sources that have none, so it could only be
 30 kb, narrow enough that the rate's variance shows; by 4096 it has converged and widening buys one
 record. Confounded, since `--read-window` also sets fetch and cache granularity — but the confound
 runs against the conclusion, because the wider window costs more per fetch and scored no better.
+The GAF-Base default is now 16384, the top of this range, set by long-read fetch cost; short reads
+sit on the same plateau.
 
 ---
 
@@ -297,9 +308,9 @@ which is exactly what had just been proven wrong about one of them.
 Everything above was measured on short reads. The ONT preset inherited `--mismap-min 0.05`
 from that work and `--mismap-max 0.7` untouched, and neither had been swept on long-read data
 in the direction that could bind. Both were, on 2026-09-12, against chr20 at 43x with the
-current binary.
+build of that date.
 
-## `--mismap-max`: the default is right, and it is not inert
+## `--mismap-max`: 0.7 was not too high, and the cap is not inert
 
 `e_r = clamp(10^(-MAPQ/10), --mismap-min, --mismap-max)`, so the cap binds only the low-MAPQ
 tail. On ONT chr20 (85,373 reads) 94.67% are MAPQ 60 and the cap at 0.7 binds MAPQ <= 1, which
@@ -310,13 +321,14 @@ Swept downward, which does bind, at the preset floor:
 
 | cap | ONT reads bound | SNV F1 | Indel F1 | Indel FP | ALL F1 |
 |---|---|---|---|---|---|
-| 0.7 (default) | 0.82% | 0.98581 | 0.83725 | 4360 | 0.95152 |
+| 0.7 (then the default) | 0.82% | 0.98581 | 0.83725 | 4360 | 0.95152 |
 | 0.5 | 1.76% | 0.98581 | 0.83725 | 4360 | 0.95152 |
 | 0.3 | 2.28% | 0.98581 | 0.83706 | 4367 | 0.95147 |
 | 0.15 | 2.79% | 0.98581 | 0.83699 | 4368 | 0.95146 |
 
 Monotone, uniformly harmful downward, and negligible: -0.00006 ALL F1 over a 3.4x increase in
-reads bound. **The default is at or above its optimum. Leave it.**
+reads bound. **0.7 was at or above its optimum**, and the later move to 0.95 went further in
+the direction that cannot bind.
 
 **But F1-neutral is not inert, and the earlier "bit-identical no-op" claim was wrong.** It was
 inferred from matching F1 -- the trap the project already knows about, where a quality-field
@@ -324,10 +336,20 @@ regression scores identically. Cap 0.5 shifts 27,734 records' GLs and moves **14
 The right statement is that the cap reaches the model and does not reach enough sites to matter.
 
 Why so little, against Illumina's +0.0120 for the whole mismapping term: the term acts through
-the low-MAPQ tail, and that tail is **9.65% of Illumina reads against 0.82% of ONT -- 12x
-fewer**. Long reads anchor uniquely, so the ambiguous-placement class the term exists to
-suppress barely exists. This is not saturation: by the fraction of reads whose MAPQ is free to
-move `e_r` off the floor, short reads are *more* saturated (0.69% against ONT's 2.58%).
+the low-MAPQ tail, and that tail (MAPQ <= 1, where the 0.7 cap binds) is **7.11% of Illumina
+alignments against 0.82% of ONT reads -- 8.7x fewer**. Long reads anchor uniquely, so the
+ambiguous-placement class the term exists to suppress barely exists. This is not saturation: by
+the fraction of reads whose MAPQ is free to move `e_r` off the floor, short reads are *more*
+saturated (0.69% against ONT's 2.58%).
+
+**Under the current preset the cap cannot bind at all.** `--preset ont` has set
+`--read-min-mapq 5` since 2026-09-17 (vg `05acbfc6a`, [mapq-floor-is-five.md](mapq-floor-is-five.md)),
+which removes every read below MAPQ 5 (2.06% of ONT chr20 reads), and the default cap is now 0.95,
+which binds MAPQ 0 alone. Even with the floor off the tail is too thin to matter: `o20nf07` and
+`o20nf095` (no floor, cap 0.7 and 0.95) score identically in every class, ALL F1 0.95820, and so
+do `o6nf07` and `o6nf095`, ALL 0.96463. The current preset baseline is `o20base` -- SNV 0.98600,
+indel 0.86321, ALL 0.95820, SV 0.5574 -- and `o6base` -- SNV 0.98819, indel 0.88066, ALL 0.96464,
+SV 0.6047.
 
 ## `--mismap-min` is two parameters wearing one name
 
@@ -336,7 +358,7 @@ parameter at all -- it is a global cap on how loudly one read may veto an allele
 MAPQ-dependent middle of the clamp, the actual mismapping term, touches 2.58% of reads and is
 worth +0.0001.
 
-Swept on the current binary, VCFs retained:
+Swept on the 2026-09-12 build, VCFs retained:
 
 | `--mismap-min` | SNV F1 | SNV FP | Indel F1 | Indel FP | Indel FN | ALL F1 |
 |---|---|---|---|---|---|---|
@@ -416,12 +438,11 @@ onto a hold-out that the ONT preset itself showed (91%), in the same direction, 
 cost if anything smaller. The indel gain is not merely SNV recovery: chr6's two-floor indel F1
 (0.87817) also beats *any* single floor's (0.87370).
 
-**Status: RETIRED the next day. See the note below.**
-
-**Status: a validated lead, not a shipped change.** What remains before it could be one is the
+**Status: RETIRED the next day. See the note below.** On 2026-09-12 it stood as a validated lead,
+not a shipped change. What remained before it could be one was the
 part the oracle cannot answer -- a real implementation chooses the floor per site before
 genotyping, from the reference run length, and then genotypes once; the linkage layer couples
-sites, so its solution will not be either arm's. The measurement says that is worth building.
+sites, so its solution will not be either arm's. The measurement said that was worth building.
 
 ## RETIRED: the two-floor scheme was correcting a bug, not the model
 
@@ -458,3 +479,88 @@ The general lesson is the one this file already argued in the short-read section
 nearly repeated: a knob whose optimum depends on variant class is a knob standing in for
 something it does not model. That was true of the floor for deletion recall, and it was true
 again here. The right response is to find what it is standing in for.
+
+# `--mismap-max`: 0.7 → 0.95
+
+2026-09-23, vg `0cab3fbd4`: the short-read default cap is **0.95**. It was chosen on the whole
+genome, because a step this small is not significant on either tier-2 contig alone. The contig
+rows come first because the tier-2 pages quote them; the 0.95 arms' records are identical to the
+whole-genome run's chr20 and chr6.
+
+## Same build, both tier-2 contigs
+
+Short reads on the 32-haplotype hap32 graph (34 panel haplotypes with the CHM13 and GRCh38
+paths), `readlik`, every other flag at its default, all on the `8acbb43a2` binary (the read-fetch
+fingerprints match across a contig's arms). No log prints `--mismap-max`: the 0.7 rows are the binary's
+then-default, inferred from the build date and consistent with log counters that move
+monotonically with the cap. `mqfit0` is byte-identical to `mq0`, whose truvari run gives its SV
+row. Arms `c20mm*` and `c6mm*`, results in `work/tier2-{chr20,chr6}-hap32/results/`.
+
+chr20:
+
+| `--mismap-max` | ALL F1 | SNV F1 | Indel F1 | SV F1 | SV TP-base | SV FP |
+|---|---|---|---|---|---|---|
+| 0.7 (`mqfit0`) | 0.97245 | 0.98515 | 0.92861 | 0.5321 | 442 | 444 |
+| 0.9 | 0.97246 | 0.98513 | 0.92871 | 0.5361 | 442 | 432 |
+| **0.95** | 0.97246 | 0.98512 | 0.92876 | **0.5365** | 441 | 428 |
+| 0.99 | 0.97246 | 0.98511 | 0.92880 | 0.5398 | 442 | 421 |
+| 0.999 | 0.97246 | 0.98511 | 0.92880 | 0.5398 | 442 | 421 |
+
+chr6, held out:
+
+| `--mismap-max` | ALL F1 | SNV F1 | Indel F1 | SV F1 | SV TP-base | SV FP |
+|---|---|---|---|---|---|---|
+| 0.7 (`c6mq0`) | 0.97751 | 0.98800 | 0.93975 | 0.5834 | 939 | 733 |
+| 0.9 | 0.97744 | 0.98793 | 0.93967 | 0.5854 | 937 | 718 |
+| **0.95** | 0.97741 | 0.98792 | 0.93958 | **0.5860** | 938 | 717 |
+| 0.99 | 0.97736 | 0.98785 | 0.93958 | 0.5862 | 936 | 711 |
+| 0.999 | 0.97735 | 0.98784 | 0.93958 | 0.5862 | 936 | 711 |
+
+Small variants are aardvark `GT` (Indel is `JointIndel`), SV is truvari; F1 is four-count
+throughout.
+
+SV F1 rises with the cap on both contigs, by false positives removed (chr20 444 → 428 at 0.95,
+chr6 733 → 717) with true positives flat. Small variants move by at most 2e-4 anywhere in the
+sweep (the fourth decimal): Indel up slightly on chr20, every class down slightly on chr6. 0.999
+ties 0.99 on SV on both contigs: above 0.794, the raw `e_r` of MAPQ 1, the cap binds MAPQ-0 reads
+alone, and at 0.99 those are already close to silent. Neither contig's 0.7 → 0.95 step is
+significant alone, in SV (paired 1 Mb block bootstrap: chr20 +0.00440 [−0.00362, +0.01051], chr6
++0.00261 [−0.00165, +0.00734]) or in any small-variant class
+(`work/wgs-run3/compare_mq0_vs_mm095.out`).
+
+## Whole genome
+
+`work/wgs-mq0` (0.7, the binary's default) against `work/wgs-mm095` (`--mismap-max 0.95`), the
+same `8acbb43a2` binary, 23 scored contigs, paired 1 Mb block bootstrap
+(`work/wgs-run3/compare_mq0_vs_mm095.out`). `0cab3fbd4` changes only the default, and its no-flag
+chr20 VCF is byte-identical to the 0.95 arm's.
+
+- **SV F1 +0.0021** [+0.0008, +0.0033] over chr1-22+X (0.5606 → 0.5627), +0.0020 on the
+  autosomes, and +0.0020 [+0.0007, +0.0032] held out of chr20, the contig the earlier sweeps were
+  fitted on. 17 of 23 contigs rise. It is false positives removed: SV net errors −239 over
+  chr1-22+X (FP −274, FN +35).
+- **Small variants are unchanged within noise.** ALL, SNV and indel F1 each move by under 1e-4,
+  none significantly. Net small-variant errors fall by 205 over chr1-22+X (SNV −43, indel −162)
+  but rise by 282 on the autosomes (SNV +349, indel −67): the chr1-22+X fall is chrX's.
+- **0.99 is worse than 0.95.** Head to head over chr1-22+X (`compare_mm095_vs_mm099.out`), 0.99
+  costs small variants significantly (ALL −0.00009, SNV −0.00010, indel −0.00007) and gains no SV
+  F1 (−0.00016, not significant): 9 fewer SV errors for 643 more SNV errors.
+- **The MAPQ floor is the other short-read lever, and a worse trade.** `--read-min-mapq 5`
+  against 0, at the then-default cap of 0.7 (`work/wgs-run/compare.out`): SV F1 +0.00674
+  [+0.00455, +0.00889] over chr1-22+X, but SNV F1 −0.00050 (significant) and 3,290 more net SNV
+  errors (FN +9,061, FP −5,771). The short-read default stays at 0.
+
+## Where the cap binds
+
+`e_r = clamp(10^(-MAPQ/10), --mismap-min, --mismap-max)`, so at 0.95 the cap binds MAPQ 0 alone
+(MAPQ 1 keeps its raw 0.794); at 0.7 it bound MAPQ <= 1. On chr20:
+
+| read set | MAPQ 0 (binds at 0.95) | MAPQ <= 1 (bound at 0.7) | MAPQ < 5 (removed by `--read-min-mapq 5`) | MAPQ 60 |
+|---|---|---|---|---|
+| Illumina, hap32, per alignment | 4.97% | 7.11% | 7.27% | 89.06% |
+| ONT, 16-haplotype E821 graph (18 panel), per read | 0.63% | 0.82% | 2.06% | 94.67% |
+
+Illumina is a 16.5% read-name hash sample of the tier-2 chr20 reads (2,192,873 alignments; mates
+share their MAPQ), ONT all 85,373 reads of the tier-2 chr20 database
+(`work/run-docs/analysis/mapq-tails/`). The ceiling reaches 7.8x more of the short-read set than
+of the ONT one, and under `--preset ont` the MAPQ floor removes every read it could reach.

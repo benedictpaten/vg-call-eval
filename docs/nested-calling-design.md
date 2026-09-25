@@ -15,6 +15,13 @@ Design, implementation and results. Stages 0-3 and 5 are built and measured behi
 --nested`; Stage 4 is deliberately last and not started. Every claim is cited so it can be
 re-checked.
 
+**How the genome-wide F1s in this document are counted.** Every arm-against-arm table here takes one
+TP count for both rates -- aardvark's truth-side `truth_tp`, truvari's `TP-base` -- so the arms
+compare with each other, not with the results pages. Those take recall from the truth side's TP and
+precision from the call side's, as both tools' own F1s do ([wgs-results.md](wgs-results.md)), which on
+these short-read arms reads indel F1 about 0.004 higher and SV F1 about 0.002 lower. Most of the arms
+below are no longer on disk, so their tables stay as measured.
+
 **Genome-wide result, autosomes, HG002 against T2T-Q100.** Both arms run with the same binary and
 scored through the same `bench_wgs.py` path. The default arm reproduces the published numbers to the
 last digit, which is what makes the comparison clean:
@@ -46,8 +53,7 @@ against 0.0241% and so on. `phasing_benchmark.py` recomputes `all_switchflip_rat
 by assessed pairs, a fraction, and printed it under a column headed `switch %`; this table copied the
 figure and attached a percent sign. The script now converts, and prints the hamming rate beside it for
 the reason below. The comparison between arms is unaffected -- all three rows were mislabelled the
-same way -- and [tier2-phasing.md](tier2-phasing.md) was never wrong: it reports 2.30% for chr20 at 34
-haplotypes, which is what 2.40% here should always have read as.
+same way.
 
 Block structure matches the default -- 22 blocks, N50 within 1.4 kb -- while phasing 68,056 more
 variants than it does. Switch error is 2.40% against 2.41%, and that comparison only means anything

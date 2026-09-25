@@ -1,5 +1,19 @@
 # Dropping low-MAPQ reads, and why the mismap clamp is not the lever
 
+> **A record of 2026-09-16; current state (2026-09-23).** The switch-error case for a floor of
+> 20-30 below does not hold, and `--preset ont` sets `--read-min-mapq 5` instead, on reliable het
+> count ([mapq-floor-is-five.md](mapq-floor-is-five.md)). The cap default is now 0.95, not 0.7. On
+> ONT both levers are inert at the benchmark: on the current preset, dropping the floor, at a cap of
+> 0.7 or 0.95, moves no F1 on chr20 or chr6 by more than 2e-5 and no truvari SV call, and whatshap
+> switch counts stay within noise (floor on vs off at 0.95: chr20 172 vs 182, chr6 340 vs 340;
+> `work/wgs-run5`). The saturation argument
+> below is about *phasing*. For short-read genotyping the cap is a live lever: 0.7 → 0.95 gains
+> whole-genome SV F1 +0.0021 over chr1-22+X with small variants unchanged within noise. Short
+> reads keep `--read-min-mapq 0`, because MQ5 there adds SV F1 +0.0067 over chr1-22+X at 3,290 more
+> net SNV errors, both arms at the then-default cap of 0.7; against the current default the MQ5 arm
+> still leads on SV F1 by 0.0047 and trails on SNV F1 by 0.0005, both significant
+> (`work/wgs-run3/compare_mq5_vs_mm095.out`; [tier2-parameters.md](tier2-parameters.md)).
+
 chr20 ONT, `--preset ont`, vg `54e1b31c9`. Prompted by a switch-error regression that turned out to
 be a mapping problem, and by the observation that the reads causing it are not the ones the mapper
 flags.

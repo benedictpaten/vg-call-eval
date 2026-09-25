@@ -70,10 +70,13 @@ def main() -> None:
     p.add_argument("--truvari", default=str(VENV_TRUVARI))
     p.add_argument("--sizemin", type=int, default=50)
     p.add_argument("--contig", default="chr20")
+    # The ONT ablations write their arms outside the dataset's work directory (a different graph,
+    # the same truth), so the arms can be read from elsewhere while truth and reference stay in --work.
+    p.add_argument("--results", help="directory holding <arm>.vcf.gz [<work>/results]")
     args = p.parse_args()
 
     W = Path(args.work)
-    res = W / "results"
+    res = Path(args.results) if args.results else W / "results"
     ref = W / f"{args.contig}.fa"
     truth = W / f"truth.{args.contig}.stvar.vcf.gz"
     bed = W / f"truth.{args.contig}.stvar.bed"

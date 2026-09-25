@@ -1,14 +1,23 @@
 # Tier 2 results: HG002 chr20 on HPRC v2.1 MC CHM13, 4-haplotype graph
 
-> **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
-> before genotypes were settled ahead of record construction. That change moved the whole-genome
-> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
-> with both precision and recall improving in every class -- so the figures here understate the
-> current caller by roughly that much, and any *analysis* built on which calls were wrong may have
-> picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
-> re-measuring them is hours of runs that were not spent. Current numbers:
-> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md).
-> What changed and what is still open: `planning/decide-then-render.md`.
+> **A record of the 2026-08-19 build, not the current caller.** Every vg figure below comes from the
+> 2026-08-19 refresh, with the read arms at `--mismap-max 0.7` and the 10,000-edge snarl cap on every
+> caller; "current defaults" in the tables means the defaults of that day. Since then:
+> decide-then-render (2026-08; whole-genome autosomal ALL F1 +0.0026, Indel +0.0077, SV >=50 bp +0.011
+> in the single-TP F1 of the time, see `planning/decide-then-render.md`), the nested-calling fixes and
+> read-fetch performance work, the read-walk fix (vg `28f5b88e2`, 2026-09-13), the snarl cap coming
+> off under `--read-likelihood` (`f33b20367`, 2026-09-22) and `--mismap-max` 0.95 (`0cab3fbd4`,
+> 2026-09-23). The table under *Known bad output* predates `readlik` genotyping large snarls, and the
+> pile-ups have not gone: on the current binary, on the 32-haplotype hap32 graph (34 panel
+> haplotypes with the CHM13 and GRCh38 paths), `readlik` calls 14 insertion alleles of 10 kb or more
+> on chr20, up to 165,108 bp (chr20:32,497,305, DP 228,151). Their median DP is 4,034.5 against a
+> chromosome median of 29, and 3 of the 14, the largest among them, carry GQ 256
+> (`work/run-docs/analysis/tier2-extras/giant_ins_c20mm095.tsv`). The page cannot be refreshed as
+> it stands: its inputs (`work/tier2-chr20`, `work/graph.gbz.db`, `work/reads.gaf.db`) are
+> deleted, so a re-measure starts with a 4-haplotype rebuild. Current
+> numbers: [tier2-chr20-results.md](tier2-chr20-results.md) (34-haplotype),
+> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md),
+> [coverage.md](coverage.md).
 
 
 Real reads, real benchmark, run on a 32 GB laptop.
@@ -24,7 +33,7 @@ This is the **4-haplotype** graph: CHM13, GRCh38 and 2 recombinants. It is kept 
 | regions | small variants 58.9 Mb; SVs 59.4 Mb |
 | engine | `aardvark compare` for small variants; `truvari bench --sizemin 50` for SVs |
 
-**All read-likelihood arms below run at the current clamp defaults, `--mismap-min 0.02` and `--mismap-max 0.7`.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap down from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
+**All read-likelihood arms below ran at the clamp defaults of 2026-08-19, `--mismap-min 0.02` and `--mismap-max 0.7`; the cap default is now 0.95.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap raised from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
 
 **Read the caveats before the numbers.** The benchmark is a *draft*: its own README reports known errors in highly homozygous regions, homopolymers and tandem repeats, and excludes VDJ and TSPY2. Absolute values are benchmark-relative; the arm-to-arm comparison is what this table is for.
 
@@ -199,7 +208,7 @@ Kept for continuity. These categories are scored against the small-variant truth
 
 MAPQ measures confidence that a read is in the right *place*, not that its path through a given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats from one read** at the old floor of 1e-8. The floor caps that veto; the current default is **0.02**.
 
-The *upper* clamp (`--mismap-max`) looks inert on this graph, because it binds only where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. **That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising it removed 94% of the excess false-positive SNVs, and the default is now **0.7**. A clamp that is inert on a sparse graph is not thereby harmless.
+The *upper* clamp (`--mismap-max`) looks inert on this graph, because it binds only where `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60. **That reading did not survive the 34-haplotype graph.** There the old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% of reads at those sites sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising it to 0.5 removed 94% of the excess false-positive SNVs; the default was **0.7** when these arms ran and is **0.95** now. A clamp that is inert on a sparse graph is not thereby harmless.
 
 The two graphs are put side by side in [tier2-chr20-graph-comparison.md](tier2-chr20-graph-comparison.md); the grids are in plan §9.20.
 

@@ -1,5 +1,16 @@
 # Quality signals: what ranks a call, and what does not
 
+> **A record of the 2026-08-08..13 builds.** Every AUC, FP-at-recall figure and invariant count
+> below was measured on the capped caller of those dates (`--mismap-max` 0.5 on 2026-08-08, 0.7
+> from 2026-08-10), before decide-then-render. Linkage has been on by default since 2026-08-12, so
+> only the 2026-08-13 `--depth-quality` re-measure carries it. GQ's inputs have moved since —
+> `--mismap-max` 0.95, large snarls genotyped under `--read-likelihood` — and two of the four
+> datasets (the 4-haplotype graphs) cannot be re-run without a rebuild, so the figures are the
+> evidence for the fields' design, not today's ranking quality. The field definitions (`DP`, `AD`,
+> `BL`, `GQI`, `GQ = GQI × share`, `DR`, `--depth-quality`) and the likelihood in *The blind spot*
+> describe the current caller. Current accuracy: [tier2-chr20-results.md](tier2-chr20-results.md),
+> [tier2-chr6-results.md](tier2-chr6-results.md), [wgs-results.md](wgs-results.md).
+
 Everything on the accuracy pages is scored at every GQ, so none of it depends on the quality
 field. This page is about the other question: given the calls, how well are they *ordered*,
 and can the caller order them better using evidence it already computes and throws away.
@@ -21,18 +32,23 @@ signals sit on top of is in [planning/vg-read-likelihood-design.md](../planning/
 The genotype likelihood is
 
 ```
-ln P(reads | G) = Σ_r  w · ln [ (1 − e_r) · Σ_{h∈G} (1/|G|) · rel(r,h)  +  e_r ]
+ln P(data | G) = W · ln Poisson(N_eff ; λ_G)  +  Σ_r ln [ (1 − e_r) · Σ_{h∈G} w_h · rel(r,h)  +  e_r ]
 ```
 
-and GQ is the phred-scaled gap between the best genotype and the runner-up:
+with `w_h` each haplotype's expected share of the site's reads, from the sequence it carries that
+the genotype's other allele does not ([tier2-sv-errors.md](tier2-sv-errors.md)), and a depth
+term weighted `W = --depth-term 0.1` that compares the MAPQ-weighted read count `N_eff` with the
+count `λ_G` the genotype predicts ([tier2-depth-term.md](tier2-depth-term.md)). GQ is the
+phred-scaled gap between the best genotype and the runner-up:
 
 ```
-GQ_ratio = (10/ln10) · Σ_r  w · [ ln term_r(G₁) − ln term_r(G₂) ]
+GQ_ratio = (10/ln10) · [ ln P(data | G₁) − ln P(data | G₂) ]
 ```
 
 Each read contributes only the *difference* its term makes between the two genotypes. Take a
 read whose best-fitting allele is in **neither** `G₁` nor `G₂`: its mixture is small under
-both, both terms collapse to ≈ `e_r`, and the read drops out of GQ entirely.
+both, both terms collapse to ≈ `e_r`, and the read drops out of the read sum entirely. The
+depth term does not recover it: `N_eff` counts the read, but not which allele it fits.
 
 So GQ measures how far ahead the winner is and never whether the winner accounts for the
 data. A site where a third of the reads prefer an uncalled allele scores the same as a site

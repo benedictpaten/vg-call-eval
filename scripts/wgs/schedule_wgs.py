@@ -5,6 +5,13 @@ Why this exists. A single contig at `-t 5` uses about 3.5 of this machine's 10 c
 run leaves two thirds of it idle. Running two or three contigs at once converts that into
 throughput: on a six-contig subset, 1451 s serial becomes 797 s scheduled, a 1.82x speedup.
 
+REMEASURED 2026-09-22 on the current (uncapped) binary: the 1.82x no longer holds. chr1+chr2 run
+2-way took 1121 s against 1507 s sequential -- 1.34x, with each contig individually 1.26x slower.
+A wave of three SMALL contigs (chr21/chr22/chrX) gave only ~1.1x, because fixed startup (graph
+load, snarl decomposition) does not parallelise and dominates them. Expect ~1.3x overall, not 1.8x.
+Peak RSS also FALLS under packing (chr1 10.7 GB serial -> 7.1 GB 2-way), so predictions fitted on
+serial runs over-estimate concurrent ones, which is the safe direction.
+
 Not because the caller is I/O-bound. That was the first theory -- every read-fetch window
 `posix_spawn`s a gbz-base and reopens the 22 GB SQLite database, which looked like enough to
 explain a process sitting at one CPU -- and it is wrong. Measured on chr20 over two replicates,
@@ -52,8 +59,16 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-BASE_GB = 2.25
-GB_PER_RECORD = 11.2e-6
+# REFITTED 2026-09-22 against a 20-contig run of the current binary. The previous constants
+# (2.25 + 11.2e-6) were fitted when `max_snarl_edges` still capped large snarls; that cap is now
+# OFF by default under --read-likelihood, and peak memory rose accordingly. The old model
+# UNDER-predicted every contig measured, by +2.08 to +5.65 GB (worst: chr14), which is the
+# dangerous direction -- it would have packed three 10 GB contigs into a 24 GB budget and swapped.
+# Measured peaks now span 5.98 GB (chr18) to 10.72 GB (chr2); worst residual of this fit is
+# +1.92/-1.50 GB. Three worst-case contigs are 32.2 GB on a 32 GB machine, so the budget, not
+# --max-jobs, is what must keep the packing to two large contigs.
+BASE_GB = 5.57
+GB_PER_RECORD = 13.0e-6
 
 # --nested emits more records and holds more working state, and the record count alone does not
 # predict it: chr20 under -a has 64% more records than under --nested at *less* peak memory, so what
@@ -91,6 +106,9 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--work", default="work/wgs")
     p.add_argument("--budget-gb", type=float, default=24.0)
+    p.add_argument("--extra", default="",
+                   help="extra flags passed through to every vg call, e.g. '--read-min-mapq 5'. "
+                        "Combined with --nested if both are given.")
     p.add_argument("--nested", action="store_true",
                    help="pass --nested to vg call and budget memory for it")
     # -t 5, not the 2 this was first written with. The reasoning behind 2 was that the caller is
@@ -188,7 +206,8 @@ def main() -> None:
                     cmd, cwd=str(REPO),
                     env={**__import__("os").environ,
                          "CONTIGS": e["contig"], "THREADS": str(args.threads),
-                         "EXTRA": "--nested" if args.nested else "",
+                         "EXTRA": " ".join(x for x in
+                                          (("--nested" if args.nested else ""), args.extra) if x),
                          "W": args.work},
                     stdout=open(work / f"{e['contig']}.schedule.out", "w"),
                     stderr=subprocess.STDOUT)

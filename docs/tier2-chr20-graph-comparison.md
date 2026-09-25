@@ -1,14 +1,20 @@
 # chr20: 4-haplotype vs 34-haplotype graph
 
-> **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
-> before genotypes were settled ahead of record construction. That change moved the whole-genome
-> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
-> with both precision and recall improving in every class -- so the figures here understate the
-> current caller by roughly that much, and any *analysis* built on which calls were wrong may have
-> picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
-> re-measuring them is hours of runs that were not spent. Current numbers:
-> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md).
-> What changed and what is still open: `planning/decide-then-render.md`.
+> **A record of the 2026-08-19 build, not the current caller.** Both columns come from the
+> 2026-08-19 refresh, with the read arms at `--mismap-max 0.7` and the 10,000-edge snarl cap on
+> every caller. Since then: decide-then-render (2026-08; whole-genome autosomal ALL F1 +0.0026,
+> Indel +0.0077, SV >=50 bp +0.011 in the single-TP F1 of the time, see
+> `planning/decide-then-render.md`), the nested-calling fixes and read-fetch performance work, the
+> read-walk fix (vg `28f5b88e2`, 2026-09-13), the snarl cap coming off under `--read-likelihood`
+> (`f33b20367`, 2026-09-22) and `--mismap-max` 0.95 (`0cab3fbd4`, 2026-09-23). On the current binary
+> the `readlik` arm on the 32-haplotype hap32 graph (34 panel haplotypes with the CHM13 and GRCh38
+> paths) scores ALL GT F1 0.9725, ALL BASEPAIR F1 0.9489 and SV F1 0.5365, against 0.9699, 0.9158
+> and 0.5133 below (`work/tier2-chr20-hap32/results/aardvark-c20mm095`, `truvari-c20mm095s`). That
+> column is not swapped in: the 4-haplotype inputs (`work/tier2-chr20`, `work/graph.gbz.db`,
+> `work/reads.gaf.db`) are deleted, so the other column cannot be re-run without a rebuild, and
+> pairing a current column with an old one is what the one-build-per-matrix rule forbids. Current numbers:
+> [tier2-chr20-results.md](tier2-chr20-results.md), [wgs-results.md](wgs-results.md),
+> [pangenie-comparison.md](pangenie-comparison.md), [coverage.md](coverage.md).
 
 
 Same sample, same reads, same truth, same confident regions, same reference sequence. What changes is the graph — and, unavoidably, the alignments.
@@ -35,11 +41,11 @@ The rows to watch are the **`-z` arms**, which enumerate alleles from the GBWT h
 
 The read-likelihood caller's margin over the Poisson caller goes from **+0.0142** on the 4-haplotype graph to **+0.0575** on the 34-haplotype one — 4.0x wider.
 
-**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The SV fall is **entirely precision** — recall is flat on chr6 and slightly better on chr20 — and most of it is not the caller getting worse. Two thirds to all of it is records that are not structural variants plus the cost of scoring unfiltered; at matched sensitivity the residual is 0.021 on chr6 and zero on chr20. [tier2-sv-errors.md](tier2-sv-errors.md) has the decomposition.
+**Two directions, and they are not the same direction.** GT F1 rises on the richer graph for the read-likelihood caller; BASEPAIR and SV F1 fall for both callers. The SV fall is **entirely precision** — recall is flat on chr6 and slightly better on chr20 — and most of it is not the caller getting worse. Two thirds to all of it is records that are not structural variants plus the cost of scoring unfiltered; at matched sensitivity the residual was 0.021 on chr6 and zero on chr20 (measured 2026-08-10). [tier2-sv-errors.md](tier2-sv-errors.md) has the decomposition.
 
 Exposure to multi-allelic sites was the earlier explanation and it does not survive measurement: precision falls within the biallelic stratum, which is 78-82% of records, by nearly the whole amount. Multi-allelic records do grow (17.6% to 22.1% of SV-sized records) and are harder, but they are a minor term rather than the mechanism.
 
-**This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik` on the 34-haplotype graph looked like a precision-for-recall trade — 1,597 false-positive SNVs against the 4-haplotype graph's 375. The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
+**This depended on a default that was wrong for graphs like this.** With `--mismap-max` at its old 0.1, `readlik` on the 34-haplotype graph looked like a precision-for-recall trade — 1,597 false-positive SNVs against the 4-haplotype graph's 375. The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising the cap to 0.5 removed 94% of that excess, and the default is now 0.95. Harness plan §9.20 has the derivation; the point for this page is that a caller-level default, not the graph, was the difference between the two readings.
 
 **`readlik-nomismap` is the control.** It disables the mismapping term entirely, so the cap cannot reach it — and on the richer graph it still carries 2,427 spurious SNVs. The term is what does the work.
 

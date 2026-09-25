@@ -1,13 +1,42 @@
 # Running a whole genome, and how fast it goes
 
-`vg call --read-likelihood` on a 34-haplotype HPRC graph, 30x reads, on a 10-core laptop with
-32 GB. One contig per invocation, several contigs at once, packed under a memory budget.
+`vg call --read-likelihood` on the 32-haplotype hap32 graph (34 panel haplotypes with the CHM13 and
+GRCh38 paths), 30x reads, on a 10-core laptop with 32 GB. One contig per invocation, several contigs
+at once, packed under a memory budget.
 
-## Decide-then-render: read I/O restored, CPU up
+## The current run
 
-The current arm settles every genotype before building its record. The cost that mattered was read
-I/O, because the arm before it bought the same coherence guarantee by re-reading the contig once per
-generation:
+2026-09-23, on the defaults vg `0cab3fbd4` ships (the run passed `--mismap-max 0.95` to the build
+before it, the one default that commit changes):
+
+| | short reads, 24 contigs |
+|---|---|
+| CPU (user + sys) | **8.58 h** (6.20 + 2.39) |
+| peak RSS, worst contig | **10.0 GiB** (chr14) |
+| wall clock | **86.5 min**, packed about two at a time (`--budget-gb 24 --threads 5 --max-jobs 3`) |
+| slowest contig | chr21, 1,214 s wall and 2,306 CPU s, last to finish |
+
+None of these is a serial cost. Run alone, chr20 takes 172 s at a 7.5 GiB peak RSS (the tier-2
+harness); in this run it took 313 s at 3.8 GiB with two other contigs alongside. CPU and RSS come from
+`/usr/bin/time -l` around each `vg call`, so CPU includes the `gbz-base` processes it waits for.
+
+```bash
+python3 scripts/wgs/schedule_wgs.py --work work/<run> --budget-gb 24 --threads 5 --max-jobs 3   # calls every contig
+W=work/<run> OUT=work/<run>/HG002 bash scripts/wgs/assemble_wgs.sh                             # one VCF (and the mosaic, below)
+python3 scripts/wgs/bench_wgs.py --work work/<run> --out work/<run>/score/wgs-summary.md --threads 5
+```
+
+`bench_wgs.py` scores every contig and writes chr1-22+X totals to its own summary. Never point its
+`--out` at docs/wgs-results.md: that page is maintained by hand. Autosome totals, and the insertion
+and deletion rows, come from `small()` and `sv()` in `scripts/bench_metrics.py` over the run's
+`score/per-contig.json`. The mosaic half of `assemble_wgs.sh` rejects mosaic-version 5 files, so it
+writes an empty genome mosaic (see *The mosaic* below).
+
+## Decide-then-render (2026-08-23): read I/O restored, CPU up
+
+This arm, measured 2026-08-23, settles every genotype before building its record, which is how
+records are still built. The cost that mattered was read I/O, because the arm before it bought the
+same coherence guarantee by re-reading the contig once per generation:
 
 | | inline | post-linkage descent | decide-then-render |
 |---|---|---|---|
@@ -27,14 +56,13 @@ scheduled and their contention differs.
 **Per-contig peak RSS rose by about 50%** -- chr1 4.30 -> 6.05 GB, chr4 3.05 -> 4.60 GB -- because
 every record's render inputs are retained until the barrier settles. chr1's retention was measured
 directly at 1,063 MB against a 1.23 GB projection, so the estimate that decision rested on was 14%
-conservative rather than wrong. `schedule_wgs.py`'s memory predictions do NOT model this, and happen
-to remain safe only because they were already conservative (chr1 predicted 7.16 GB, actual 6.05). They
-should be refitted from these numbers rather than left to that coincidence.
+conservative rather than wrong. The scheduler's memory model is fitted on the current binary; see
+*The memory model* below.
 
 **Whole-genome wall clock on this machine is not a measurement of the caller**, and the cleanest
-demonstration of that is the single-sweep nested arm against the inline one. Summed per-contig wall
-clock went 163.8 → 213.1 minutes, +30%. Summed CPU went 457.3 → 472.0 minutes, **+3.2%** — and that
-second number is the cost of the change. (The review fixes then took summed CPU back down to 459.9
+demonstration of that is the single-sweep nested arm against the inline one (2026-08-19). Summed
+per-contig wall clock went 163.8 → 213.1 minutes, +30%. Summed CPU went 457.3 → 472.0 minutes,
+**+3.2%** — and that second number is the cost of the change. (The review fixes then took summed CPU back down to 459.9
 minutes over the same 24 contigs, −2.6%, and the packed run end-to-end to 65.1 minutes.)
 
 The gap is entirely six contigs that were starved of cores in the later run. Thread occupancy,
@@ -53,31 +81,23 @@ The gap is entirely six contigs that were starved of cores in the later run. Thr
 A contig that got one core where it previously got three takes three times as long having done the
 same work, and its CPU total says so. Read wall clock as a measure of what else was running.
 
-Earlier full runs of the same scheduler took 54.3 and 60.9 minutes end to end against 144.4 minutes
-summed, a 2.66x and 2.37x packing speedup, with nothing between them but load — one had `vg`'s own
-test suite competing for cores for ten of its minutes. **Treat any single whole-genome wall clock as
-±10% at best, and prefer CPU time when comparing two builds.**
-
-```bash
-python3 scripts/wgs/schedule_wgs.py --work work/wgs      # calls every contig
-bash    scripts/wgs/assemble_wgs.sh                      # one VCF + one mosaic
-python3 scripts/wgs/bench_wgs.py --work work/wgs --out docs/wgs-results.md
-```
+Earlier full runs of the same scheduler (2026-08-16 and 08-17) took 54.3 and 60.9 minutes end to
+end against 144.4 minutes summed, a 2.66x and 2.37x packing speedup, with nothing between them but
+load — one had `vg`'s own test suite competing for cores for ten of its minutes. **Treat any single
+whole-genome wall clock as ±10% at best, and prefer CPU time when comparing two builds.**
 
 ## The mosaic, and why assembly is not `cat`
 
-The genome mosaic is **180,858 segments over 5,037,872 sites in 14.27 MB**, at 78.9 bytes per
-segment.
+No genome mosaic has been assembled since the per-contig files moved to mosaic-version 5:
+`concat_mosaic.sh` accepts only versions 3 and 4 and rejects version 5, so a run's
+`HG002.mosaic.tsv` is empty and the per-contig `chr*.mosaic.tsv` files are the mosaic.
 
-**92.28% of segments carry a GBWT position**, down from 99.82% before nested sites entered the
-mosaic, and the shortfall is one identifiable population rather than a degradation: of the 13,960
-segments without one, 12,813 are wildcard rows whose haplotype is `*` — no single panel haplotype
-is named, so there is no position to record — and most are one to three sites long. That is the
-phase-block fragmentation that nested ploidy-1 sites cause, which is tracked as its own problem and
-is not a property of the mosaic format. Fixing the linkage layer's position and record keying (so a
-nested child no longer loses its phasing to a parent at the same POS) cut that population from
-13,676 to 12,813 and lifted coverage from 91.87%, which is a dent in the problem rather than a
-solution to it.
+The last genome mosaic, assembled 2026-08-20, was 180,858 segments over 5,037,872 sites in
+14.27 MB. 92.28% of its segments carried a GBWT position, and the shortfall was one identifiable
+population rather than a degradation: of the 13,960 segments without one, 12,813 were wildcard rows
+whose haplotype is `*` — no single panel haplotype is named, so there is no position to record —
+and most were one to three sites long. That is the phase-block fragmentation that nested ploidy-1
+sites cause, which is tracked as its own problem and is not a property of the mosaic format.
 
 Concatenating the per-contig files needs `scripts/wgs/concat_mosaic.sh`, not `cat`, because two
 mosaic columns are relative to the graph that produced them:
@@ -95,41 +115,57 @@ mosaic columns are relative to the graph that produced them:
 are the authoritative anchors.
 
 The structural check worth keeping is that the two strands of every diploid contig agree on their
-site total, and that the strand-0 total equals the VCF's record count — 4,742,752, exactly. chrY is
-the only single-strand contig; chrX carries 298 strand-1 segments, which are its pseudoautosomal
-regions arriving via `--ploidy-bed`.
+site total, and that the strand-0 total equals the VCF's record count; on the 2026-08-17 mosaic it
+did, exactly (4,742,752). chrY is the only single-strand contig; chrX's strand-1 segments are its
+pseudoautosomal regions arriving via `--ploidy-bed`.
 
 ## Why one contig at a time
 
 The caller buffers every emitted record and every linkage site until the chain resolves, so peak
 memory scales with the contig rather than the genome. Whole-genome in one process would need tens
-of gigabytes; per contig the worst case measured is **6.1 GB** (chr3).
+of gigabytes; per contig the worst peak RSS in the current run is **10.0 GiB** (chr14), then chr6
+8.8, chrX 8.0 and chr1 and chr4 7.9 GiB, all measured packed. Run alone at the 0.7 ceiling, chr2
+reached 10.7 GiB.
 
 ## The memory model, and a correction worth reading
 
-Contigs are packed under a budget rather than run at fixed concurrency, using the truth's record
-count for the contig as a predictor — known before the run, and a far better predictor of peak
-memory than contig length.
+Contigs are packed under a budget rather than run at fixed concurrency, using the contig's
+small-variant truth record count as the predictor — known before the run, and a far better
+predictor of peak memory than contig length.
 
 ```
-peak GB ~ 2.25 + 11.2e-6 * emitted_records
+peak GiB ~ 5.57 + 13.0e-6 * truth_records
 ```
 
-Fitted on all 24 contigs of a full run. **The previous coefficient was nearly double this**, and it
-made the scheduler throttle itself on a fiction:
+Refitted 2026-09-22 on 20 contigs of the current binary run one at a time at the 0.7 ceiling, where its
+residuals span −1.51 GiB (chr18) to +1.91 GiB (chr14). **The model before it under-predicted every
+contig**, by 2.08 to 5.65 GiB (worst chr14): it was fitted while `--max-snarl-edges` still capped
+large snarls, and uncapping raised peak memory. That is the dangerous direction — it would have
+packed three 10 GiB contigs into a 24 GiB budget and swapped.
 
-| | old model | refitted | measured |
+Against the packed 2026-09-23 run, in GiB:
+
+| contig (truth records) | predicted | peak RSS | peak footprint |
 |---|---|---|---|
-| chr1 (353,741 records) | 9.6 GB | 6.2 GB | **5.7 GB** |
-| chr6 (284,529) | 8.2 GB | 5.4 GB | **5.0 GB** |
-| chr20 (105,251) | 4.4 GB | 3.4 GB | **3.1 GB** |
-| worst residual | 4.39 GB | **0.87 GB** | |
+| chr1 (438,017) | 11.26 | 7.93 | 13.02 |
+| chr2 (379,611) | 10.50 | 5.18 | 11.97 |
+| chr6 (313,919) | 9.65 | 8.78 | 11.23 |
+| chr14 (235,337) | 8.63 | **10.00** | **12.14** |
+| chr20 (163,602) | 7.70 | 3.77 | 6.23 |
+| chr21 (146,784) | 7.48 | 7.24 | 7.54 |
+| chrX (132,387) | 7.29 | 7.95 | 9.75 |
 
-Every contig was overestimated, by up to 4.4 GB, so the budget refused packings that would have fit
-comfortably. The model had been fitted from an earlier serial run whose memory behaviour no longer
-holds.
+Packed, peak RSS reads low: it came in under the prediction on 22 of 24 contigs (from −5.32 GiB for
+chr2 to +1.37 for chr14, mean −2.39), and chr2, 10.7 GiB alone at 0.7, peaked at 5.18. macOS's peak memory
+footprint reads the other way, over the prediction on 12 of 24 (from −1.74 GiB for chr18 to +3.51
+for chr14, mean +0.26). The model is fitted to single-job RSS, so these are a check on packing, not
+a refit. Only chr14 and chrX exceed it on both measures.
 
 ## Thread count and concurrency
+
+Measured 2026-08-16 on the capped binary, under the memory model of that date, and kept as a record.
+`-t 5` and `--max-jobs 3` are still what the scheduler is given, but the budget, not `--max-jobs`,
+now sets concurrency: see *What the budget does now*.
 
 The caller uses about 3.5 of 10 cores at `-t 5`, so three concurrent jobs saturate the machine.
 Lower `-t` is *more* CPU-efficient per unit of work — measured on chr20, `-t` 1/2/5 gives 0.99/1.79/
@@ -157,31 +193,32 @@ intended concurrency. **It had not.** The thinner-jobs reasoning is simply wrong
 five concurrent jobs the per-window `posix_spawn` of a `gbz-base` process and the reopening of the
 22 GB read database cost more than the extra parallelism returns.
 
-### What the memory refit actually bought
+## What the budget does now
 
-Not speed. At three concurrent jobs the machine is CPU-bound, not memory-bound, so halving the
-predicted footprint changes no scheduling decision on this hardware and the genome run takes the
-same hour it did.
+It binds. chr1 to chr4 are predicted at 10.15 to 11.26 GiB, so three large contigs do not fit in 24
+and the scheduler holds the third back: the first pair alone, chr1 and chr2, is 21.8 GiB predicted.
+The 2026-09-23 run had three jobs in flight for 14.1 of its 86.5 minutes, two for 61.5 and one for
+10.9, an effective concurrency of 2.03. That is why it took 86.5 minutes where the 2026-09-12 run,
+on the capped binary under the old model, took 61.4 at similar CPU (8.58 against 8.80 CPU-hours).
 
-What it buys is that the budget now means something. The old model would have serialised a run
-given a smaller `--budget-gb`, and would have blocked anyone raising `--max-jobs` on a machine with
-more cores, both for no reason. A predictor wrong by 70% is worth fixing even when it is not
-currently binding.
+The remaining 8 GB of the machine is not slack: the read database is 22 GB and the OS page cache is
+doing real work, so squeezing it trades one bottleneck for a worse one.
 
-## What is *not* the bottleneck
+## What is and is not the bottleneck
 
-**Not I/O**, despite appearances. Every read-fetch window spawns a `gbz-base` and reopens the read
-database, which looks like enough to explain a process sitting near one CPU. Measured, it is wrong:
-the caller parallelises at ~70% efficiency to `-t 5`. The spawn-per-window is real and still looks
-like the bottleneck in the source; it is not the one that governs wall clock.
+**The memory budget is**, for the first hour of the 2026-09-23 run: see above.
 
-**Not the memory budget**, now that the model is honest. At three jobs the worst case in flight is
-about 18 GB against a 24 GB budget. The remaining 8 GB of the machine is not slack either: the read
-database is 22 GB and the OS page cache is doing real work, so squeezing it trades one bottleneck
-for a worse one.
+**The tail is.** chr21 is one of the smallest contigs by truth records (146,784, predicted 7.48 GiB),
+so largest-first scheduling starts it late, at 10:38 in a run that began at 09:32. Yet it has the
+third-highest CPU of any contig, 2,306 s after chr2 and chr1, takes 1,214 s of wall, and finishes
+last, alone for about the final 11 minutes. Its record count does not predict its cost, and the
+model has no term for it.
 
-**Not the tail.** Largest-first scheduling puts chr1 and chr2 in the first wave; the longest single
-contig is 15.4 minutes against a 60.9-minute total, so the critical path is not one slow contig.
+**Not I/O**, as measured on 2026-08-16. Every read-fetch window spawns a `gbz-base` and reopens the
+read database, which looks like enough to explain a process sitting near one CPU. Measured then, it
+was wrong: the caller parallelised at ~70% efficiency to `-t 5`. The spawn-per-window is real and
+still looks like the bottleneck in the source. The current binary changed read-query sizing
+(`8acbb43a2`) and has not been profiled, so this is unverified on it.
 
 ## Resume, and why it checks the binary
 

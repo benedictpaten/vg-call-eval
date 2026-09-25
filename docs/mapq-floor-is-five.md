@@ -1,5 +1,15 @@
 # The ONT MAPQ floor is 5, and the switch-error case for it was wrong
 
+> **Current state (2026-09-23).** `--preset ont` still sets `--read-min-mapq 5`, on the
+> reliable-het case below, which was measured on vg `05acbfc6a` (2026-09-17). ONT is insensitive to
+> both MAPQ levers: on the current preset, dropping the floor, at a cap of 0.7 or 0.95, moves no F1
+> on chr20 or chr6 by more than 2e-5 and no truvari SV call (`work/wgs-run5`). Short reads keep
+> `--read-min-mapq 0`, with `--mismap-max` now 0.95. Over chr1-22+X, with both arms at the
+> then-default cap of 0.7, MQ5 raises short-read SV F1 by +0.0067 but adds 3,290 net SNV errors,
+> while the 0.95 cap gains SV F1 +0.0021 with small variants unchanged within noise. Against the
+> current default, that MQ5 arm still leads on SV F1 by 0.0047 and trails on SNV F1 by 0.0005, both
+> significant (`work/wgs-run3/compare_mq5_vs_mm095.out`; [tier2-parameters.md](tier2-parameters.md)).
+
 Supersedes the switch-error argument in [mapq-filter-and-the-clamp.md](mapq-filter-and-the-clamp.md)
 and the `--read-min-mapq 10` row in
 [anchor-defaults-and-chr20-delivery.md](anchor-defaults-and-chr20-delivery.md). Shipped as vg

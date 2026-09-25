@@ -26,11 +26,17 @@ import argparse
 import csv
 import gzip
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
+
+# The cap's current value is read off the binary by the same function the results pages use,
+# so the two cannot disagree about it; arms.json does not record the clamps the arms ran at.
+sys.path.insert(0, str(HERE))
+from report import caller_clamp_defaults  # noqa: E402
 
 ARM_ORDER = ["poisson", "poisson-z", "readlik-support", "readlik-nomismap",
              "readlik-nolink", "readlik"]
@@ -203,11 +209,19 @@ def main() -> None:
     L.append("")
     gap_old = (gtf1(old, "readlik") or 0) - (gtf1(old, "poisson-z") or 0)
     gap_new = (gtf1(new, "readlik") or 0) - (gtf1(new, "poisson-z") or 0)
-    L.append("**And the cost side runs the same way.** Going from four haplotypes to thirty-four "
-             "costs the read-likelihood arms 1.1x to 1.3x more CPU and `poisson` **2.75x** more, so "
-             "the caller that gets better on the richer graph is also the one whose compute barely "
-             "grows. The Cost section below has the per-arm figures and the caveats.")
-    L.append("")
+    # CPU multiples (34-hap over 4-hap), computed from the arms like the accuracy deltas above,
+    # and only quoted where both runs recorded CPU -- the Cost table carries the column only then.
+    cpu_x = {a: new[a]["cpu_seconds"] / old[a]["cpu_seconds"] for a in ARM_ORDER
+             if (old.get(a) or {}).get("cpu_seconds") and (new.get(a) or {}).get("cpu_seconds")}
+    rl_x = [cpu_x[a] for a in ARM_ORDER if a.startswith("readlik") and a in cpu_x]
+    cpu_prose = bool(rl_x) and "poisson" in cpu_x and "poisson-z" in cpu_x
+    if cpu_prose:
+        L.append("**And the cost side runs the same way.** Going from four haplotypes to thirty-four "
+                 f"costs the read-likelihood arms {min(rl_x):.1f}x to {max(rl_x):.1f}x more CPU and "
+                 f"`poisson` **{cpu_x['poisson']:.2f}x** more, so "
+                 "the caller that gets better on the richer graph is also the one whose compute barely "
+                 "grows. The Cost section below has the per-arm figures and the caveats.")
+        L.append("")
     L.append(f"The read-likelihood caller's margin over the Poisson caller goes from "
              f"**{gap_old:+.4f}** on the 4-haplotype graph to **{gap_new:+.4f}** on the "
              f"34-haplotype one"
@@ -238,14 +252,16 @@ def main() -> None:
              "of SV-sized records) and are harder, but they are a minor term rather than the "
              "mechanism.")
     L.append("")
+    _, cap = caller_clamp_defaults()
     L.append("**This depended on a default that was wrong for graphs like this.** With "
              "`--mismap-max` at its old 0.1, `readlik` on the 34-haplotype graph looked like a "
              "precision-for-recall trade" +
              (" — 1,597 false-positive SNVs against the 4-haplotype graph's 375" if c == "chr20"
               else " (measured on chr20: 1,597 false-positive SNVs against 375)") +
              ". The cap was overriding the mapper: at those sites 23.3% of reads sit at MAPQ 1, "
-             "meaning p(wrong) = 0.79, and were being told 0.1. At the current default of 0.5 that "
-             "excess is 94% gone. Harness plan §9.20 has the derivation; the point for this page is "
+             "meaning p(wrong) = 0.79, and were being told 0.1. Raising the cap to 0.5 removed 94% "
+             f"of that excess, and the default is now {cap}. Harness plan §9.20 has the derivation; "
+             "the point for this page is "
              "that a caller-level default, not the graph, was the difference between the two "
              "readings.")
     L.append("")
@@ -301,19 +317,21 @@ def main() -> None:
         L.append(row)
     L.append("")
     if have_cpu:
-        L.append("**`CPU x` is the column to read, and it says something the accuracy tables do "
-                 "not.** CPU is user+sys, so unlike wall clock it measures work rather than "
-                 "elapsed time -- it does not move with how much of the machine a phase manages "
-                 "to use, or with how warm the page cache was. Going from four haplotypes to "
-                 "thirty-four, the read-likelihood arms cost between 1.1x and 1.3x more compute. "
-                 "`poisson` costs **2.75x** more.")
-        L.append("")
-        L.append("So the split this page opens with has a cost side as well as an accuracy side: "
-                 "the caller that gets *better* on the richer graph is also the one whose compute "
-                 "barely grows, and the caller that gets worse is the one that more than doubles. "
-                 "`poisson-z` sits between them at 1.43x, which locates most of the effect in "
-                 "support enumeration rather than in Poisson genotyping.")
-        L.append("")
+        if cpu_prose:
+            L.append("**`CPU x` is the column to read, and it says something the accuracy tables do "
+                     "not.** CPU is user+sys, so unlike wall clock it measures work rather than "
+                     "elapsed time -- it does not move with how much of the machine a phase manages "
+                     "to use, or with how warm the page cache was. Going from four haplotypes to "
+                     f"thirty-four, the read-likelihood arms cost between {min(rl_x):.1f}x and "
+                     f"{max(rl_x):.1f}x more compute. "
+                     f"`poisson` costs **{cpu_x['poisson']:.2f}x** more.")
+            L.append("")
+            L.append("So the split this page opens with has a cost side as well as an accuracy side: "
+                     "the caller that gets *better* on the richer graph is also the one whose compute "
+                     "barely grows, and the caller that gets worse is the one that more than doubles. "
+                     f"`poisson-z` sits between them at {cpu_x['poisson-z']:.2f}x, which locates most "
+                     "of the effect in support enumeration rather than in Poisson genotyping.")
+            L.append("")
         L.append("Read it with the not-a-single-variable caveat above: the two graphs differ in "
                  "topology and the reads are remapped, so this is not panel size alone. The "
                  "arm-to-arm contrast across one fixed pair of graphs is what the column supports.")

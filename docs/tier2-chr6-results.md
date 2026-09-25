@@ -1,55 +1,5 @@
 # Tier 2 results: HG002 chr6 on HPRC v2.1 MC CHM13, 34-haplotype graph
 
-> **Re-measured 2026-09-12** against `ae68ffd08`, on the pinned binary, arms run serially. The two
-> tables in this block are current; everything further down the page is from the previous run.
->
-> ### Short reads — Illumina 28.6x, 34-haplotype graph
->
-> | arm | variants | wall | peak RSS | ALL F1 | SNV F1 | Indel F1 |
-> |---|---|---|---|---|---|---|
-> | `poisson` | 294,626 | 535 s | 7.0 GB | **0.9297** | 0.9685 | 0.7972 |
-> | `poisson-z` | 294,835 | 190 s | 6.2 GB | **0.9318** | 0.9703 | 0.8005 |
-> | `readlik` | 296,858 | 274 s | 11.2 GB | **0.9775** | 0.9880 | 0.9395 |
-> | `readlik-nomismap` | 303,758 | 274 s | 11.1 GB | **0.9726** | 0.9830 | 0.9352 |
-> | `readlik-nolink` | 299,881 | 252 s | 10.7 GB | **0.9674** | 0.9859 | 0.9030 |
-> | `readlik-support` | 299,877 | 315 s | 10.8 GB | **0.9672** | 0.9858 | 0.9023 |
->
-> ### Long reads — ONT, 16-haplotype E821 graph
->
-> Same truth and confident regions as above; **a different graph**, 16 sampled haplotypes against
-> 34, with the reads aligned to it. So compare down the column pair, not across to the table above.
->
-> | arm | short-read defaults | `--preset ont` | delta |
-> |---|---|---|---|
-> | `readlik` ALL F1 | 0.9372 | **0.9596** | **+0.0224** |
-> | `readlik` SNV F1 | 0.9872 | **0.9880** | +0.0008 |
-> | `readlik` Indel F1 | 0.7768 | **0.8602** | **+0.0834** |
-> | `readlik-nolink` ALL F1 | 0.9242 | 0.9293 | +0.0051 |
-> | `readlik-nomismap` ALL F1 | 0.9372 | 0.9596 | +0.0224 |
->
-> Indel precision 0.7384 -> 0.8455 and recall 0.8194 -> 0.8755.
->
-> **chr6 is the held-out contig, and all three of chr20's findings reproduce on it**:
->
-> | | chr20 | chr6 |
-> |---|---|---|
-> | `--preset ont`, ALL F1 | +0.0252 | +0.0224 |
-> | `--preset ont`, Indel F1 | +0.0886 | +0.0834 |
-> | MAPQ mismap term on ONT | +0.0000 | −0.0000 |
-> | MAPQ mismap term on Illumina | +0.0120 | +0.0049 |
-> | linkage layer on ONT, short-read defaults | +0.0143 | +0.0130 |
-> | linkage layer on ONT, `--preset ont` | +0.0340 | +0.0303 |
->
-> The MAPQ term being worth **nothing** on ONT and something on Illumina is the sharpest of these,
-> and the reason is not saturation. 94.7% of ONT reads are MAPQ 60, but short reads are *more*
-> saturated by the measure that matters — 0.69% of Illumina reads have `e_r` free of the clamps
-> against 2.58% of ONT. The term acts through the low-MAPQ tail where `e_r` hits the 0.7 ceiling,
-> and that tail is **9.65% of Illumina reads against 0.82% of ONT, 12x fewer**: long reads anchor
-> uniquely, so there is almost no ambiguous-placement class to discount. See
-> [tier2-chr20-results.md](tier2-chr20-results.md) for the full working. And the
-> linkage layer roughly doubles in value under the preset because `--read-phasing` and
-> `--regenotype` both live in it, so `readlik-nolink` removes them too.
-
 Real reads, real benchmark, run on a 32 GB laptop.
 
 This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from haplotype sampling. It is the primary subject because it is what the caller is tuned for -- both the linkage transition and the panel frequency prior are panel-size effects and have little to work with on a thin panel -- and because it is the better-performing configuration. The 4-haplotype graph has its own page at [tier2-chr6-4hap-results.md](tier2-chr6-4hap-results.md), and the two are put side by side in [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md).
@@ -63,7 +13,7 @@ This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from haplo
 | regions | small variants 167.2 Mb; SVs 168.4 Mb |
 | engine | `aardvark compare` for small variants; `truvari bench --sizemin 50` for SVs |
 
-**All read-likelihood arms below run at the current clamp defaults, `--mismap-min 0.02` and `--mismap-max 0.7`.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap down from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
+**All read-likelihood arms below run at the current clamp defaults, `--mismap-min 0.02` and `--mismap-max 0.95`.** The floor caps how much one read can veto an allele; the cap bounds how far a low-MAPQ read is discounted. Both were set by measurement — the floor from 1e-8, the cap raised from an original 0.1 that was actively wrong on haplotype-rich graphs — and the sweeps are in harness plan §9.20-§9.21. `poisson` and `poisson-z` do not use the read-likelihood model, so neither reaches them.
 
 **Read the caveats before the numbers.** The benchmark is a *draft*: its own README reports known errors in highly homozygous regions, homopolymers and tandem repeats, and excludes VDJ and TSPY2. Absolute values are benchmark-relative; the arm-to-arm comparison is what this table is for.
 
@@ -71,20 +21,24 @@ This is the **34-haplotype** graph: CHM13, GRCh38 and 32 recombinants from haplo
 
 Every number on this page — accuracy and cost alike — comes from one `vg` build in one pass, which is what the refresh harness exists to guarantee: a table whose rows come from different builds is not a comparison, it is a mixture of vintages.
 
-Build: `vg version v1.4.0-18654-g648296d56`.
+Build: `vg version v1.4.0-18924-g8acbb43a2` (the code of `0cab3fbd4`, built before that commit, so the string names its parent).
 
 The wall column is what the caller costs unaided, and the repeatability note below applies to it harder than to the memory column. It includes snarl decomposition, which is single-threaded — 46 s of a 197 s chr20 run — and which `vg call -r` skips for byte-identical output given `vg snarls -T -P <ref path>`. The whole-genome harness caches one snarl file per contig for exactly that reason; this matrix does not, so these figures include it.
 
-| arm | enumeration | pack? | variants | wall | CPU | peak RSS |
-|---|---|---|---|---|---|---|
-| `poisson` | support (Flow) | yes | 294,626 | 666 s | 2,696 s (4.0x) | 6.0 GB |
-| `poisson-z` | panel (`-z`) | yes | 294,835 | 198 s | 524 s (2.6x) | 6.1 GB |
-| `readlik-support` | support (`--enumerate-support`) | yes | 299,877 | 350 s | 1,232 s (3.5x) | 8.2 GB |
-| `readlik-nomismap` | panel (default) | **no** | 303,729 | 356 s | 1,144 s (3.2x) | 8.5 GB |
-| `readlik-nolink` | panel (default) | **no** | 299,880 | 277 s | 981 s (3.5x) | 8.0 GB |
-| `readlik` | panel (default) | **no** | 296,793 | 366 s | 1,182 s (3.2x) | 7.6 GB |
+| arm | enumeration | pack? | variants | wall | CPU | Δ wall | Δ CPU | peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| `poisson` | support (Flow) | yes | 294,626 | 600 s | 2,453 s (4.1x) | -67 s | -243 s | 7.0 GB |
+| `poisson-z` | panel (`-z`) | yes | 294,835 | 192 s | 531 s (2.8x) | -6 s | +7 s | 6.2 GB |
+| `readlik-support` | support (`--enumerate-support`) | yes | 299,876 | 319 s | 1,144 s (3.6x) | -31 s | -88 s | 12.9 GB |
+| `readlik-nomismap` | panel (default) | **no** | 303,771 | 297 s | 1,046 s (3.5x) | -59 s | -98 s | 13.2 GB |
+| `readlik-nolink` | panel (default) | **no** | 299,824 | 254 s | 912 s (3.6x) | -23 s | -68 s | 12.7 GB |
+| `readlik` | panel (default) | **no** | 296,566 | 295 s | 1,029 s (3.5x) | -71 s | -152 s | 12.7 GB |
 
 `CPU` is user+sys, with the multiple of wall clock beside it. It is the column that separates work from waiting: this caller has phases that run on one thread and phases that block on a subprocess, so a wall-clock change can come from either doing less or waiting less, and only CPU distinguishes them. A multiple well under `--threads` means the run spent its time parked rather than computing.
+
+`Δ wall` is against `vg version v1.4.0-18654-g648296d56`. Read it with the repeatability note below: run-to-run variance on this measurement is larger than most of these deltas, and the Poisson arms are the control -- their code is untouched by any read-likelihood change, so a Δ on those rows is the machine and not the caller.
+
+**Peak RSS in this table is repeatable to about ±0.35 GB, so read it accordingly.** Three back-to-back runs of one binary on chr6-4hap, identical parameters and a warm cache, gave 7.3, 6.6 and 7.0 GB -- a 0.7 GB spread on a 7 GB measurement. Differences smaller than that are not evidence of anything, and a single measurement of each of two arms cannot resolve one. Thread count matters too: the same run at `--threads 6` instead of 5 measured 8.7 GB, because the read and GBWT caches are per thread. Wall clock is worse still -- a run immediately after a full rebuild took 956 s against 260 s warm, purely from page cache.
 
 ## Small variants (GIAB `smvar` benchmark)
 
@@ -96,10 +50,10 @@ The wall column is what the caller costs unaided, and the repeatability note bel
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.9573 | 0.9800 | 0.9685 | 214,033 | 9,552 | 4,235 | 0.9639 | 0.9825 | 0.9731 |
 | `poisson-z` | 0.9607 | 0.9801 | 0.9703 | 214,796 | 8,789 | 4,230 | 0.9671 | 0.9824 | 0.9747 |
-| `readlik-support` | 0.9788 | 0.9928 | 0.9858 | 218,844 | 4,741 | 1,530 | 0.9822 | 0.9908 | 0.9865 |
-| `readlik-nomismap` | 0.9803 | 0.9858 | 0.9830 | 219,183 | 4,402 | 3,085 | 0.9831 | 0.9853 | 0.9842 |
-| `readlik-nolink` | 0.9789 | 0.9929 | 0.9859 | 218,878 | 4,707 | 1,519 | 0.9822 | 0.9908 | 0.9865 |
-| `readlik` | 0.9800 | 0.9962 | **0.9880** | 219,116 | 4,469 | 819 | 0.9828 | 0.9930 | 0.9879 |
+| `readlik-support` | 0.9786 | 0.9926 | 0.9856 | 218,791 | 4,794 | 1,573 | 0.9820 | 0.9906 | 0.9863 |
+| `readlik-nomismap` | 0.9803 | 0.9858 | 0.9830 | 219,182 | 4,403 | 3,082 | 0.9831 | 0.9853 | 0.9842 |
+| `readlik-nolink` | 0.9787 | 0.9927 | 0.9857 | 218,829 | 4,756 | 1,561 | 0.9820 | 0.9906 | 0.9863 |
+| `readlik` | 0.9797 | 0.9963 | **0.9879** | 219,048 | 4,537 | 799 | 0.9826 | 0.9931 | 0.9879 |
 
 ### Insertion (<50 bp)
 
@@ -107,10 +61,10 @@ The wall column is what the caller costs unaided, and the repeatability note bel
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.7744 | 0.8529 | 0.8118 | 21,742 | 6,333 | 4,279 | 0.7996 | 0.6375 | 0.7094 |
 | `poisson-z` | 0.7792 | 0.8558 | 0.8157 | 21,876 | 6,199 | 4,192 | 0.8041 | 0.5959 | 0.6845 |
-| `readlik-support` | 0.9025 | 0.8858 | 0.8941 | 25,339 | 2,736 | 3,547 | 0.9218 | 0.5409 | 0.6817 |
-| `readlik-nomismap` | 0.9312 | 0.9201 | 0.9256 | 26,144 | 1,931 | 2,427 | 0.9419 | 0.4559 | 0.6144 |
-| `readlik-nolink` | 0.9031 | 0.8857 | 0.8943 | 25,355 | 2,720 | 3,550 | 0.9228 | 0.5397 | 0.6811 |
-| `readlik` | 0.9307 | 0.9267 | **0.9287** | 26,128 | 1,947 | 2,204 | 0.9407 | 0.5964 | 0.7300 |
+| `readlik-support` | 0.9022 | 0.8866 | 0.8943 | 25,328 | 2,747 | 3,517 | 0.9206 | 0.6139 | 0.7366 |
+| `readlik-nomismap` | 0.9311 | 0.9204 | 0.9257 | 26,142 | 1,933 | 2,419 | 0.9415 | 0.4557 | 0.6141 |
+| `readlik-nolink` | 0.9027 | 0.8863 | 0.8945 | 25,344 | 2,731 | 3,528 | 0.9221 | 0.6106 | 0.7347 |
+| `readlik` | 0.9304 | 0.9270 | **0.9287** | 26,122 | 1,953 | 2,193 | 0.9403 | 0.7300 | 0.8219 |
 
 ### Deletion (<50 bp)
 
@@ -118,32 +72,21 @@ The wall column is what the caller costs unaided, and the repeatability note bel
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.8557 | 0.7206 | 0.7824 | 24,222 | 4,083 | 10,150 | 0.9292 | 0.5149 | 0.6626 |
 | `poisson-z` | 0.8593 | 0.7229 | 0.7852 | 24,323 | 3,982 | 10,083 | 0.9306 | 0.4736 | 0.6278 |
-| `readlik-support` | 0.9306 | 0.8880 | 0.9088 | 26,340 | 1,965 | 3,589 | 0.9423 | 0.7530 | 0.8371 |
-| `readlik-nomismap` | 0.9498 | 0.9443 | 0.9470 | 26,883 | 1,422 | 1,702 | 0.9524 | 0.8590 | 0.9033 |
-| `readlik-nolink` | 0.9315 | 0.8893 | 0.9099 | 26,367 | 1,938 | 3,546 | 0.9433 | 0.7568 | 0.8398 |
-| `readlik` | 0.9506 | 0.9491 | **0.9498** | 26,906 | 1,399 | 1,543 | 0.9541 | 0.8259 | 0.8854 |
+| `readlik-support` | 0.9310 | 0.8869 | 0.9084 | 26,352 | 1,953 | 3,629 | 0.9431 | 0.7487 | 0.8347 |
+| `readlik-nomismap` | 0.9499 | 0.9445 | 0.9472 | 26,887 | 1,418 | 1,694 | 0.9525 | 0.8617 | 0.9049 |
+| `readlik-nolink` | 0.9320 | 0.8883 | 0.9096 | 26,379 | 1,926 | 3,584 | 0.9438 | 0.7501 | 0.8359 |
+| `readlik` | 0.9510 | 0.9491 | **0.9500** | 26,917 | 1,388 | 1,543 | 0.9542 | 0.8569 | 0.9030 |
 
 ### Indel
 
 | arm | GT recall | GT precision | **GT F1** | TP | FN | FP | BP recall | BP precision | BP F1 |
 |---|---|---|---|---|---|---|---|---|---|
-| `poisson` | — | 0.7865 | — | 0 | 0 | 825 | — | 0.3420 | — |
-| `poisson-z` | — | 0.7915 | — | 0 | 0 | 836 | — | 0.4509 | — |
-| `readlik-support` | — | 0.9183 | — | 0 | 0 | 262 | — | 0.6035 | — |
-| `readlik-nomismap` | — | 0.8879 | — | 0 | 0 | 380 | — | 0.5060 | — |
-| `readlik-nolink` | — | 0.9174 | — | 0 | 0 | 266 | — | 0.7647 | — |
-| `readlik` | — | 0.9434 | — | 0 | 0 | 178 | — | 0.8104 | — |
-
-### Indel (joint)
-
-| arm | GT recall | GT precision | **GT F1** | TP | FN | FP | BP recall | BP precision | BP F1 |
-|---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.8153 | 0.7798 | 0.7972 | 45,964 | 10,416 | 15,254 | 0.8656 | 0.5453 | 0.6691 |
 | `poisson-z` | 0.8194 | 0.7825 | 0.8005 | 46,199 | 10,181 | 15,111 | 0.8685 | 0.5176 | 0.6486 |
-| `readlik-support` | 0.9166 | 0.8884 | 0.9023 | 51,679 | 4,701 | 7,398 | 0.9323 | 0.6314 | 0.7529 |
-| `readlik-nomismap` | 0.9405 | 0.9299 | 0.9352 | 53,027 | 3,353 | 4,509 | 0.9472 | 0.5959 | 0.7316 |
-| `readlik-nolink` | 0.9174 | 0.8890 | 0.9030 | 51,722 | 4,658 | 7,362 | 0.9333 | 0.6373 | 0.7574 |
-| `readlik` | 0.9407 | 0.9382 | **0.9394** | 53,034 | 3,346 | 3,925 | 0.9475 | 0.6991 | 0.8046 |
+| `readlik-support` | 0.9166 | 0.8883 | 0.9022 | 51,680 | 4,700 | 7,409 | 0.9321 | 0.6761 | 0.7837 |
+| `readlik-nomismap` | 0.9406 | 0.9301 | 0.9353 | 53,029 | 3,351 | 4,497 | 0.9471 | 0.5964 | 0.7319 |
+| `readlik-nolink` | 0.9174 | 0.8888 | 0.9029 | 51,723 | 4,657 | 7,375 | 0.9332 | 0.6788 | 0.7859 |
+| `readlik` | 0.9407 | 0.9384 | **0.9396** | 53,039 | 3,341 | 3,910 | 0.9474 | 0.7908 | 0.8620 |
 
 ### ALL
 
@@ -151,18 +94,18 @@ The wall column is what the caller costs unaided, and the repeatability note bel
 |---|---|---|---|---|---|---|---|---|---|
 | `poisson` | 0.9287 | 0.9308 | 0.9297 | 259,997 | 19,968 | 19,489 | 0.9264 | 0.7386 | 0.8219 |
 | `poisson-z` | 0.9322 | 0.9313 | 0.9318 | 260,995 | 18,970 | 19,341 | 0.9296 | 0.7139 | 0.8076 |
-| `readlik-support` | 0.9663 | 0.9681 | 0.9672 | 270,523 | 9,442 | 8,928 | 0.9680 | 0.8026 | 0.8776 |
-| `readlik-nomismap` | 0.9723 | 0.9730 | 0.9726 | 272,210 | 7,755 | 7,594 | 0.9758 | 0.7720 | 0.8620 |
-| `readlik-nolink` | 0.9665 | 0.9683 | 0.9674 | 270,600 | 9,365 | 8,881 | 0.9685 | 0.8070 | 0.8804 |
-| `readlik` | 0.9721 | 0.9829 | **0.9775** | 272,150 | 7,815 | 4,744 | 0.9759 | 0.8506 | 0.9090 |
+| `readlik-support` | 0.9661 | 0.9679 | 0.9670 | 270,471 | 9,494 | 8,982 | 0.9679 | 0.8356 | 0.8969 |
+| `readlik-nomismap` | 0.9723 | 0.9730 | 0.9727 | 272,211 | 7,754 | 7,579 | 0.9758 | 0.7724 | 0.8623 |
+| `readlik-nolink` | 0.9664 | 0.9681 | 0.9672 | 270,552 | 9,413 | 8,936 | 0.9684 | 0.8377 | 0.8983 |
+| `readlik` | 0.9719 | 0.9830 | **0.9774** | 272,087 | 7,878 | 4,709 | 0.9757 | 0.9115 | 0.9425 |
 
 ## Reading the insertion BASEPAIR numbers
 
-The insertion `BASEPAIR` precision above understates the read-likelihood caller, and the reason is a property of the benchmark rather than of either caller.
+The insertion `BASEPAIR` precision above understates both callers, and the reason is a property of the benchmark rather than of either caller.
 
 **The `smvar` truth set contains no record >=50 bp** — that size class lives in the separate `stvar` benchmark. But the two confident regions overlap almost completely (167.2 Mb vs 168.4 Mb). So a >=50 bp insertion called inside the small-variant confident region has every one of its bases scored FP, however right the call is. It cannot be scored correct.
 
-The same mechanism was traced site by site on chr20, where 246 `readlik` calls carrying a >=200 bp insertion allele contribute 27,951 FP bases and zero TP bases — the whole of the precision difference there. The size-matched control below is the general test.
+316 `readlik` calls carry an insertion allele of 200 bp or more, against 287 from `poisson-z`. Every base of those alleles inside the small-variant confident region is scored FP, and the size-matched control below measures what that does to each caller's precision.
 
 Restricting **both** callers to the range the benchmark can adjudicate (dropping any record with a called allele >=50 bp from REF, applied identically to each) gives the size-matched comparison:
 
@@ -171,18 +114,17 @@ Restricting **both** callers to the range the benchmark can adjudicate (dropping
 | `sm50-poisson-z` | Insertion | 0.8019 | 0.8645 | **0.8320** |
 | `sm50-poisson-z` | Deletion | 0.9239 | 0.7428 | **0.8235** |
 | `sm50-poisson-z` | ALL | 0.9271 | 0.9091 | **0.9180** |
-| `sm50-readlik` | Insertion | 0.9387 | 0.9104 | **0.9244** |
-| `sm50-readlik` | Deletion | 0.9517 | 0.9184 | **0.9347** |
-| `sm50-readlik` | ALL | 0.9747 | 0.9798 | **0.9772** |
+| `sm50-readlik` | Insertion | 0.9384 | 0.9117 | **0.9248** |
+| `sm50-readlik` | Deletion | 0.9521 | 0.9183 | **0.9349** |
+| `sm50-readlik` | ALL | 0.9746 | 0.9802 | **0.9774** |
 
-The insertion BASEPAIR precision gap collapses from **-0.001 to -0.046**, and insertion BASEPAIR F1 goes from 0.8320 for `poisson-z` against 0.9244 for `readlik`.
-There is no insertion-sequence defect in the likelihood model; what the unrestricted number measures is that one caller emits large insertions and the other does not.
+Restricting raises insertion BASEPAIR precision from 0.7300 to 0.9117 for `readlik` and from 0.5959 to 0.8645 for `poisson-z`. `readlik` minus `poisson-z` goes from +0.134 to +0.047, so the unrestricted comparison overstates the difference between them. Insertion BASEPAIR F1 is 0.8320 for `poisson-z` against 0.9248 for `readlik` restricted, and 0.6845 against 0.8219 unrestricted.
 
-Whether those large calls are *correct* is a separate question, and the truvari comparison below is what answers it.
+Whether those large calls are *correct* is a separate question, and the truvari comparison below is what answers it. Split into single alleles there are 352 insertions of 200 bp or more; truvari confirms **183** and rejects **91**, and the other **78** fall outside the SV confident region or above truvari's 50 kb size cap, so it does not judge them. *Known bad output* lists the largest.
 
 ## Structural variants — truvari (GIAB `stvar` benchmark)
 
-The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark's `Sv*` categories as the primary measure: those are scored against the *small-variant* truth set, which contains no record over 50 bp at all, so they have almost nothing to match (plan §9.22). The aardvark block below is kept for continuity with earlier runs.
+The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark's `Sv*` categories as the primary measure: those are scored against the *small-variant* truth set, which contains no record over 50 bp at all, so they have almost nothing to match (plan §9.22).
 
 **What these errors are made of, per record, is in [tier2-sv-errors.md](tier2-sv-errors.md)** — including the finding that about a quarter of all false positives are the metric rather than the caller, and that harmonising representation with `truvari refine` moves every arm up by roughly 0.05 F1. Read the ranking between arms here; treat the absolute level as benchmark-relative.
 
@@ -190,49 +132,76 @@ The SV metric. Reciprocal-overlap matching, `--sizemin 50`. It replaced aardvark
 |---|---|---|---|---|---|---|
 | `poisson` | 0.5320 | 0.4618 | 0.4944 | 823 | 936 | 724 |
 | `poisson-z` | 0.5417 | 0.4442 | 0.4881 | 838 | 1,036 | 709 |
-| `readlik-support` | 0.5779 | 0.5092 | 0.5414 | 894 | 854 | 653 |
-| `readlik-nomismap` | 0.6167 | 0.4831 | 0.5418 | 954 | 1,027 | 593 |
-| `readlik-nolink` | 0.5973 | 0.4928 | 0.5400 | 924 | 953 | 623 |
-| `readlik` | 0.6063 | 0.5627 | **0.5837** | 938 | 729 | 609 |
+| `readlik-support` | 0.5818 | 0.5068 | 0.5417 | 900 | 867 | 647 |
+| `readlik-nomismap` | 0.6173 | 0.4834 | 0.5422 | 955 | 1,028 | 592 |
+| `readlik-nolink` | 0.5960 | 0.4936 | 0.5400 | 922 | 947 | 625 |
+| `readlik` | 0.6063 | 0.5670 | **0.5860** | 938 | 717 | 609 |
 
+## Long reads — ONT, 16-haplotype E821 graph
 
-Kept for continuity. These categories are scored against the small-variant truth set and should not be read as the SV result; prefer the truvari table above.
+Same sample, truth and confident regions as above; different reads and a different graph. The ONT reads (45.4x on chr6, mean length 33,449 bp on chr20) are aligned to the E821 graph: 16 haplotypes from haplotype sampling plus CHM13 and GRCh38, 18 in the panel against 34 above. So a figure here is not comparable with one in the short-read tables. The pair of columns is comparable, and it answers what the long-read preset buys on long-read data. The preset sets `--gap-open 1 --gap-extend 1 --mismap-min 0.05 --read-min-mapq 5 --insertion-nats 0.9 --read-phasing --regenotype`.
 
-**Precision here is recomputed, not read from aardvark.** Its summary leaves `query_total`/`query_tp`/`query_fp` at zero for the `Sv*` categories, so its own precision and F1 come out as 0/0. The per-variant `BD` decisions *are* in its annotated query VCF, so precision is counted from those over query variants of >=50 bp; recall is the published summary value; F1 is derived from the two.
+Build: `vg version v1.4.0-18924-g8acbb43a2` (the code of `0cab3fbd4`, built before that commit, so the string names its parent) — the same build as the short-read arms. Directories: `work/E821-chr6/results-0923-default`, `work/E821-chr6/results-0923-preset`.
 
-\* recomputed as described above. The per-variant counts are shared across the three SV rows because they are counted over all >=50 bp query variants, not split by insertion/deletion; only recall is category-specific.
+| | short-read defaults | `--preset ont` | Δ |
+|---|---|---|---|
+| `readlik` ALL F1 | 0.9373 | 0.9646 | +0.0273 |
+| `readlik` SNV F1 | 0.9871 | 0.9882 | +0.0011 |
+| `readlik` indel F1 | 0.7774 | 0.8807 | +0.1033 |
+| `readlik` indel recall | 0.8199 | 0.8880 | +0.0681 |
+| `readlik` indel precision | 0.7391 | 0.8735 | +0.1344 |
+| `readlik-nomismap` ALL F1 | 0.9373 | 0.9644 | +0.0271 |
+| `readlik-nolink` ALL F1 | 0.9241 | 0.9345 | +0.0104 |
+| `readlik` SV F1 (truvari) | 0.6056 | 0.6047 | -0.0009 |
+
+Small variants are aardvark's GT comparison, with indels from its joint indel row.
+
+| arm | configuration | variants | wall | CPU | peak RSS |
+|---|---|---|---|---|---|
+| `readlik` | short-read defaults | 312,247 | 295 s | 1,057 s | 6.8 GB |
+| `readlik` | `--preset ont` | 302,392 | 374 s | 1,152 s | 7.7 GB |
+| `readlik-nomismap` | short-read defaults | 312,427 | 290 s | 1,051 s | 7.3 GB |
+| `readlik-nomismap` | `--preset ont` | 302,463 | 373 s | 1,144 s | 8.2 GB |
+| `readlik-nolink` | short-read defaults | 315,662 | 278 s | 1,000 s | 7.4 GB |
+| `readlik-nolink` | `--preset ont` | 308,390 | 273 s | 989 s | 8.2 GB |
+
+Run serially on the same machine as the short-read arms, `--threads 5`.
+
+*The MAPQ mismapping term.* `readlik` minus `readlik-nomismap` is 0.0000 ALL F1 on ONT at short-read defaults and +0.0002 under the preset, against +0.0047 on short reads. `--no-mismap-term` puts every read on the floor, so the term changes only a read whose `e_r = clamp(10^(−MAPQ/10), --mismap-min, --mismap-max)` is above it (MAPQ below 17 at the 0.02 floor), and it reduces a read on the ceiling to near-silence. At the default ceiling of 0.95 that is MAPQ 0 alone: 4.96% of chr20 short-read alignments against 0.63% of ONT, 8x fewer. Long reads anchor uniquely, so there is almost no ambiguous-placement class for the term to act on. Under the preset, `--read-min-mapq 5` drops those reads before scoring, so no read reaches the ceiling and the term acts only between MAPQ 5 and 13, where 10^(−MAPQ/10) lies above the preset's 0.05 floor.
+
+*The linkage layer.* `readlik` minus `readlik-nolink` is +0.0132 on ONT at short-read defaults and +0.0302 under the preset, against +0.0102 on short reads. `--linkage-weight 0` turns the whole layer off, and read phasing and phase-driven re-genotyping run inside it, so under the preset that arm loses both as well as the transition model. Switch error across depth, and ONT's SV figures against short reads with confidence intervals, are in [coverage.md](coverage.md).
 
 ## Calibration: the two mismapping clamps
 
 MAPQ measures confidence that a read is in the right *place*, not that its path through a given site is right. A locally misaligned read is still MAPQ 60, so the mismapping term cannot discount it, yet it vetoes any allele it does not match by `ln(e_r)` — **−13.8 nats from one read** at the old floor of 1e-8. The floor caps that veto; the current default is **0.02**.
 
-The *upper* clamp (`--mismap-max`) **binds hard here**, and looked inert on the 4-haplotype graph. There it reaches only reads whose `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60 — so it appeared to be a knob with nothing to act on. On this graph 23.3% of reads sit at MAPQ 1, meaning p(wrong) = 0.79, and the old cap of 0.1 was telling the model 0.1: overriding the mapper at exactly the sites that matter. Raising it removed 94% of the excess false-positive SNVs, and the default is now **0.7**. A clamp that is inert on a sparse graph is not thereby harmless — see 
+The *upper* clamp (`--mismap-max`) **binds hard here**, and looked inert on the 4-haplotype graph. There it reaches only reads whose `e_r` is already large — 6.3% of chr20 reads at MAPQ ≤ 9, against 90% at MAPQ 60 — so it appeared to be a knob with nothing to act on. On this graph the old cap of 0.1 was overriding the mapper at exactly the sites that matter: 23.3% of reads at those sites sit at MAPQ 1, meaning p(wrong) = 0.79, and were being told 0.1. Raising it to 0.5 removed 94% of the excess false-positive SNVs, and the default is now **0.95**. A clamp that is inert on a sparse graph is not thereby harmless.
 
 The two graphs are put side by side in [tier2-chr6-graph-comparison.md](tier2-chr6-graph-comparison.md); the grids are in plan §9.20.
 
 | `readlik` variant | ALL GT F1 | SNV GT F1 | Insertion GT F1 | Deletion GT F1 | ALL BP F1 |
 |---|---|---|---|---|---|
-| **floor 0.02, cap 0.7 (current defaults)** | 0.9775 | 0.9880 | 0.9287 | 0.9498 | 0.9090 |
+| **floor 0.02, cap 0.95 (current defaults)** | 0.9774 | 0.9879 | 0.9287 | 0.9500 | 0.9425 |
 
-Only the current row is available here: the preserved old-default arms (`arms.floor-1e-8.json`, `arms.readlik.json`) exist for the 4-haplotype runs alone, so the before-and-after is on [tier2-chr6-4hap-results.md](tier2-chr6-4hap-results.md). Mixing rows from two graphs into one table is exactly what the one-build-per-matrix rule forbids. The full grids are in plan §9.20-§9.21.
+Only the current row is available here: the preserved old-default arms (`arms.floor-1e-8.json`, `arms.readlik.json`) exist for the chr20 4-haplotype run alone, so the before-and-after is on [tier2-chr20-4hap-results.md](tier2-chr20-4hap-results.md). Mixing rows from two datasets into one table is exactly what the one-build-per-matrix rule forbids. The full grids are in plan §9.20-§9.21.
 
 The floor was later re-swept at the corrected cap, on both graphs and both benchmarks, and settled at **0.02**. 0.05 wins on small-variant `GT` but costs about 0.01 of SV F1 — which the first sweep never saw, because it was scored on one benchmark only. Plan §9.21 records that as a process rule: a sweep that sets a default has to be scored on every benchmark the project runs.
 
-## Known bad output (measured on chr20)
+## Known bad output
 
 Neither benchmark scores these, so they appear in no metric on this page. They are recorded because they are plainly wrong and would mislead anyone reading the VCF.
 
-`readlik` emits a small number of enormous homozygous insertions in and around the chr20 pericentromere, at depths that are physically impossible:
+`readlik` calls **14 records carrying an insertion of 10 kb or more** on chr6 (15 such alleles), with median DP **2,649** against a median of **29** over all of the contig's records. 3 of them start inside another giant's reference span, so the records overstate the number of independent events. Length is the net insertion, ALT minus REF. The five largest:
 
-| position | called insertion | GT | DP | GQ |
-|---|---|---|---|---|
-| chr20:25,849,044 | 61,958 bp | 1/1 | 7,873 | 256 |
-| chr20:32,179,077 | 57,716 bp | 1/1 | 5,337 | 256 |
-| chr20:1,629,728 | 33,050 bp | 1/1 | 291 | 256 |
-| chr20:25,873,453 | 28,685 bp | 1/2 | 5,498 | 256 |
-| chr20:25,792,993 | 23,450 bp | 1/1 | 932 | 256 |
+| position | net insertion | REF length | GT | DP | GQ |
+|---|---|---|---|---|---|
+| chr6:32,344,855 | 64,151 bp | 65,217 bp | `2\|1` | 19,914 | 8 |
+| chr6:32,362,682 | 38,583 bp | 9,493 bp | `1\|2` | 5,486 | 9 |
+| chr6:56,902,800 | 36,712 bp | 8,891 bp | `1\|0` | 8,737 | 6 |
+| chr6:31,837,918 | 32,738 bp | 1 bp | `1\|0` | 3,691 | 16 |
+| chr6:31,881,914 | 32,735 bp | 1 bp | `0\|1` | 2,935 | 0 |
 
-Chromosome-median DP is **29**, and the Poisson caller's expected depth (`XD`) never exceeds **167** anywhere on chr20. Median DP rises monotonically with called insertion length — 28 for 1 bp, 28 for 2–15 bp, 35 for 50–199 bp, **330 for >=1 kb** — so these are collapsed-repeat pile-ups, not haplotypes.
+Median DP by called insertion length: 28 for 1 bp, 27 for 2-15 bp, 25 for 16-49 bp, 34 for 50-199 bp, 68 for 200-999 bp, 419 for >=1 kb. So the giants are collapsed-repeat pile-ups, not haplotypes.
 
 The read-likelihood model cannot reject them, and the reason is structural rather than a tuning failure: it computes P(reads | genotype) **conditioned on the reads it is given**, and never asks whether that many reads should be there. The Poisson caller gets this for free, because an observed-vs-expected depth term is the whole of its model. A depth-plausibility guard is the obvious remedy, and the expected depth is already reachable — the read-likelihood caller subclasses `SupportBasedSnarlCaller` and holds a `TraversalSupportFinder` for allele enumeration.
 
@@ -243,7 +212,7 @@ Filtering on depth is **not** that remedy, and that has now been tested properly
 - a **minimum** fails in all eight dataset-by-benchmark cells. Few reads already means a small likelihood gap, so low depth depresses GQ on its own and a separate cut adds nothing;
 - a **maximum** passes in exactly one configuration — 5x the local median, structural calls, 34-haplotype graph, worth about +0.025 precision — and is dominated everywhere else. The two original spot checks (DP 200 moving insertion BASEPAIR precision by 0.0001; DP 58 helping by +0.087 but costing SV insertion recall 0.4976 to 0.4167) were both right and both too narrow to conclude from.
 
-What shipped instead attacks the same blindness from the other side: **GQ is now scaled by the fraction of reads the called genotype explains**, so a pile-up the call does not account for can no longer carry a saturated quality. The giants remain output that no metric charges for — they should be fixed because they are wrong, not because they cost a score — but they no longer look confident. See [tier2-quality-signals.md](tier2-quality-signals.md).
+What shipped instead attacks the same blindness from the other side: **GQ is scaled by the fraction of reads the called genotype explains**, which lowers the quality of a pile-up the call does not account for. It does not reach all of them: 2 of the 14 giants above still carry GQ 256. The giants remain output that no metric charges for, and they should be fixed because they are wrong, not because they cost a score. See [tier2-quality-signals.md](tier2-quality-signals.md).
 
 ## Quality fields
 
@@ -252,6 +221,21 @@ Every arm above is scored at **every** GQ, so nothing on this page depends on th
 ## The genotype mixture
 
 The read-likelihood arms on this page use the **length-weighted mixture**, which became the default after it was found that the flat `1/ploidy` weight breaks heterozygotes whose alleles differ in length. Unlike the `GQ` scaling above, this *does* change genotypes, so these numbers are not comparable with runs made before it. `--flat-mixture` restores the previous model exactly. Derivation and measurements: [tier2-sv-errors.md](tier2-sv-errors.md).
+
+### At long read length
+
+`w_h ∝ L_h + R − 1` counts the read START positions that yield an overlap, so R is the full read length; the *scoring* window is the read's overlap with the site, but the weight answers a sampling question, not a fit question. At ONT read length the correction all but vanishes. With the measured chr20 mean of 33,449 bp against Illumina's 151:
+
+| | Illumina R=151 | ONT R=33,449 |
+|---|---|---|
+| 50 bp deletion | 1.33x, w = 0.571 | 1.00x, w = 0.500 |
+| 300 bp Alu | 3.00x, w = 0.750 | 1.01x, w = 0.502 |
+| 5 kb deletion | 34.3x, w = 0.972 | 1.15x, w = 0.535 |
+| 30 kb deletion | 201x, w = 0.995 | 1.90x, w = 0.655 |
+
+That is the model being right rather than distorted: a haplotype carrying a 5 kb deletion really does yield only 13% fewer 33 kb reads over the site, where it yields 34x fewer 151 bp reads. The flat mixture that `--flat-mixture` restores, and that loses large heterozygous deletions on short reads, is very nearly what the length weighting already computes for ONT.
+
+The caveat is the mean, not the term. ONT read lengths are heavily skewed (mean 33,449, median 19,222, p10 1,845, p90 86,190), so one mean R summarises a distribution that spans two orders of magnitude. A per-read R is the obvious refinement and has not been measured.
 
 ## Raw aardvark summary rows
 
@@ -297,18 +281,18 @@ The read-likelihood arms on this page use the **length-weighted mixture**, which
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik-support | GT | ALL | ALL | ALL | 279965 | 270523 | 9442 | 280149 | 271221 | 8928 | 0.9662743557230368 | 0.9681312444449204 | 0.967201908844901 | 1787 | 1593 |
-| readlik-support | GT | ALL | ALL | Snv | 223585 | 218844 | 4741 | 213837 | 212307 | 1530 | 0.9787955363731914 | 0.992845017466575 | 0.9857702201489853 | 185 | 828 |
-| readlik-support | GT | ALL | ALL | Insertion | 28075 | 25339 | 2736 | 31063 | 27516 | 3547 | 0.902546749777382 | 0.8858127032160448 | 0.8941014345420819 | 926 | 373 |
-| readlik-support | GT | ALL | ALL | Deletion | 28305 | 26340 | 1965 | 32041 | 28452 | 3589 | 0.9305776364599894 | 0.8879872663150339 | 0.9087837230698376 | 676 | 358 |
-| readlik-support | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3208 | 2946 | 262 |  | 0.9183291770573566 |  | 0 | 34 |
-| readlik-support | GT | ALL | ALL | JointIndel | 56380 | 51679 | 4701 | 66312 | 58914 | 7398 | 0.916619368570415 | 0.8884364820846905 | 0.9023079113345289 | 1602 | 765 |
-| readlik-support | BASEPAIR | ALL | ALL | ALL | 1115428 | 1079775 | 35653 | 1345394 | 1079775 | 265619 | 0.9680364846498385 | 0.8025715886944642 | 0.8775726159795385 |  |  |
-| readlik-support | BASEPAIR | ALL | ALL | Snv | 602392 | 591640 | 10752 | 581228 | 575898 | 5330 | 0.9821511573858882 | 0.9908297604382446 | 0.9864713715123201 |  |  |
-| readlik-support | BASEPAIR | ALL | ALL | Insertion | 257406 | 237275 | 20131 | 439730 | 237830 | 201900 | 0.9217928098024133 | 0.5408546153321356 | 0.6817171206051255 |  |  |
-| readlik-support | BASEPAIR | ALL | ALL | Deletion | 267064 | 251667 | 15397 | 334482 | 251854 | 82628 | 0.9423471527424138 | 0.7529672747711387 | 0.8370796071493057 |  |  |
-| readlik-support | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 30910 | 18655 | 12255 |  | 0.6035263668715626 |  |  |  |
-| readlik-support | BASEPAIR | ALL | ALL | JointIndel | 524470 | 488942 | 35528 | 805122 | 508339 | 296783 | 0.932259233130589 | 0.6313813310280927 | 0.7528726089220166 |  |  |
+| readlik-support | GT | ALL | ALL | ALL | 279965 | 270471 | 9494 | 280136 | 271154 | 8982 | 0.9660886182201347 | 0.9679370020275866 | 0.9670119268566836 | 1790 | 1615 |
+| readlik-support | GT | ALL | ALL | Snv | 223585 | 218791 | 4794 | 213818 | 212245 | 1573 | 0.9785584900597089 | 0.9926432760572075 | 0.9855505631977505 | 187 | 840 |
+| readlik-support | GT | ALL | ALL | Insertion | 28075 | 25328 | 2747 | 31020 | 27503 | 3517 | 0.9021549421193232 | 0.8866215344938749 | 0.8943207936717851 | 926 | 372 |
+| readlik-support | GT | ALL | ALL | Deletion | 28305 | 26352 | 1953 | 32096 | 28467 | 3629 | 0.9310015898251193 | 0.8869329511465603 | 0.9084331354905436 | 677 | 368 |
+| readlik-support | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3202 | 2939 | 263 |  | 0.9178638351030606 |  | 0 | 35 |
+| readlik-support | GT | ALL | ALL | JointIndel | 56380 | 51680 | 4700 | 66318 | 58909 | 7409 | 0.9166371053565094 | 0.8882807081033807 | 0.9022361582870019 | 1603 | 775 |
+| readlik-support | BASEPAIR | ALL | ALL | ALL | 1115426 | 1079606 | 35820 | 1291956 | 1079606 | 212350 | 0.96788670875522 | 0.835636817352913 | 0.8969129120347332 |  |  |
+| readlik-support | BASEPAIR | ALL | ALL | Snv | 602392 | 591544 | 10848 | 581268 | 575810 | 5458 | 0.9819917927196908 | 0.9906101832545401 | 0.9862821609109198 |  |  |
+| readlik-support | BASEPAIR | ALL | ALL | Insertion | 257406 | 236977 | 20429 | 386984 | 237574 | 149410 | 0.9206351056307934 | 0.613911686271267 | 0.7366196366521726 |  |  |
+| readlik-support | BASEPAIR | ALL | ALL | Deletion | 267064 | 251865 | 15199 | 336660 | 252051 | 84609 | 0.9430885480633856 | 0.748681162003208 | 0.8347148265330043 |  |  |
+| readlik-support | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 28240 | 18736 | 9504 |  | 0.6634560906515581 |  |  |  |
+| readlik-support | BASEPAIR | ALL | ALL | JointIndel | 524470 | 488842 | 35628 | 751884 | 508361 | 243523 | 0.9320685644555456 | 0.6761162626149778 | 0.7837242382749524 |  |  |
 
 </details>
 
@@ -316,18 +300,18 @@ The read-likelihood arms on this page use the **length-weighted mixture**, which
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik-nomismap | GT | ALL | ALL | ALL | 279965 | 272210 | 7755 | 280868 | 273274 | 7594 | 0.9723001089421892 | 0.9729623880256918 | 0.9726311357450208 | 1207 | 668 |
-| readlik-nomismap | GT | ALL | ALL | Snv | 223585 | 219183 | 4402 | 216562 | 213477 | 3085 | 0.9803117382650893 | 0.9857546568650086 | 0.9830256633935279 | 446 | 196 |
-| readlik-nomismap | GT | ALL | ALL | Insertion | 28075 | 26144 | 1931 | 30385 | 27958 | 2427 | 0.9312199465716829 | 0.9201250617080796 | 0.9256392589938967 | 391 | 235 |
-| readlik-nomismap | GT | ALL | ALL | Deletion | 28305 | 26883 | 1422 | 30532 | 28830 | 1702 | 0.9497615262321145 | 0.9442552076509891 | 0.9470003629087007 | 370 | 228 |
-| readlik-nomismap | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3389 | 3009 | 380 |  | 0.8878725287695486 |  | 0 | 9 |
-| readlik-nomismap | GT | ALL | ALL | JointIndel | 56380 | 53027 | 3353 | 64306 | 59797 | 4509 | 0.9405285562256119 | 0.9298821260846577 | 0.9351750412654318 | 761 | 472 |
-| readlik-nomismap | BASEPAIR | ALL | ALL | ALL | 1115432 | 1088445 | 26987 | 1409904 | 1088445 | 321459 | 0.9758057864576236 | 0.771999370169884 | 0.862019945068696 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Snv | 602392 | 592203 | 10189 | 584720 | 576142 | 8578 | 0.9830857647511919 | 0.9853297304692844 | 0.9842064685657081 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Insertion | 257406 | 242446 | 14960 | 530632 | 241926 | 288706 | 0.9418816966193484 | 0.4559204872680125 | 0.6144262285773047 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Deletion | 267064 | 254347 | 12717 | 295622 | 253946 | 41676 | 0.9523822005212234 | 0.8590226708431713 | 0.9032965677507663 |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 38612 | 19539 | 19073 |  | 0.5060343934528126 |  |  |  |
-| readlik-nomismap | BASEPAIR | ALL | ALL | JointIndel | 524470 | 496793 | 27677 | 864866 | 515411 | 349455 | 0.9472286308082445 | 0.5959431865745676 | 0.7316028484966772 |  |  |
+| readlik-nomismap | GT | ALL | ALL | ALL | 279965 | 272211 | 7754 | 280870 | 273291 | 7579 | 0.972303680817245 | 0.9730159860433653 | 0.972659703020187 | 1210 | 662 |
+| readlik-nomismap | GT | ALL | ALL | Snv | 223585 | 219182 | 4403 | 216562 | 213480 | 3082 | 0.9803072656931369 | 0.985768509710845 | 0.9830303027486045 | 446 | 193 |
+| readlik-nomismap | GT | ALL | ALL | Insertion | 28075 | 26142 | 1933 | 30382 | 27963 | 2419 | 0.9311487088156724 | 0.9203804884471068 | 0.9257332854417091 | 392 | 234 |
+| readlik-nomismap | GT | ALL | ALL | Deletion | 28305 | 26887 | 1418 | 30534 | 28840 | 1694 | 0.9499028440204911 | 0.9445208619899129 | 0.9472042080072838 | 372 | 226 |
+| readlik-nomismap | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3392 | 3008 | 384 |  | 0.8867924528301887 |  | 0 | 9 |
+| readlik-nomismap | GT | ALL | ALL | JointIndel | 56380 | 53029 | 3351 | 64308 | 59811 | 4497 | 0.9405640297978006 | 0.9300709087516328 | 0.9352880392702245 | 764 | 469 |
+| readlik-nomismap | BASEPAIR | ALL | ALL | ALL | 1115432 | 1088404 | 27028 | 1409084 | 1088404 | 320680 | 0.9757690293984752 | 0.7724195292828533 | 0.8622674603765633 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Snv | 602392 | 592200 | 10192 | 584712 | 576138 | 8574 | 0.9830807846053733 | 0.985336370726101 | 0.9842072853409028 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Insertion | 257406 | 242360 | 15046 | 530700 | 241819 | 288881 | 0.9415475940731762 | 0.45566044846429243 | 0.6141189943148412 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Deletion | 267064 | 254391 | 12673 | 294794 | 254034 | 40760 | 0.9525469550369948 | 0.8617339565934178 | 0.9048676543340668 |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 38632 | 19504 | 19128 |  | 0.5048664319734935 |  |  |  |
+| readlik-nomismap | BASEPAIR | ALL | ALL | JointIndel | 524470 | 496751 | 27719 | 864126 | 515357 | 348769 | 0.9471485499647263 | 0.5963910355665725 | 0.7319163173316445 |  |  |
 
 </details>
 
@@ -335,18 +319,18 @@ The read-likelihood arms on this page use the **length-weighted mixture**, which
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik-nolink | GT | ALL | ALL | ALL | 279965 | 270600 | 9365 | 280179 | 271298 | 8881 | 0.9665493901023342 | 0.9683024066757323 | 0.9674251042540221 | 1795 | 1597 |
-| readlik-nolink | GT | ALL | ALL | Snv | 223585 | 218878 | 4707 | 213847 | 212328 | 1519 | 0.9789476038195765 | 0.9928967906961519 | 0.9858728577118383 | 187 | 821 |
-| readlik-nolink | GT | ALL | ALL | Insertion | 28075 | 25355 | 2720 | 31072 | 27522 | 3550 | 0.9031166518254675 | 0.885749227600412 | 0.8943486328267493 | 930 | 384 |
-| readlik-nolink | GT | ALL | ALL | Deletion | 28305 | 26367 | 1938 | 32040 | 28494 | 3546 | 0.9315315315315316 | 0.8893258426966292 | 0.9099395438689145 | 678 | 358 |
-| readlik-nolink | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3220 | 2954 | 266 |  | 0.9173913043478261 |  | 0 | 34 |
-| readlik-nolink | GT | ALL | ALL | JointIndel | 56380 | 51722 | 4658 | 66332 | 58970 | 7362 | 0.9173820503724726 | 0.889012844479286 | 0.9029746800107078 | 1608 | 776 |
-| readlik-nolink | BASEPAIR | ALL | ALL | ALL | 1115436 | 1080348 | 35088 | 1338708 | 1080348 | 258360 | 0.9685432422837348 | 0.8070079509497217 | 0.8804275543733374 |  |  |
-| readlik-nolink | BASEPAIR | ALL | ALL | Snv | 602392 | 591646 | 10746 | 581262 | 575916 | 5346 | 0.9821611176775256 | 0.9908027705234472 | 0.9864630187252283 |  |  |
-| readlik-nolink | BASEPAIR | ALL | ALL | Insertion | 257406 | 237531 | 19875 | 440312 | 237634 | 202678 | 0.9227873476142747 | 0.5396945802067625 | 0.6810659615231027 |  |  |
-| readlik-nolink | BASEPAIR | ALL | ALL | Deletion | 267064 | 251934 | 15130 | 333154 | 252120 | 81034 | 0.9433469130994818 | 0.7567671407217083 | 0.8398188868921951 |  |  |
-| readlik-nolink | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 25208 | 19277 | 5931 |  | 0.764717549984132 |  |  |  |
-| readlik-nolink | BASEPAIR | ALL | ALL | JointIndel | 524470 | 489465 | 35005 | 798674 | 509031 | 289643 | 0.9332564303010659 | 0.6373451495854379 | 0.7574250106316424 |  |  |
+| readlik-nolink | GT | ALL | ALL | ALL | 279965 | 270552 | 9413 | 280169 | 271233 | 8936 | 0.9663779400996553 | 0.9681049652174223 | 0.9672406817507812 | 1800 | 1625 |
+| readlik-nolink | GT | ALL | ALL | Snv | 223585 | 218829 | 4756 | 213820 | 212259 | 1561 | 0.9787284477939039 | 0.9926994668412683 | 0.9856644527499139 | 190 | 842 |
+| readlik-nolink | GT | ALL | ALL | Insertion | 28075 | 25344 | 2731 | 31040 | 27512 | 3528 | 0.9027248441674087 | 0.886340206185567 | 0.8944574981779606 | 931 | 383 |
+| readlik-nolink | GT | ALL | ALL | Deletion | 28305 | 26379 | 1926 | 32094 | 28510 | 3584 | 0.9319554848966614 | 0.8883280363930953 | 0.9096189425671806 | 679 | 365 |
+| readlik-nolink | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3215 | 2952 | 263 |  | 0.9181959564541213 |  | 0 | 35 |
+| readlik-nolink | GT | ALL | ALL | JointIndel | 56380 | 51723 | 4657 | 66349 | 58974 | 7375 | 0.9173997871585668 | 0.8888453480836185 | 0.9028968629326823 | 1610 | 783 |
+| readlik-nolink | BASEPAIR | ALL | ALL | ALL | 1115434 | 1080201 | 35233 | 1289442 | 1080201 | 209241 | 0.9684131916366185 | 0.8377274821201729 | 0.8983423677561754 |  |  |
+| readlik-nolink | BASEPAIR | ALL | ALL | Snv | 602392 | 591544 | 10848 | 581302 | 575818 | 5484 | 0.9819917927196908 | 0.9905660052778074 | 0.9862602640261601 |  |  |
+| readlik-nolink | BASEPAIR | ALL | ALL | Insertion | 257406 | 237350 | 20056 | 388934 | 237479 | 151455 | 0.9220841783019821 | 0.6105894573372346 | 0.7346833206455544 |  |  |
+| readlik-nolink | BASEPAIR | ALL | ALL | Deletion | 267064 | 252062 | 15002 | 336270 | 252223 | 84047 | 0.9438261989635444 | 0.7500609629167039 | 0.83586109340931 |  |  |
+| readlik-nolink | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 24590 | 19268 | 5322 |  | 0.7835705571370476 |  |  |  |
+| readlik-nolink | BASEPAIR | ALL | ALL | JointIndel | 524470 | 489412 | 35058 | 749794 | 508970 | 240824 | 0.9331553759032929 | 0.6788131140019792 | 0.7859187205350721 |  |  |
 
 </details>
 
@@ -354,18 +338,18 @@ The read-likelihood arms on this page use the **length-weighted mixture**, which
 
 | compare_label | comparison | region_label | filter | variant_type | truth_total | truth_tp | truth_fn | query_total | query_tp | query_fp | metric_recall | metric_precision | metric_f1 | truth_fn_gt | query_fp_gt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| readlik | GT | ALL | ALL | ALL | 279965 | 272150 | 7815 | 277353 | 272609 | 4744 | 0.9720857964388405 | 0.9828954437125252 | 0.9774607352686623 | 841 | 872 |
-| readlik | GT | ALL | ALL | Snv | 223585 | 219116 | 4469 | 213832 | 213013 | 819 | 0.9800120759442718 | 0.9961698903812338 | 0.9880249277660768 | 167 | 336 |
-| readlik | GT | ALL | ALL | Insertion | 28075 | 26128 | 1947 | 30056 | 27852 | 2204 | 0.9306500445235975 | 0.9266702155975513 | 0.9286558661114266 | 357 | 272 |
-| readlik | GT | ALL | ALL | Deletion | 28305 | 26906 | 1399 | 30319 | 28776 | 1543 | 0.9505741035152799 | 0.9491078201787658 | 0.9498403959662836 | 317 | 250 |
-| readlik | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3146 | 2968 | 178 |  | 0.9434202161474888 |  | 0 | 14 |
-| readlik | GT | ALL | ALL | JointIndel | 56380 | 53034 | 3346 | 63521 | 59596 | 3925 | 0.9406527137282724 | 0.9382094110609089 | 0.9394294737394558 | 674 | 536 |
-| readlik | BASEPAIR | ALL | ALL | ALL | 1115436 | 1088504 | 26932 | 1279620 | 1088504 | 191116 | 0.9758551812923377 | 0.8506462856160423 | 0.9089591224589322 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Snv | 602392 | 592060 | 10332 | 580092 | 576055 | 4037 | 0.982848377800502 | 0.9930407590520124 | 0.9879182803532984 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Insertion | 257406 | 242130 | 15276 | 405472 | 241815 | 163657 | 0.940654064007832 | 0.5963790348038829 | 0.7299600291119833 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Deletion | 267064 | 254810 | 12254 | 307926 | 254322 | 53604 | 0.9541158673576371 | 0.8259192143566961 | 0.8854012324457571 |  |  |
-| readlik | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 23510 | 19052 | 4458 |  | 0.8103785623139089 |  |  |  |
-| readlik | BASEPAIR | ALL | ALL | JointIndel | 524470 | 496940 | 27530 | 736908 | 515189 | 221719 | 0.9475089137605582 | 0.6991225498976806 | 0.8045817931443954 |  |  |
+| readlik | GT | ALL | ALL | ALL | 279965 | 272087 | 7878 | 277272 | 272563 | 4709 | 0.9718607683103245 | 0.9830166767650538 | 0.9774068907996527 | 847 | 873 |
+| readlik | GT | ALL | ALL | Snv | 223585 | 219048 | 4537 | 213772 | 212973 | 799 | 0.9797079410515017 | 0.996262372995528 | 0.9879158115442227 | 166 | 319 |
+| readlik | GT | ALL | ALL | Insertion | 28075 | 26122 | 1953 | 30037 | 27844 | 2193 | 0.9304363312555655 | 0.9269900456104139 | 0.9287099912982617 | 361 | 280 |
+| readlik | GT | ALL | ALL | Deletion | 28305 | 26917 | 1388 | 30327 | 28784 | 1543 | 0.9509627274333157 | 0.9491212450951297 | 0.9500410939201867 | 320 | 258 |
+| readlik | GT | ALL | ALL | Indel | 0 | 0 | 0 | 3136 | 2962 | 174 |  | 0.9445153061224489 |  | 0 | 16 |
+| readlik | GT | ALL | ALL | JointIndel | 56380 | 53039 | 3341 | 63500 | 59590 | 3910 | 0.9407413976587442 | 0.9384251968503937 | 0.9395818698169484 | 681 | 554 |
+| readlik | BASEPAIR | ALL | ALL | ALL | 1115436 | 1088328 | 27108 | 1193958 | 1088328 | 105630 | 0.9756973954579196 | 0.911529551290749 | 0.9425225838466715 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Snv | 602392 | 591938 | 10454 | 579946 | 575957 | 3989 | 0.9826458518705428 | 0.9931217734064895 | 0.9878560399058771 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Insertion | 257406 | 242033 | 15373 | 331136 | 241721 | 89415 | 0.9402772274150564 | 0.7299749951681485 | 0.8218864854763973 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Deletion | 267064 | 254844 | 12220 | 296856 | 254379 | 42477 | 0.9542431776652788 | 0.8569104212143261 | 0.9029614316752459 |  |  |
+| readlik | BASEPAIR | ALL | ALL | Indel | 0 | 0 | 0 | 23290 | 18937 | 4353 |  | 0.8130957492486045 |  |  |  |
+| readlik | BASEPAIR | ALL | ALL | JointIndel | 524470 | 496877 | 27593 | 651282 | 515037 | 136245 | 0.947388792495281 | 0.7908049047877878 | 0.8620439770519305 |  |  |
 
 </details>
 

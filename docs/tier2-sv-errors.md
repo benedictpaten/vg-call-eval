@@ -1,14 +1,19 @@
 # Structural variants: what the errors actually are
 
-> **Stale for the caller as of decide-then-render (2026-08).** Every vg figure below was measured
-> before genotypes were settled ahead of record construction. That change moved the whole-genome
-> autosomal numbers -- ALL F1 0.9703 -> 0.9729, Indel 0.9195 -> 0.9272, SV >=50 bp 0.5488 -> 0.5596,
-> with both precision and recall improving in every class -- so the figures here understate the
-> current caller by roughly that much, and any *analysis* built on which calls were wrong may have
-> picked a different population. Not re-run: these arms use their own reads, truth sets and graphs, and
-> re-measuring them is hours of runs that were not spent. Current numbers:
-> [wgs-results.md](wgs-results.md), [pangenie-comparison.md](pangenie-comparison.md).
-> What changed and what is still open: `planning/decide-then-render.md`.
+> **A record of the 2026-08-08..10 investigation, not today's error profile.** Every table below
+> measures the caller of those dates: the flat or the newly weighted mixture, `--mismap-max` at or
+> below 0.7 and the 10,000-edge snarl cap. It explains why the mixture and the depth term are what
+> they are. Since then: decide-then-render (2026-08; whole-genome autosomal ALL F1 +0.0026, Indel
+> +0.0077, SV >=50 bp +0.011 in the single-TP F1 of the time, see `planning/decide-then-render.md`),
+> the read-walk fix (vg `28f5b88e2`, 2026-09-13), the snarl cap coming off under
+> `--read-likelihood` (`f33b20367`, 2026-09-22), which also moved `--preset ont` to the greedy walk,
+> and `--mismap-max` 0.95 (`0cab3fbd4`, 2026-09-23). The `readlik` arm on the 32-haplotype hap32
+> graph (34 panel haplotypes with the CHM13 and GRCh38 paths) has been re-run on the same reads,
+> truth and graphs: SV F1 0.5365 on chr20 (`work/tier2-chr20-hap32/results/truvari-c20mm095s`) and
+> 0.5860 on chr6 (`work/tier2-chr6-hap32/results/truvari-c6mm095s`); the 4-haplotype datasets would
+> need a rebuild. Current numbers: [tier2-chr20-results.md](tier2-chr20-results.md),
+> [tier2-chr6-results.md](tier2-chr6-results.md), [wgs-results.md](wgs-results.md),
+> [pangenie-comparison.md](pangenie-comparison.md).
 
 
 Two gaps showed up in the SV tables and neither was interpretable from an F1 column. The
@@ -18,8 +23,10 @@ opposite of every small-variant result. And both callers lose SV precision on th
 what each gap is made of.
 
 **Both are now largely answered, and the answers are different in kind.** The first was a
-model defect and is fixed: the flat mixture weight, then the missing depth term, and
-`readlik` is now ahead of both Poisson arms on all four datasets. The second is mostly
+model defect and is fixed: the flat mixture weight, then the missing depth term. With both
+in place `readlik` was ahead of both Poisson arms on all four datasets (2026-08-10,
+[tier2-depth-term.md](tier2-depth-term.md)); the table below is the mixture step alone, where it
+led on two. The second is mostly
 *not* the caller — at matched sensitivity, with records that are not structural variants
 excluded, the 34-haplotype precision penalty is 0.021 on chr6 and zero on chr20. Along the
 way the SV numbers themselves turned out to understate the caller by about a tenth of an F1
@@ -39,7 +46,8 @@ reads it is *expected* to contribute at the site is **now the default** and fixe
 measurable cost to small variants. Separately, roughly a quarter of all "false positives" are
 the metric rather than the caller.
 
-Where that leaves the arms, structural-variant F1 on the current build:
+Where that left the arms, structural-variant F1 on the 2026-08-09 build (weighted mixture, before
+the depth term):
 
 | dataset | `poisson` | `poisson-z` | `readlik-support` | `readlik` |
 |---|---|---|---|---|
@@ -146,8 +154,8 @@ ln P(reads | G) = Σ_r ln[ (1 − e_r) · mean_{h∈G} rel(r,h) + e_r ]
 an interior read scores `1` under a homozygous long genotype and `0.5` under the correct
 heterozygote, so it favours the **wrong** answer by `ln 2 = 0.693` nats. A junction read
 favours the heterozygote by `ln(0.5 / e_r)` — at most `ln 25 = 3.22` nats at the shipped
-`--mismap-min` of 0.02, and by *nothing at all* for a read sitting at the `--mismap-max`
-cap.
+`--mismap-min` of 0.02, and by almost nothing for a read sitting at the `--mismap-max`
+cap (about 0.19 nats at the 0.7 cap of the time, 0.026 at today's 0.95).
 
 Interior reads grow with deletion length; junction reads do not. Break-even is at
 `3.22 / 0.693 = 4.64` interior per junction read, so with 151 bp reads the model should
@@ -459,7 +467,8 @@ how well each *observed* read fits each allele, and a deletion's evidence is lar
 Poisson caller measures depth and so reads that absence directly, which is why it scores
 0.861 where the read model scores 0.194. A real repair needs a term that sees missing
 coverage — which is what the design's §5.3.3 depth-plausibility term was for, and it is
-the second independent reason to want it after the `BL` sign reversal.
+the second independent reason to want it after the `BL` sign reversal. That term was built
+and is now the default (`--depth-term 0.1`, [tier2-depth-term.md](tier2-depth-term.md)).
 
 Sizing the prize: on chr6-4hap, het deletions cost the read model 87 truth records
 while insertions gain it 34. Bringing heterozygous deletions merely to parity would move
@@ -709,7 +718,7 @@ flags, then re-compare. It is worth far more than the window, and unlike the swe
 four datasets; after refinement the read model leads in three of four. The SV deficit
 reported on the accuracy pages is substantially a statement about representation.
 
-**Re-run on the current caller** (the table above predates the mixture and depth changes),
+**Re-run on the 2026-08-10 caller** (the table above predates the mixture and depth changes),
 `readlik` only:
 
 | dataset | F1 | recall | precision | TP-base | FP |
