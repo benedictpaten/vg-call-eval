@@ -148,27 +148,36 @@ difference it exists to absorb; normalising by hand would have been the riskier 
 
 Truth TP and FN give recall, query TP and FP give precision; for SVs these are truvari's TP-base,
 FN, TP-comp and FP. The two TP counts differ because one truth record can be matched by several
-calls and the reverse.
+calls and the reverse. FN counts missed truth variants and FP false calls. vg on ONT is added for
+reference: it runs on a different graph (16 sampled haplotypes) from different reads, so its rows
+are not like-for-like with the other two (see *Long reads* above). Bold marks the best of the three.
 
-|  | vg call | | | | | PanGenie | | | | |
-|---|---|---|---|---|---|---|---|---|---|---|
-| | truth TP | FN | query TP | FP | **F1** | truth TP | FN | query TP | FP | **F1** |
-| ALL | 4,038,968 | 138,020 | 4,052,250 | 87,472 | **0.9729** | 3,960,421 | 216,567 | 3,959,329 | 195,585 | 0.9505 |
-| SNV | 3,235,583 | 80,711 | 3,152,411 | 19,260 | **0.9847** | 3,203,093 | 113,201 | 3,125,714 | 69,979 | 0.9719 |
-| Indel | 803,385 | 57,309 | 899,839 | 68,212 | **0.9315** | 757,328 | 103,366 | 833,615 | 125,606 | 0.8744 |
-| SV ≥50 bp | 14,163 | 9,458 | 14,015 | 12,287 | 0.5643 | 13,749 | 9,872 | 13,562 | 10,544 | **0.5722** |
+| | | truth TP | FN | query TP | FP | **F1** |
+|---|---|---|---|---|---|---|
+| **ALL** | vg call, short reads | 4,038,968 | 138,020 | 4,052,250 | 87,472 | **0.9729** |
+| | PanGenie | 3,960,421 | 216,567 | 3,959,329 | 195,585 | 0.9505 |
+| | vg call, ONT | 4,001,019 | 175,969 | 4,033,215 | 115,532 | 0.9650 |
+| **SNV** | vg call, short reads | 3,235,583 | 80,711 | 3,152,411 | 19,260 | 0.9847 |
+| | PanGenie | 3,203,093 | 113,201 | 3,125,714 | 69,979 | 0.9719 |
+| | vg call, ONT | 3,236,879 | 79,415 | 3,173,834 | 15,936 | **0.9854** |
+| **Indel** | vg call, short reads | 803,385 | 57,309 | 899,839 | 68,212 | **0.9315** |
+| | PanGenie | 757,328 | 103,366 | 833,615 | 125,606 | 0.8744 |
+| | vg call, ONT | 764,140 | 96,554 | 859,381 | 99,596 | 0.8920 |
+| **SV ≥50 bp** | vg call, short reads | 14,163 | 9,458 | 14,015 | 12,287 | 0.5643 |
+| | PanGenie | 13,749 | 9,872 | 13,562 | 10,544 | 0.5722 |
+| | vg call, ONT | 15,050 | 8,571 | 14,816 | 12,723 | **0.5834** |
 
 Recall and precision behind those:
 
-| | vg recall | vg precision | PanGenie recall | PanGenie precision |
-|---|---|---|---|---|
-| ALL | **0.9670** | **0.9789** | 0.9482 | 0.9529 |
-| SNV | **0.9757** | **0.9939** | 0.9659 | 0.9781 |
-| Indel | **0.9334** | **0.9295** | 0.8799 | 0.8691 |
-| SV ≥50 bp | **0.5996** | 0.5328 | 0.5821 | **0.5626** |
+| | short recall | short precision | PanGenie recall | PanGenie precision | ONT recall | ONT precision |
+|---|---|---|---|---|---|---|
+| ALL | **0.9670** | **0.9789** | 0.9482 | 0.9529 | 0.9579 | 0.9722 |
+| SNV | 0.9757 | 0.9939 | 0.9659 | 0.9781 | **0.9761** | **0.9950** |
+| Indel | **0.9334** | **0.9295** | 0.8799 | 0.8691 | 0.8878 | 0.8961 |
+| SV ≥50 bp | 0.5996 | 0.5328 | 0.5821 | **0.5626** | **0.6371** | 0.5380 |
 
-**The result is a clean split by variant class.** vg leads every small-variant class on *both*
-axes; PanGenie leads structural variants on precision alone.
+**The result is a clean split by variant class.** Short-read vg leads every small-variant class on
+*both* axes; PanGenie leads structural variants on precision alone.
 
 - **SNVs**: vg finds 32,490 more true SNVs and emits 50,719 fewer false ones — a 3.6x lower
   false-positive count at higher recall. This is the one place the ranking has actually changed
@@ -179,6 +188,11 @@ axes; PanGenie leads structural variants on precision alone.
 - **Structural variants**: PanGenie leads by 0.0079 F1, on precision alone: vg matches more truth
   SVs (14,163 against 13,749) and makes more false calls (12,287 against 10,544). The gap is
   precision, not sensitivity.
+- **vg on ONT**, for reference, makes the fewest SNV errors of the three -- 79,415 missed and 15,936
+  false, against 80,711 and 19,260 for short-read vg and 113,201 and 69,979 for PanGenie -- and
+  misses the fewest SVs (8,571, against 9,458 and 9,872), at the cost of more false SV calls than
+  either (12,723). On indels it sits between the two: 96,554 missed and 99,596 false, against
+  short-read vg's 57,309 and 68,212 and PanGenie's 103,366 and 125,606.
 
 ## chrX, reported apart
 
