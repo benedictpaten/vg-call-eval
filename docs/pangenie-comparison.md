@@ -7,20 +7,22 @@ PanGenie v4.2.1, which scores **k-mer counts**.
 Both were run on the 32-haplotype hap32 graph (34 panel haplotypes with the CHM13 and GRCh38
 paths), sampled from HPRC v2.1 MC CHM13 with HG002 held out of the panel, from the same 30x NovaSeq
 PCR-free reads, and scored against T2T-Q100 v1.1 (GIAB defrabb V0.019 draft benchmark). The vg
-numbers are the shipped default, vg `0cab3fbd4` (vgteam/vg#4990): symbolic-allele nested calling
+numbers are the shipped default, vg `2a6a228a5` (vgteam/vg#4990): symbolic-allele nested calling
 and panel phasing both on
 ([nested-calling-design.md](nested-calling-design.md)), `--mismap-max 0.95`, and no
-`--max-snarl-edges` cap under `--read-likelihood`. The whole-genome vg runs are `work/wgs-mm095`
-(short reads, 2026-09-23) and `work/wgs-ont` (ONT, 2026-09-24), both on that build.
+`--max-snarl-edges` cap under `--read-likelihood`; long reads use `--preset ont`, which includes
+`--hp-prior 20` ([ont-hp-prior.md](ont-hp-prior.md)). The whole-genome vg runs are
+`work/wgs-mm095` (short reads, 2026-09-23, on `0cab3fbd4`; the later change is ONT-only and leaves
+short-read output byte-identical) and `work/wgs-ont-hp` (ONT, 2026-09-24).
 
-## Long reads, added 2026-09-12
+## Long reads
 
 PanGenie is a short-read k-mer genotyper, so there is no long-read PanGenie arm to compare against.
 What can be asked is the other question: **where does `vg call` on ONT sit relative to both?** That
 is answerable on chr20 and chr6, the two tier-2 contigs, and all three rows below are scored against
 the same T2T-Q100 truth, the same confident-region BED and the same truvari settings. The short-read
 rows are the shipped default, record for record the chr20 and chr6 of the whole-genome run; the ONT
-rows are `--preset ont` with its greedy walk. The ONT rows run on a smaller graph, the 16-haplotype
+rows are `--preset ont`, record for record the chr20 and chr6 of the ONT whole-genome run. The ONT rows run on a smaller graph, the 16-haplotype
 E821 graph (18 panel), against the 32-haplotype hap32 graph (34 panel haplotypes with the CHM13 and
 GRCh38 paths) under the other two, because alignments are graph-specific; the caveat under the
 whole-genome table applies here too.
@@ -29,13 +31,13 @@ whole-genome table applies here too.
 |---|---|---|---|---|
 | PanGenie, 30x Illumina | 0.9492 | 0.9726 | 0.8672 | 0.5167 |
 | `vg call`, 30x Illumina | **0.9725** | 0.9851 | **0.9288** | 0.5365 |
-| `vg call`, ONT 43x, `--preset ont` | 0.9582 | **0.9860** | 0.8632 | **0.5574** |
+| `vg call`, ONT 43x, `--preset ont` | 0.9646 | **0.9860** | 0.8892 | **0.5577** |
 
 | chr6 | ALL F1 | SNV F1 | Indel F1 | SV ≥50 bp F1 |
 |---|---|---|---|---|
 | PanGenie, 30x Illumina | 0.9572 | 0.9764 | 0.8872 | 0.6016 |
 | `vg call`, 30x Illumina | **0.9774** | 0.9879 | **0.9396** | 0.5860 |
-| `vg call`, ONT 45x, `--preset ont` | 0.9646 | **0.9882** | 0.8807 | **0.6047** |
+| `vg call`, ONT 45x, `--preset ont` | 0.9700 | **0.9882** | 0.9037 | **0.6046** |
 
 **Four things worth reading off this.**
 
@@ -43,49 +45,44 @@ whole-genome table applies here too.
 vg's own short-read arm (0.9851, 0.9879) and well ahead of PanGenie. Long reads place SNVs at least
 as well as either short-read method here.
 
-*and the worst indel F1 of the three, though only just behind PanGenie.* 0.8632 against PanGenie's
-0.8672 on chr20, 0.8807 against 0.8872 on chr6 — 0.0040 and 0.0065 — while vg on short reads sits
-0.066 and 0.059 above ONT. On chr20 ONT and PanGenie recover the same number of truth indels (17,186
-of 19,674; a coincidence, since their insertion/deletion splits differ), so the gap there is
-precision alone, 0.8531 against 0.8610. The residual is homopolymer: 1 bp indels in a reference
-homopolymer of 5 bp or more are 44% of ONT's indel false positives on chr20 and 42% on chr6, against
-17% and 16% on short reads, and that is where both the reads and the benchmark are least reliable.
+*Indels are where short reads still win, and ONT sits above PanGenie.* 0.8892 against PanGenie's
+0.8672 on chr20 and 0.9037 against 0.8872 on chr6, in both recall (0.8868 against 0.8735 on chr20)
+and precision (0.8917 against 0.8610), while vg on short reads sits 0.040 and 0.036 above ONT. The
+residual is still homopolymer: 1 bp indels in a reference homopolymer of 5 bp or more are 34% of
+ONT's indel false positives on both contigs, against 17% and 16% on short reads, and that is where
+both the reads and the benchmark are least reliable. Before `--hp-prior` those were 44% and 43%, and
+ONT trailed PanGenie on indels here (0.8632 and 0.8807).
 
-*ONT also has the best SV F1*, 0.5574 and 0.6047, and it is a recall lead: it matches the most truth
-SVs on both contigs (recall 0.6288 and 0.6529, against 0.5765 and 0.6063 for vg on short reads and
+*ONT also has the best SV F1*, 0.5577 and 0.6046, and it is a recall lead: it matches the most truth
+SVs on both contigs (recall 0.6288 and 0.6535, against 0.5765 and 0.6063 for vg on short reads and
 0.5268 and 0.6057 for PanGenie), at precision level with short-read vg and below PanGenie.
-Pooled over the two contigs, only the recall lead over short-read vg is significant, +0.0484
-[+0.0203, +0.0742]; the F1 lead is +0.0193 [-0.0007, +0.0384] (paired block bootstrap,
-[coverage.md](coverage.md)). Short-read vg is ahead of PanGenie on chr20 SVs and behind on chr6. These
+Pooled over the two contigs, only the recall lead over short-read vg is significant, +0.0489
+[+0.0213, +0.0747]; the F1 lead is +0.0194 [-0.0001, +0.0379] (paired 1 Mb block bootstrap over
+the truvari records). Short-read vg is ahead of PanGenie on chr20 SVs and behind on chr6. These
 rest on 765 and 1,547 truth SVs, so read the SV column as direction, not margin.
 
-*Overall vg-on-ONT leads PanGenie* (0.9582 vs 0.9492; 0.9646 vs 0.9572) but is well behind vg on
+*Overall vg-on-ONT leads PanGenie* (0.9646 vs 0.9492; 0.9700 vs 0.9572) but stays behind vg on
 short reads (0.9725, 0.9774). Nothing here says long reads beat short reads for this caller — on
 these two contigs they win SNVs narrowly and SVs, and lose enough on indels to lose overall.
 
 ### Whole genome, all three
 
-The ONT arm also runs genome-wide, on the same build as the short-read column. Autosomes, same
-truth and regions:
+The ONT arm also runs genome-wide (`work/wgs-ont-hp`). Autosomes, same truth and regions:
 
 | autosomes | PanGenie | vg, short reads | vg, ONT |
 |---|---|---|---|
-| ALL F1 | 0.9505 | **0.9729** | 0.9593 |
+| ALL F1 | 0.9505 | **0.9729** | 0.9650 |
 | SNV F1 | 0.9719 | 0.9847 | **0.9854** |
-| Indel F1 | 0.8744 | **0.9315** | 0.8686 |
+| Indel F1 | 0.8744 | **0.9315** | 0.8920 |
 | SV ≥50 bp F1 | 0.5722 | 0.5643 | **0.5834** |
 
-**ONT leads PanGenie on structural variants**, 0.5834 against 0.5722, as it does on both tier-2
-contigs above. Over chr1-22+X, by paired block bootstrap, that is +0.0119 [+0.0058, +0.0181], and
-+0.0115 [+0.0053, +0.0179] with chr20 and chr6 held out. ONT also leads PanGenie on ALL (+0.0109
-[+0.0094, +0.0125] over chr1-22+X) and SNVs (+0.0155 [+0.0140, +0.0171]), and trails it only on
-indels: −0.0033 [−0.0050, −0.0015] over chr1-22+X, 0.0058 on the autosomes. Against short-read vg
-it wins SNVs and SVs and loses indels by 0.063, so overall short-read vg stays ahead of both;
-[wgs-results.md](wgs-results.md) has that comparison and what the ONT run costs.
-
-**With `--hp-prior`**, which `--preset ont` now sets ([ont-hp-prior.md](ont-hp-prior.md)), ONT
-indel F1 on the autosomes rises from 0.8686 to 0.8920, ahead of PanGenie's 0.8744: over chr1-22+X
-+0.0201 [+0.0185, +0.0217]. ONT then leads PanGenie in every class.
+**ONT leads PanGenie in every class.** Over chr1-22+X, by paired block bootstrap: SV +0.0119
+[+0.0058, +0.0181] (+0.0115 [+0.0052, +0.0179] with chr20 and chr6 held out), indel +0.0201
+[+0.0185, +0.0217], SNV +0.0155 [+0.0140, +0.0171] and ALL +0.0166 [+0.0151, +0.0181]. The indel lead
+is `--hp-prior`'s: before it ONT's autosomal indel F1 was 0.8686, 0.0058 behind PanGenie. Against
+short-read vg, ONT wins SNVs (+0.0009) and SVs (+0.0193) and loses indels by 0.0396, so overall
+short-read vg stays ahead of both; [wgs-results.md](wgs-results.md) has that comparison and what the
+ONT run costs.
 
 **The caveat that matters.** The ONT arm runs on the **16-haplotype E821 graph**
 (`E821-16-sampled`, 18 panel haplotypes), the other two on the 32-haplotype hap32 graph (34 panel

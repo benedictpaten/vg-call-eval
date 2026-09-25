@@ -188,50 +188,44 @@ any resulting block under the 50 bp size floor.
 
 ## Whole-genome long reads
 
-> **Measured 2026-09-24** on the same build as the short-read run above (vg `0cab3fbd4`), with
-> `--preset ont`: 24 contigs, `work/wgs-ont`.
->
-> **Superseded for indels by `--hp-prior`** (a stronger panel prior at homopolymer-run indels, which
-> `--preset ont` now sets; [ont-hp-prior.md](ont-hp-prior.md)). Genome-wide on chr1-22+X it takes ONT
-> indel F1 from 0.8684 to 0.8918 and ALL from 0.9591 to 0.9648, every autosome up, with SNVs and SVs
-> unchanged and no added cost. The indel gap to short reads narrows from 0.063 to 0.040.
+> **Measured 2026-09-24** on vg `2a6a228a5` with `--preset ont`, which includes `--hp-prior 20`
+> ([ont-hp-prior.md](ont-hp-prior.md)): 24 contigs, `work/wgs-ont-hp`.
 
-24 contigs of ONT (about 44x, from chr20's 43.1x and chr6's 45.4x) against the same T2T-Q100 truth and the same confident regions as the
-short-read run, on the **16-haplotype E821 graph** (18 panel haplotypes, `E821-16-sampled`) where
-the short-read arm uses the 32-haplotype hap32 graph (34 panel). chrY called, excluded from the
-totals for the same coordinate reason.
+24 contigs of ONT (about 44x, from chr20's 43.1x and chr6's 45.4x) against the same T2T-Q100 truth
+and the same confident regions as the short-read run, on the **16-haplotype E821 graph** (18 panel
+haplotypes, `E821-16-sampled`) where the short-read arm uses the 32-haplotype hap32 graph (34
+panel). chrY called, excluded from the totals for the same coordinate reason.
 
 | chr1-22+X | short reads | ONT | ONT − short, 95% CI |
 |---|---|---|---|
-| ALL F1 | **0.9726** | 0.9591 | −0.0135 [−0.0142, −0.0127] |
+| ALL F1 | **0.9726** | 0.9648 | −0.0078 [−0.0085, −0.0071] |
 | SNV F1 | 0.9844 | **0.9853** | **+0.0009** [+0.0002, +0.0016] |
-| Indel F1 | **0.9313** | 0.8684 | **−0.0629** [−0.0641, −0.0617] |
+| Indel F1 | **0.9313** | 0.8918 | **−0.0396** [−0.0406, −0.0385] |
 | SV ≥50 bp F1 | 0.5627 | **0.5820** | **+0.0193** [+0.0136, +0.0252] |
 
 Paired 1 Mb block bootstrap, 10,000 replicates (`work/wgs-run/wgs_compare.py`). Autosomes alone:
-ONT ALL 0.9593, SNV 0.9854, Indel 0.8686, SV 0.5834, against 0.9729, 0.9847, 0.9315 and 0.5643. All
+ONT ALL 0.9650, SNV 0.9854, Indel 0.8920, SV 0.5834, against 0.9729, 0.9847, 0.9315 and 0.5643. All
 four differences hold with chr20 and chr6, the contigs the preset was fitted and checked on, both
-left out: SNV +0.0009 [+0.0002, +0.0017], SV +0.0193 [+0.0132, +0.0255].
+left out: SNV +0.0009 [+0.0002, +0.0017], SV +0.0193 [+0.0132, +0.0254].
 
 **ONT wins SNVs and structural variants, and loses indels by enough to lose overall.**
 
-*Structural variants*, +0.0193, are mostly recall. truvari matches 15,327 truth SVs against the
-short-read arm's 14,406, recall 0.6355 against 0.5973, at precision 0.5368 against 0.5318. ONT is
+*Structural variants*, +0.0193, are mostly recall. truvari matches 15,323 truth SVs against the
+short-read arm's 14,406, recall 0.6354 against 0.5973, at precision 0.5369 against 0.5318. ONT is
 ahead on 20 of the 23 scored contigs and significantly so on five alone (chr7, chr8, chr10, chr13,
 chr17); it trails on chr1, chr19 and chr21, none significantly. It is also ahead of **PanGenie**,
-0.5820 against 0.5701 (+0.0119 [+0.0058, +0.0181]), in the one class where PanGenie leads short-read
-vg; see [pangenie-comparison.md](pangenie-comparison.md).
+0.5820 against 0.5701 (+0.0119 [+0.0058, +0.0181]), and now in every other class as well; see
+[pangenie-comparison.md](pangenie-comparison.md).
 
 *SNVs*, +0.0009, are a narrow but significant win: ONT at about 44x edges out Illumina at about 30x
 (both measured on chr20 and chr6) on the class Illumina is supposed to own, on a graph with about half
 the panel.
 
-*Indels*, −0.0629, are ONT's loss: precision 0.8598 against 0.9293 and recall 0.8772 against 0.9333.
-This is the homopolymer weakness the tier-2 pages measure on chr20 and chr6, where the preset trails
-short reads by 0.066 and 0.059, holding at genome scale. Against the 2026-09-12 ONT build, indel F1
-is up 0.024 on the autosomes (0.8445 to 0.8686), most of it precision (0.8261 to 0.8600), so the gap
-to short reads has narrowed from 0.087 to 0.063. The other classes moved less: ALL 0.9531 to 0.9593,
-SNV 0.9851 to 0.9854, SV 0.5826 to 0.5834.
+*Indels*, −0.0396, are ONT's loss: precision 0.8960 against 0.9293 and recall 0.8876 against 0.9333.
+It is the homopolymer weakness the tier-2 pages measure on chr20 and chr6: a third of ONT's indel
+false positives there are still single-base indels in homopolymers of 5 bp or more, against a sixth
+on short reads. `--hp-prior` takes 0.0234 off the gap -- ONT's indel F1 was 0.8684 without it, 0.063
+behind -- with every autosome gaining, and ALL F1 +0.0057, SNVs and SVs unmoved.
 
 **The caveat.** The two arms use different graphs, because alignments are graph-specific and the ONT
 reads are aligned to E821. Panel size is what the linkage layer and the frequency prior feed on, so
@@ -241,15 +235,16 @@ the ONT figures are a floor on what ONT does with this caller, not a like-for-li
 
 | | short reads | ONT |
 |---|---|---|
-| CPU, 24 contigs | 8.58 h | **14.31 h** |
-| peak RSS, worst contig | 10.0 GiB | 12.9 GiB (chrY); 9.0 GiB over the scored contigs (chr1) |
-| wall clock, calls | 86.5 min (packed about two at a time, `-t 5`) | 2.18 h (two at a time, `-t 5`) |
+| CPU, 24 contigs | 8.58 h | **14.18 h** |
+| peak RSS, worst contig | 10.0 GiB | 12.4 GiB (chrY); 9.7 GiB over the scored contigs (chr1) |
+| wall clock, calls | 86.5 min (packed about two at a time, `-t 5`) | 2.15 h (two at a time, `-t 5`) |
 
-**1.67x the CPU** for the same 24 contigs, down from 3.48x at the 2026-09-12 build: ONT's own CPU
-fell from 30.59 h to 14.31 h while the short-read run's barely moved. chrY, which is not scored, is
-the outlier: 6.7x the short-read CPU and the run's peak memory. Wall clock is not comparable between
-the two runs, which is why the table leads with CPU; `scripts/wgs/runtimes.py` recomputes both from
-the runs' own `/usr/bin/time -l` blocks.
+**1.65x the CPU** for the same 24 contigs, against 3.48x at the 2026-09-12 build: ONT's own CPU fell
+from 30.59 h to 14.18 h while the short-read run's barely moved, and `--hp-prior` itself costs
+nothing measurable (14.31 h without it). chrY, which is not scored, is the outlier: 6.7x the
+short-read CPU and the run's peak memory. Wall clock is not comparable between the two runs, which
+is why the table leads with CPU; `scripts/wgs/runtimes.py` recomputes both from the runs' own
+`/usr/bin/time -l` blocks.
 
 ### How it was built, and the constraint that shaped it
 
@@ -274,6 +269,7 @@ range and are not used.
 
 **The partition check is the read count.** chr20 got 85,373 reads from the split, the same count as
 its separately built tier-2 database, and each of the 22 rebuilt databases holds exactly the reads
-its split was given. The genome run's chr20 VCF is also byte-identical to the tier-2 ONT arm
-(`o20base`, 114,861 records), but chr20 reuses the tier-2 database, so that confirms the binary and
-settings rather than the partition.
+its split was given. The genome run's chr20 VCF also has exactly the sites and genotypes of the
+tier-2 ONT arm on the same binary, but chr20 reuses the tier-2 database, so that confirms the binary
+and settings rather than the partition. The databases were built for `work/wgs-ont`, the run on
+`0cab3fbd4`; `work/wgs-ont-hp` reuses them.
